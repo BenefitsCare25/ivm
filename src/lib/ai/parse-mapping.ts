@@ -1,20 +1,14 @@
 import type { ExtractedField } from "@/types/extraction";
 import type { TargetField } from "@/types/target";
 import type { FieldMapping } from "@/types/mapping";
+import { stripMarkdownFences } from "./parse";
 
 export function parseMappingResponse(
   rawText: string,
   extractedFields: ExtractedField[],
   targetFields: TargetField[]
 ): FieldMapping[] {
-  let cleaned = rawText.trim();
-
-  const fenceMatch = cleaned.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-  if (fenceMatch) {
-    cleaned = fenceMatch[1].trim();
-  }
-
-  const parsed = JSON.parse(cleaned);
+  const parsed = JSON.parse(stripMarkdownFences(rawText));
 
   if (!Array.isArray(parsed)) {
     throw new Error("Invalid mapping response structure: expected an array");

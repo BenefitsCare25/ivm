@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { ArrowRight, Check, X, Pencil, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { cn, confidenceVariant } from "@/lib/utils";
 import type { FieldMapping } from "@/types/mapping";
 
 interface MappingReviewTableProps {
@@ -12,19 +12,19 @@ interface MappingReviewTableProps {
   onMappingsChange: (mappings: FieldMapping[]) => void;
 }
 
-function confidenceVariant(confidence: number): "success" | "warning" | "error" {
-  if (confidence >= 0.8) return "success";
-  if (confidence >= 0.5) return "warning";
-  return "error";
-}
-
 export function MappingReviewTable({ mappings, onMappingsChange }: MappingReviewTableProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
 
-  const mappedFields = mappings.filter((m) => m.sourceFieldId !== null);
-  const unmappedFields = mappings.filter((m) => m.sourceFieldId === null);
-  const approvedCount = mappedFields.filter((m) => m.userApproved).length;
+  const { mappedFields, unmappedFields, approvedCount } = useMemo(() => {
+    const mapped = mappings.filter((m) => m.sourceFieldId !== null);
+    const unmapped = mappings.filter((m) => m.sourceFieldId === null);
+    return {
+      mappedFields: mapped,
+      unmappedFields: unmapped,
+      approvedCount: mapped.filter((m) => m.userApproved).length,
+    };
+  }, [mappings]);
 
   const startEditing = useCallback((mapping: FieldMapping) => {
     setEditingId(mapping.id);
@@ -83,7 +83,6 @@ export function MappingReviewTable({ mappings, onMappingsChange }: MappingReview
 
   return (
     <div className="space-y-2">
-      {/* Summary + approve-all */}
       <div className="flex items-center justify-between px-1">
         <p className="text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{mappedFields.length}</span> of{" "}
@@ -104,7 +103,6 @@ export function MappingReviewTable({ mappings, onMappingsChange }: MappingReview
         )}
       </div>
 
-      {/* Table */}
       <div className="rounded-lg border border-border overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -118,7 +116,6 @@ export function MappingReviewTable({ mappings, onMappingsChange }: MappingReview
             </tr>
           </thead>
           <tbody>
-            {/* Mapped rows */}
             {mappedFields.map((mapping) => {
               const displayValue = mapping.userOverrideValue ?? mapping.transformedValue;
               const isEditing = editingId === mapping.id;
@@ -132,7 +129,6 @@ export function MappingReviewTable({ mappings, onMappingsChange }: MappingReview
                     mapping.userApproved && "bg-status-success/5"
                   )}
                 >
-                  {/* Source field */}
                   <td className="px-4 py-2.5">
                     <span className="font-medium text-foreground">{mapping.sourceLabel}</span>
                     {mapping.sourceValue && (
@@ -142,15 +138,10 @@ export function MappingReviewTable({ mappings, onMappingsChange }: MappingReview
                     )}
                   </td>
 
-                  {/* Arrow */}
                   <td className="px-2 py-2.5 text-center">
                     <ArrowRight className="h-3.5 w-3.5 text-muted-foreground mx-auto" />
                   </td>
-
-                  {/* Target field */}
                   <td className="px-4 py-2.5 font-medium text-foreground">{mapping.targetLabel}</td>
-
-                  {/* Value (editable) */}
                   <td className="px-4 py-2.5">
                     {isEditing ? (
                       <div className="flex items-center gap-1">
@@ -197,7 +188,6 @@ export function MappingReviewTable({ mappings, onMappingsChange }: MappingReview
                     )}
                   </td>
 
-                  {/* Confidence */}
                   <td className="px-4 py-2.5 text-right">
                     <Badge
                       variant={confidenceVariant(mapping.confidence)}
@@ -207,7 +197,6 @@ export function MappingReviewTable({ mappings, onMappingsChange }: MappingReview
                     </Badge>
                   </td>
 
-                  {/* Approve button */}
                   <td className="px-4 py-2.5">
                     <button
                       onClick={() => toggleApprove(mapping.id)}
@@ -226,7 +215,6 @@ export function MappingReviewTable({ mappings, onMappingsChange }: MappingReview
               );
             })}
 
-            {/* Unmapped section separator */}
             {unmappedFields.length > 0 && (
               <>
                 <tr className="border-b border-border bg-muted/30">
@@ -247,20 +235,14 @@ export function MappingReviewTable({ mappings, onMappingsChange }: MappingReview
                       key={mapping.id}
                       className="border-b border-border last:border-0 transition-colors"
                     >
-                      {/* No source field */}
                       <td className="px-4 py-2.5">
                         <span className="italic text-muted-foreground">No match</span>
                       </td>
 
-                      {/* Arrow */}
                       <td className="px-2 py-2.5 text-center">
                         <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 mx-auto" />
                       </td>
-
-                      {/* Target field */}
                       <td className="px-4 py-2.5 font-medium text-foreground">{mapping.targetLabel}</td>
-
-                      {/* Value (editable — fill manually) */}
                       <td className="px-4 py-2.5">
                         {isEditing ? (
                           <div className="flex items-center gap-1">
@@ -307,12 +289,10 @@ export function MappingReviewTable({ mappings, onMappingsChange }: MappingReview
                         )}
                       </td>
 
-                      {/* No confidence badge for unmapped */}
                       <td className="px-4 py-2.5 text-right">
                         <span className="text-xs text-muted-foreground">—</span>
                       </td>
 
-                      {/* No approve button for unmapped */}
                       <td className="px-4 py-2.5" />
                     </tr>
                   );

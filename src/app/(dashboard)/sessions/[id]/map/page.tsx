@@ -16,20 +16,26 @@ export default async function MapStepPage({
   const session = await requireAuth();
   const { id } = await params;
 
-  const fillSession = await db.fillSession.findFirst({
-    where: { id, userId: session.user.id },
-    include: {
-      extractionResults: {
-        where: { status: "COMPLETED" },
-        orderBy: { completedAt: "desc" },
-        take: 1,
+  const [fillSession, mappingSet] = await Promise.all([
+    db.fillSession.findFirst({
+      where: { id, userId: session.user.id },
+      include: {
+        extractionResults: {
+          where: { status: "COMPLETED" },
+          orderBy: { completedAt: "desc" },
+          take: 1,
+        },
+        targetAssets: {
+          orderBy: { inspectedAt: "desc" },
+          take: 1,
+        },
       },
-      targetAssets: {
-        orderBy: { inspectedAt: "desc" },
-        take: 1,
-      },
-    },
-  });
+    }),
+    db.mappingSet.findFirst({
+      where: { fillSessionId: id },
+      orderBy: { proposedAt: "desc" },
+    }),
+  ]);
 
   if (!fillSession) notFound();
 
@@ -45,11 +51,6 @@ export default async function MapStepPage({
 
   const hasPrerequisites =
     extractedFields.length > 0 && targetFields.length > 0;
-
-  const mappingSet = await db.mappingSet.findFirst({
-    where: { fillSessionId: id },
-    orderBy: { proposedAt: "desc" },
-  });
 
   const initialMapping = mappingSet
     ? {

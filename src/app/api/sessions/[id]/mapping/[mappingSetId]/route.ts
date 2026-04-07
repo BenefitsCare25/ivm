@@ -55,25 +55,26 @@ export async function PATCH(
       (m) => m.userOverrideValue !== undefined
     ).length;
 
-    const updated = await db.mappingSet.update({
-      where: { id: mappingSetId },
-      data: {
-        mappings: JSON.parse(JSON.stringify(updatedMappings)),
-        status: "ACCEPTED",
-        reviewedAt: new Date(),
-      },
-    });
-
-    await db.auditEvent.create({
-      data: {
-        fillSessionId: id,
-        eventType: "MAPPING_ACCEPTED",
-        actor: session.user.id,
-        payload: JSON.parse(
-          JSON.stringify({ mappingSetId, approvedCount, overrideCount })
-        ),
-      },
-    });
+    const [updated] = await Promise.all([
+      db.mappingSet.update({
+        where: { id: mappingSetId },
+        data: {
+          mappings: JSON.parse(JSON.stringify(updatedMappings)),
+          status: "ACCEPTED",
+          reviewedAt: new Date(),
+        },
+      }),
+      db.auditEvent.create({
+        data: {
+          fillSessionId: id,
+          eventType: "MAPPING_ACCEPTED",
+          actor: session.user.id,
+          payload: JSON.parse(
+            JSON.stringify({ mappingSetId, approvedCount, overrideCount })
+          ),
+        },
+      }),
+    ]);
 
     logger.info(
       { sessionId: id, mappingSetId, approvedCount, overrideCount },
@@ -84,8 +85,8 @@ export async function PATCH(
       id: updated.id,
       status: updated.status,
       mappings: updatedMappings,
-      proposedAt: updated.proposedAt,
-      reviewedAt: updated.reviewedAt,
+      proposedAt: updated.proposedAt.toISOString(),
+      reviewedAt: updated.reviewedAt?.toISOString() ?? null,
     });
   } catch (err) {
     return errorResponse(err);

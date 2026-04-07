@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles, ArrowRight, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,18 +10,22 @@ import type { ExtractedField } from "@/types/extraction";
 import type { TargetField } from "@/types/target";
 import type { FieldMapping, MappingState } from "@/types/mapping";
 
-interface MappingData {
-  id: string;
-  status: string;
-  mappings: FieldMapping[];
-}
-
 interface MapStepClientProps {
   sessionId: string;
   hasPrerequisites: boolean;
   extractedFields: ExtractedField[];
   targetFields: TargetField[];
-  initialMapping: MappingData | null;
+  initialMapping: {
+    id: string;
+    status: string;
+    mappings: FieldMapping[];
+  } | null;
+}
+
+function resolveInitialState(status: string | undefined): MappingState {
+  if (!status) return "idle";
+  if (status === "PROPOSED" || status === "ACCEPTED") return "completed";
+  return "idle";
 }
 
 export function MapStepClient({
@@ -33,19 +37,20 @@ export function MapStepClient({
 }: MapStepClientProps) {
   const router = useRouter();
 
-  const [mappingState, setMappingState] = useState<MappingState>(() => {
-    if (!initialMapping) return "idle";
-    if (initialMapping.status === "COMPLETED") return "completed";
-    if (initialMapping.status === "FAILED") return "failed";
-    return "idle";
-  });
-
-  const [mapping, setMapping] = useState<MappingData | null>(initialMapping);
+  const [mappingState, setMappingState] = useState<MappingState>(
+    () => resolveInitialState(initialMapping?.status)
+  );
+  const [mappingSetId, setMappingSetId] = useState<string | null>(initialMapping?.id ?? null);
   const [localMappings, setLocalMappings] = useState<FieldMapping[]>(
-    (initialMapping?.mappings as FieldMapping[]) ?? []
+    initialMapping?.mappings ?? []
   );
   const [accepting, setAccepting] = useState(false);
   const [error, setError] = useState("");
+
+  const { matchedCount, unmappedCount } = useMemo(() => {
+    const matched = localMappings.filter((m) => m.sourceFieldId !== null).length;
+    return { matchedCount: matched, unmappedCount: localMappings.length - matched };
+  }, [localMappings]);
 
   const handlePropose = useCallback(async () => {
     setMappingState("processing");
@@ -59,8 +64,8 @@ export function MapStepClient({
       }
 
       const result = await res.json();
-      setMapping(result);
-      setLocalMappings((result.mappings as FieldMapping[]) ?? []);
+      setMappingSetId(result.id);
+      setLocalMappings(result.mappings ?? []);
       setMappingState("completed");
       router.refresh();
     } catch (err) {
@@ -71,12 +76,12 @@ export function MapStepClient({
   }, [sessionId, router]);
 
   const handleAccept = useCallback(async () => {
-    if (!mapping) return;
+    if (!mappingSetId) return;
     setAccepting(true);
     setError("");
 
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/mapping/${mapping.id}`, {
+      const res = await fetch(`/api/sessions/${sessionId}/mapping/${mappingSetId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -101,7 +106,7 @@ export function MapStepClient({
     } finally {
       setAccepting(false);
     }
-  }, [mapping, localMappings, sessionId, router]);
+  }, [mappingSetId, localMappings, sessionId, router]);
 
   if (!hasPrerequisites) {
     return (
@@ -129,14 +134,11 @@ export function MapStepClient({
     );
   }
 
-  const matchedCount = localMappings.filter((m) => m.sourceFieldId !== null).length;
-  const unmappedCount = localMappings.length - matchedCount;
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
-          {mappingState === "idle" && (
+          {(mappingState === "idle" || mappingState === "failed") && (
             <span>
               {extractedFields.length} extracted field{extractedFields.length !== 1 ? "s" : ""},{" "}
               {targetFields.length} target field{targetFields.length !== 1 ? "s" : ""}
@@ -151,12 +153,6 @@ export function MapStepClient({
           {mappingState === "completed" && (
             <span>
               {matchedCount} matched, {unmappedCount} unmapped
-            </span>
-          )}
-          {mappingState === "failed" && (
-            <span>
-              {extractedFields.length} extracted field{extractedFields.length !== 1 ? "s" : ""},{" "}
-              {targetFields.length} target field{targetFields.length !== 1 ? "s" : ""}
             </span>
           )}
         </div>
