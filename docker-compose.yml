@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ivm-postgres
+    environment:
+      POSTGRES_USER: ivm
+      POSTGRES_PASSWORD: ivm_dev_password
+      POSTGRES_DB: ivm_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - ivm_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ivm -d ivm_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ivm-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ivm_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  ivm_pgdata:
+  ivm_redisdata:
