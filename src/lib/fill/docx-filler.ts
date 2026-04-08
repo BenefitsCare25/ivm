@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import { randomUUID } from "crypto";
 import { getStorageAdapter } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import { normalizeDocxRuns } from "./docx-normalize";
 import type { FillContext, FillFieldResult, FillerResult } from "./types";
 
 function escapeXml(str: string): string {
@@ -52,6 +53,7 @@ export async function fillDocx(ctx: FillContext): Promise<FillerResult> {
   }
 
   let docXml = await docXmlFile.async("string");
+  docXml = normalizeDocxRuns(docXml);
   const results: FillFieldResult[] = [];
 
   for (const mapping of ctx.approvedMappings) {
