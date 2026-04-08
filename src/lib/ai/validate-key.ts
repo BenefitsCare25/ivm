@@ -62,10 +62,15 @@ async function validateGeminiKey(apiKey: string): Promise<boolean> {
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new AppError("Key validation timed out", 504, "AI_TIMEOUT")), 15_000)
-    );
-    await Promise.race([model.generateContent("Hi"), timeoutPromise]);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new AppError("Key validation timed out", 504, "AI_TIMEOUT")), 15_000);
+    });
+    try {
+      await Promise.race([model.generateContent("Hi"), timeoutPromise]);
+    } finally {
+      clearTimeout(timeoutId);
+    }
     return true;
   } catch (err: unknown) {
     if (err instanceof AppError && err.code === "AI_TIMEOUT") {

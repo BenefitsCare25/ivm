@@ -29,6 +29,14 @@ export function createRateLimiter(config: RateLimitConfig) {
 
   return function check(key: string): RateLimitResult {
     const now = Date.now();
+
+    // Lazy cleanup if store grows large (e.g., under IP-spoofing or high-traffic burst)
+    if (store.size > 10_000) {
+      for (const [k, e] of store) {
+        if (e.resetAt <= now) store.delete(k);
+      }
+    }
+
     const entry = store.get(key);
 
     if (!entry || entry.resetAt <= now) {

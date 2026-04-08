@@ -77,13 +77,20 @@ async function callGemini(
     systemInstruction: systemPrompt,
   });
 
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new AppError("AI mapping timed out after 30s", 504, "AI_TIMEOUT")), 30_000)
-  );
-  const result = await Promise.race([
-    model.generateContent([{ text: userPrompt }]),
-    timeoutPromise,
-  ]);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new AppError("AI mapping timed out after 30s", 504, "AI_TIMEOUT")), 30_000);
+  });
+
+  let result: Awaited<ReturnType<typeof model.generateContent>>;
+  try {
+    result = await Promise.race([
+      model.generateContent([{ text: userPrompt }]),
+      timeoutPromise,
+    ]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
   const rawText = result.response.text();
 
   if (!rawText) {
