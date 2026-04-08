@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Play, ArrowRight, Download, RotateCcw, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { FillReportCard } from "./fill-report-card";
 import { FillActionsTable } from "./fill-actions-table";
 import { WebpageFillScript } from "./webpage-fill-script";
 import { useDownloadFill } from "./use-download-fill";
+import { detectExtension, sendFillToExtension } from "@/lib/extension";
 import type { FillState, FillSessionData } from "@/types/fill";
 import type { TargetType } from "@/types/target";
 import type { FillPreviewItem } from "@/app/api/sessions/[id]/fill/preview/route";
@@ -46,6 +47,25 @@ export function FillStepClient({
   const [previewItems, setFillPreviewItems] = useState<FillPreviewItem[] | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [extensionDetected, setExtensionDetected] = useState(false);
+
+  useEffect(() => {
+    if (targetType === "WEBPAGE") {
+      detectExtension().then(setExtensionDetected).catch(() => setExtensionDetected(false));
+    }
+  }, [targetType]);
+
+  const handleExtensionFill = useCallback(async () => {
+    if (!fillData?.webpageFillScript || !targetUrl) return;
+    try {
+      const result = await sendFillToExtension(targetUrl, fillData.webpageFillScript, sessionId);
+      if (!result.success) {
+        setError(`Extension fill failed: ${result.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Extension communication failed");
+    }
+  }, [fillData, targetUrl, sessionId]);
 
   const handleExecute = useCallback(async () => {
     setFillState("processing");
@@ -296,6 +316,8 @@ export function FillStepClient({
             <WebpageFillScript
               script={fillData.webpageFillScript}
               targetUrl={targetUrl}
+              extensionDetected={extensionDetected}
+              onExtensionFill={handleExtensionFill}
             />
           )}
           <FillActionsTable

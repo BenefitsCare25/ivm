@@ -2,6 +2,9 @@ import type { ExtractedField } from "@/types/extraction";
 import type { TargetField } from "@/types/target";
 import type { FieldMapping } from "@/types/mapping";
 import { stripMarkdownFences } from "./parse";
+import { createChildLogger } from "@/lib/logger";
+
+const log = createChildLogger({ module: "ai-parse-mapping" });
 
 export function parseMappingResponse(
   rawText: string,
@@ -23,10 +26,14 @@ export function parseMappingResponse(
 
   const mappedTargetIds = new Set<string>();
   const mappings: FieldMapping[] = [];
+  let matchedCount = 0;
 
   for (const entry of parsed as Record<string, unknown>[]) {
     const targetFieldId = entry.targetFieldId as string | undefined;
-    if (!targetFieldId || !targetById.has(targetFieldId)) continue;
+    if (!targetFieldId || !targetById.has(targetFieldId)) {
+      log.warn({ targetFieldId, sourceFieldId: entry.sourceFieldId }, "Dropped mapping: invalid or unknown targetFieldId");
+      continue;
+    }
 
     const targetField = targetById.get(targetFieldId)!;
     mappedTargetIds.add(targetFieldId);
@@ -37,6 +44,7 @@ export function parseMappingResponse(
     if (sourceFieldId !== null) {
       sourceField = sourceById.get(sourceFieldId);
       if (!sourceField) {
+        log.warn({ sourceFieldId, targetFieldId }, "Source field not found, setting sourceFieldId to null");
         sourceFieldId = null;
       }
     }
@@ -46,6 +54,22 @@ export function parseMappingResponse(
         ? Math.min(1, Math.max(0, entry.confidence))
         : 0;
 
+    const transformedValue = entry.transformedValue ? String(entry.transformedValue) : (sourceField?.value ?? "");
+
+    if (targetField.options?.length && transformedValue) {
+      const matches = targetField.options.some(
+        (opt) => opt.trim() === transformedValue.trim()
+      );
+      if (!matches) {
+        log.warn(
+          { targetFieldId, transformedValue, availableOptions: targetField.options },
+          "transformedValue not in target options — user should review"
+        );
+      }
+    }
+
+    if (sourceFieldId !== null) matchedCount++;
+
     mappings.push({
       id: crypto.randomUUID(),
       sourceFieldId,
@@ -53,12 +77,14 @@ export function parseMappingResponse(
       sourceLabel: sourceField?.label ?? "",
       targetLabel: targetField.label,
       sourceValue: sourceField?.value ?? "",
-      transformedValue: entry.transformedValue ? String(entry.transformedValue) : (sourceField?.value ?? ""),
+      transformedValue,
       confidence,
       rationale: entry.rationale ? String(entry.rationale) : "",
-      userApproved: false,
+      userApproved: sourceFieldId !== null,
     });
   }
+
+  const unmatchedCount = targetFields.length - mappedTargetIds.size;
 
   for (const targetField of targetFields) {
     if (mappedTargetIds.has(targetField.id)) continue;
@@ -76,6 +102,11 @@ export function parseMappingResponse(
       userApproved: false,
     });
   }
+
+  log.info(
+    { totalMappings: mappings.length, matchedCount, unmatchedCount },
+    "Mapping parsed"
+  );
 
   return mappings;
 }

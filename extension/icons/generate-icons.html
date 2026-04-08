@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head><title>IVM Icon Generator</title></head>
+<body>
+<p>Open this file in a browser, right-click each canvas, and save as PNG.</p>
+<div id="icons"></div>
+<script>
+[16, 48, 128].forEach(size => {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Background
+  const r = size * 0.15;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, size, size, r);
+  ctx.fillStyle = '#1e40af';
+  ctx.fill();
+
+  // "IV" text
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${size * 0.45}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('IV', size / 2, size / 2);
+
+  const label = document.createElement('div');
+  label.innerHTML = `<p>${size}x${size} — icon${size}.png</p>`;
+  label.appendChild(canvas);
+  document.getElementById('icons').appendChild(label);
+
+  // Auto-download
+  const link = document.createElement('a');
+  link.download = `icon${size}.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.textContent = ` Download icon${size}.png`;
+  label.appendChild(link);
+});
+</script>
+</body>
+</html>

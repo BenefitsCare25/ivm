@@ -48,6 +48,24 @@ export async function fillWebpage(ctx: FillContext): Promise<FillerResult> {
         `  } catch(e) { results.push({ field: ${escapedLabel}, status: "FAIL", error: e.message }); }`,
         ""
       );
+    } else if (fieldType === "radio") {
+      scriptLines.push(
+        `  try {`,
+        `    const radios = document.querySelectorAll(${escapedSelector});`,
+        `    if (!radios.length) throw new Error("No radio elements found");`,
+        `    let found = false;`,
+        `    radios.forEach(function(el) {`,
+        `      if (el.value === ${escapedValue} || (el.labels && el.labels[0] && el.labels[0].textContent.trim() === ${escapedValue})) {`,
+        `        el.checked = true;`,
+        `        el.dispatchEvent(new Event("change", { bubbles: true }));`,
+        `        found = true;`,
+        `      }`,
+        `    });`,
+        `    if (!found) throw new Error("No matching radio option for value: " + ${escapedValue});`,
+        `    results.push({ field: ${escapedLabel}, status: "OK" });`,
+        `  } catch(e) { results.push({ field: ${escapedLabel}, status: "FAIL", error: e.message }); }`,
+        ""
+      );
     } else if (fieldType === "select") {
       scriptLines.push(
         `  try {`,

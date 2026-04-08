@@ -99,7 +99,8 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 - Fill + verify runs synchronously in one API call (sub-second for PDF/DOCX, instant for webpage)
 - `FillAction` model tracks per-field status: `PENDING → APPLIED → VERIFIED` (or `FAILED`/`SKIPPED`)
 - `TargetAsset.filledStoragePath` stores the filled PDF/DOCX in storage
-- Webpage fills produce a JS snippet (not persisted) — user copies and runs in browser console
+- Webpage fills produce a JS snippet with three delivery methods: (1) "Open Target & Copy" button opens URL + copies script to clipboard, (2) draggable bookmarklet for bookmark bar, (3) Chrome Extension for one-click fill (supports login-required pages)
+- Chrome Extension: `extension/` directory, Manifest V3, uses `externally_connectable` API for IVM↔extension messaging. Extension detection + messaging via `src/lib/extension.ts`. Set `NEXT_PUBLIC_IVM_EXTENSION_ID` in env after loading unpacked extension.
 - Re-fill support: POST to fill API deletes existing FillActions and overwrites filledStoragePath
 - DOCX caveat: placeholders split across XML formatting runs will fail — must be contiguous `{{placeholder}}` text
 
@@ -171,6 +172,7 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 | 6 | Review UX, History & Audit | Deployed |
 | 7 | Production Hardening | Deployed |
 | 8 | Deferred Features (Redis, S3, DOCX, BullMQ, Sentry, Metrics, OpenAPI) | Deployed |
+| 9 | AI Accuracy + Webpage Fill UX + Chrome Extension | Deployed |
 
 ## Plan Documents
 
@@ -250,4 +252,5 @@ src/
   types/                  # TypeScript type definitions (session, extraction, target, mapping, fill, audit)
 prisma/                   # Schema and seed
 docs/superpowers/plans/   # Implementation plans
+extension/                # Chrome Extension (Manifest V3) for webpage auto-fill
 ```
