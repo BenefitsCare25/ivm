@@ -1,0 +1,662 @@
+openapi: 3.1.0
+info:
+  title: IVM API
+  description: Intelligent Value Mapper — AI-powered document-to-form autofill platform
+  version: 1.0.0
+  contact:
+    name: IVM Support
+
+servers:
+  - url: /api
+    description: API base path
+
+tags:
+  - name: Sessions
+    description: Fill session lifecycle management
+  - name: Source
+    description: Source document upload and AI extraction
+  - name: Target
+    description: Target asset management and field inspection
+  - name: Mapping
+    description: AI field mapping proposal and review
+  - name: Fill
+    description: Fill execution and verification
+  - name: System
+    description: Health and observability endpoints
+
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Health check
+      description: Returns system health including database and Redis status
+      responses:
+        "200":
+          description: All systems healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: One or more systems unhealthy
+
+  /metrics:
+    get:
+      tags: [System]
+      summary: Prometheus metrics
+      description: Exposes Prometheus-format metrics. Requires Bearer token if METRICS_TOKEN is set.
+      security:
+        - MetricsToken: []
+      responses:
+        "200":
+          description: Prometheus text format metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          description: Unauthorized
+
+  /sessions:
+    get:
+      tags: [Sessions]
+      summary: List sessions
+      security:
+        - CookieAuth: []
+      responses:
+        "200":
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SessionSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Sessions]
+      summary: Create session
+      security:
+        - CookieAuth: []
+      responses:
+        "201":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /sessions/{id}:
+    get:
+      tags: [Sessions]
+      summary: Get session
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Session detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /sessions/{id}/upload:
+    post:
+      tags: [Source]
+      summary: Upload source document
+      description: Accepts PDF, PNG, JPG, WebP, or DOCX. Max 10MB.
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Upload successful
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /sessions/{id}/extract:
+    post:
+      tags: [Source]
+      summary: Trigger AI field extraction
+      description: Runs AI extraction on the uploaded source document using the user's configured provider.
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Extraction result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtractionResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /sessions/{id}/extraction/{extractionId}:
+    patch:
+      tags: [Source]
+      summary: Edit extracted fields
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - name: extractionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fields:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/ExtractedField"
+      responses:
+        "200":
+          description: Fields updated
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /sessions/{id}/target:
+    get:
+      tags: [Target]
+      summary: Get target asset
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Target asset or null
+    post:
+      tags: [Target]
+      summary: Set target (URL or file upload)
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [WEBPAGE, PDF, DOCX]
+                url:
+                  type: string
+                  format: uri
+      responses:
+        "200":
+          description: Target set and inspected
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [Target]
+      summary: Remove target asset
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "204":
+          description: Target removed
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /sessions/{id}/mapping:
+    get:
+      tags: [Mapping]
+      summary: Get current mapping
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Mapping set or null
+    post:
+      tags: [Mapping]
+      summary: Propose AI field mappings
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Proposed mapping set
+
+  /sessions/{id}/mapping/{mappingSetId}:
+    patch:
+      tags: [Mapping]
+      summary: Accept mapping review
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - name: mappingSetId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mappings:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/FieldMapping"
+      responses:
+        "200":
+          description: Mapping accepted
+
+  /sessions/{id}/fill:
+    get:
+      tags: [Fill]
+      summary: Get fill results
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Fill results or null
+    post:
+      tags: [Fill]
+      summary: Execute fill
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                skipFieldIds:
+                  type: array
+                  items:
+                    type: string
+                retryFieldIds:
+                  type: array
+                  items:
+                    type: string
+                  description: When provided, only re-runs fill for these specific field IDs
+      responses:
+        "200":
+          description: Fill executed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FillResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /sessions/{id}/fill/preview:
+    get:
+      tags: [Fill]
+      summary: Preview intended fill values
+      description: Returns the values that would be written without executing the fill.
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Preview items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FillPreviewItem"
+
+  /sessions/{id}/fill/download:
+    get:
+      tags: [Fill]
+      summary: Download filled document
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Filled PDF or DOCX binary
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /sessions/{id}/complete:
+    post:
+      tags: [Sessions]
+      summary: Mark session as completed
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Session completed
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /sessions/{id}/export:
+    get:
+      tags: [Sessions]
+      summary: Export session as JSON
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Session JSON download
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /sessions/{id}/audit-events:
+    get:
+      tags: [Sessions]
+      summary: Get audit events
+      security:
+        - CookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: eventType
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated audit events
+
+components:
+  securitySchemes:
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: next-auth.session-token
+    MetricsToken:
+      type: http
+      scheme: bearer
+
+  parameters:
+    SessionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Fill session ID (CUID)
+
+  responses:
+    Unauthorized:
+      description: Not authenticated
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    UnprocessableEntity:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        details:
+          type: object
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        uptime:
+          type: number
+        db:
+          type: object
+          properties:
+            status:
+              type: string
+            latencyMs:
+              type: number
+        redis:
+          type: object
+          properties:
+            status:
+              type: string
+
+    SessionSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        currentStep:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ExtractionResult:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [PROCESSING, COMPLETED, FAILED]
+        documentType:
+          type: string
+          nullable: true
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExtractedField"
+        errorMessage:
+          type: string
+          nullable: true
+
+    ExtractedField:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        label:
+          type: string
+        value:
+          type: string
+        fieldType:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    FieldMapping:
+      type: object
+      properties:
+        targetFieldId:
+          type: string
+        targetLabel:
+          type: string
+        sourceFieldId:
+          type: string
+          nullable: true
+        sourceLabel:
+          type: string
+          nullable: true
+        transformedValue:
+          type: string
+        userOverrideValue:
+          type: string
+          nullable: true
+        userApproved:
+          type: boolean
+        confidence:
+          type: number
+        rationale:
+          type: string
+
+    FillResponse:
+      type: object
+      properties:
+        actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/FillAction"
+        report:
+          $ref: "#/components/schemas/FillReport"
+        hasFilledDocument:
+          type: boolean
+        webpageFillScript:
+          type: string
+          nullable: true
+
+    FillAction:
+      type: object
+      properties:
+        id:
+          type: string
+        targetFieldId:
+          type: string
+        targetLabel:
+          type: string
+        intendedValue:
+          type: string
+        appliedValue:
+          type: string
+          nullable: true
+        verifiedValue:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [PENDING, APPLIED, VERIFIED, FAILED, SKIPPED]
+        errorMessage:
+          type: string
+          nullable: true
+
+    FillReport:
+      type: object
+      properties:
+        total:
+          type: integer
+        verified:
+          type: integer
+        applied:
+          type: integer
+        failed:
+          type: integer
+        skipped:
+          type: integer
+
+    FillPreviewItem:
+      type: object
+      properties:
+        targetFieldId:
+          type: string
+        targetLabel:
+          type: string
+        intendedValue:
+          type: string
+        hasOverride:
+          type: boolean
