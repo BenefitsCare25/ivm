@@ -23,14 +23,13 @@ function rateLimitResponse(result: { limit: number; resetAt: number }, message: 
   );
 }
 
-export default auth((req) => {
+export default auth(async (req) => {
   const { pathname } = req.nextUrl;
   const requestId = crypto.randomUUID();
   const ip = getClientIp(req);
 
-  // Auth route rate limiting (register, credentials sign-in)
   if (pathname === "/api/auth/register" || pathname === "/api/auth/callback/credentials") {
-    const result = authLimiter(ip);
+    const result = await authLimiter(ip);
     if (!result.allowed) {
       const res = rateLimitResponse(result, "Too many requests. Please try again later.");
       res.headers.set(REQUEST_ID_HEADER, requestId);
@@ -38,9 +37,8 @@ export default auth((req) => {
     }
   }
 
-  // AI route rate limiting (per-user)
   if (/^\/api\/sessions\/[^/]+\/(extract|mapping)$/.test(pathname) && req.auth?.user?.id) {
-    const result = aiLimiter(req.auth.user.id);
+    const result = await aiLimiter(req.auth.user.id);
     if (!result.allowed) {
       const res = rateLimitResponse(result, "Too many AI requests. Please wait before retrying.");
       res.headers.set(REQUEST_ID_HEADER, requestId);
@@ -48,9 +46,8 @@ export default auth((req) => {
     }
   }
 
-  // Global rate limiting for all API routes
   if (pathname.startsWith("/api/")) {
-    const result = globalLimiter(ip);
+    const result = await globalLimiter(ip);
     if (!result.allowed) {
       const res = rateLimitResponse(result, "Too many requests.");
       res.headers.set(REQUEST_ID_HEADER, requestId);
@@ -58,7 +55,6 @@ export default auth((req) => {
     }
   }
 
-  // Auth redirects (existing logic)
   const isAuthenticated = !!req.auth;
   const isAuthPage = pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up");
 
@@ -73,7 +69,6 @@ export default auth((req) => {
     return Response.redirect(new URL("/sign-in", req.url));
   }
 
-  // Pass-through: set request ID on response + forward to route handler
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set(REQUEST_ID_HEADER, requestId);
   const response = NextResponse.next({ request: { headers: requestHeaders } });
@@ -83,6 +78,6 @@ export default auth((req) => {
 
 export const config = {
   matcher: [
-    "/((?!api/auth/(?!register)|api/health|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api/auth/(?!register)|api/health|api/metrics|_next/static|_next/image|favicon.ico).*)",
   ],
 };

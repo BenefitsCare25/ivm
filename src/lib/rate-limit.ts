@@ -1,7 +1,4 @@
-interface RateLimitEntry {
-  count: number;
-  resetAt: number;
-}
+import { getRedisClient } from "./redis";
 
 interface RateLimitConfig {
   limit: number;
@@ -15,7 +12,12 @@ interface RateLimitResult {
   resetAt: number;
 }
 
-export function createRateLimiter(config: RateLimitConfig) {
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+function createInMemoryStore() {
   const store = new Map<string, RateLimitEntry>();
 
   const cleanupInterval = setInterval(() => {
@@ -27,30 +29,72 @@ export function createRateLimiter(config: RateLimitConfig) {
 
   if (cleanupInterval.unref) cleanupInterval.unref();
 
-  return function check(key: string): RateLimitResult {
-    const now = Date.now();
+  return {
+    async check(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
+      const now = Date.now();
 
-    // Lazy cleanup if store grows large (e.g., under IP-spoofing or high-traffic burst)
-    if (store.size > 10_000) {
-      for (const [k, e] of store) {
-        if (e.resetAt <= now) store.delete(k);
+      if (store.size > 10_000) {
+        for (const [k, e] of store) {
+          if (e.resetAt <= now) store.delete(k);
+        }
       }
+
+      const entry = store.get(key);
+
+      if (!entry || entry.resetAt <= now) {
+        store.set(key, { count: 1, resetAt: now + windowMs });
+        return { allowed: true, limit, remaining: limit - 1, resetAt: now + windowMs };
+      }
+
+      entry.count += 1;
+      return {
+        allowed: entry.count <= limit,
+        limit,
+        remaining: Math.max(0, limit - entry.count),
+        resetAt: entry.resetAt,
+      };
+    },
+  };
+}
+
+const inMemoryStore = createInMemoryStore();
+
+const redisStore = {
+  async check(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
+    const redis = getRedisClient();
+    if (!redis) {
+      return inMemoryStore.check(key, limit, windowMs);
     }
 
-    const entry = store.get(key);
+    const now = Date.now();
+    const windowKey = `rl:${key}:${Math.floor(now / windowMs)}`;
+    const windowExpirySec = Math.ceil(windowMs / 1000) + 1;
 
-    if (!entry || entry.resetAt <= now) {
-      store.set(key, { count: 1, resetAt: now + config.windowMs });
-      return { allowed: true, limit: config.limit, remaining: config.limit - 1, resetAt: now + config.windowMs };
+    try {
+      const count = await redis.incr(windowKey);
+      if (count === 1) {
+        await redis.expire(windowKey, windowExpirySec);
+      }
+
+      const resetAt = (Math.floor(now / windowMs) + 1) * windowMs;
+
+      return {
+        allowed: count <= limit,
+        limit,
+        remaining: Math.max(0, limit - count),
+        resetAt,
+      };
+    } catch {
+      return inMemoryStore.check(key, limit, windowMs);
     }
+  },
+};
 
-    entry.count += 1;
-    return {
-      allowed: entry.count <= config.limit,
-      limit: config.limit,
-      remaining: Math.max(0, config.limit - entry.count),
-      resetAt: entry.resetAt,
-    };
+export function createRateLimiter(config: RateLimitConfig) {
+  return function check(key: string): Promise<RateLimitResult> {
+    const redis = getRedisClient();
+    const store = redis ? redisStore : inMemoryStore;
+    return store.check(key, config.limit, config.windowMs);
   };
 }
 
