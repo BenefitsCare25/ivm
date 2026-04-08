@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import { Plus, FileText } from "lucide-react";
 import { requireAuth } from "@/lib/auth-helpers";
@@ -20,7 +22,43 @@ export default async function DashboardPage() {
       currentStep: true,
       createdAt: true,
       updatedAt: true,
+      sourceAssets: {
+        orderBy: { uploadedAt: "desc" },
+        take: 1,
+        select: { originalName: true, mimeType: true },
+      },
+      targetAssets: {
+        orderBy: { inspectedAt: "desc" },
+        take: 1,
+        select: { targetType: true, url: true, fileName: true },
+      },
+      extractionResults: {
+        where: { status: "COMPLETED" },
+        take: 1,
+        select: { fields: true },
+      },
     },
+  });
+
+  const enrichedSessions = sessions.map((s) => {
+    const source = s.sourceAssets[0] ?? null;
+    const target = s.targetAssets[0] ?? null;
+    const extraction = s.extractionResults[0] ?? null;
+    const fields = extraction?.fields;
+    return {
+      id: s.id,
+      title: s.title,
+      description: s.description,
+      status: s.status,
+      currentStep: s.currentStep,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      sourceFileName: source?.originalName ?? null,
+      sourceMimeType: source?.mimeType ?? null,
+      targetType: target?.targetType ?? null,
+      targetName: target?.url ?? target?.fileName ?? null,
+      extractedFieldCount: Array.isArray(fields) ? fields.length : 0,
+    };
   });
 
   return (
@@ -40,9 +78,9 @@ export default async function DashboardPage() {
         </Button>
       </div>
 
-      {sessions.length === 0 ? (
+      {enrichedSessions.length === 0 ? (
         <EmptyState
-          icon={FileText}
+          icon={<FileText className="h-6 w-6 text-muted-foreground" />}
           title="No sessions yet"
           description="Create your first session to start mapping documents to forms."
           action={
@@ -55,7 +93,7 @@ export default async function DashboardPage() {
           }
         />
       ) : (
-        <SessionList sessions={sessions} />
+        <SessionList sessions={enrichedSessions} />
       )}
     </div>
   );

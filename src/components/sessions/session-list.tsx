@@ -1,15 +1,8 @@
 import { SessionCard } from "./session-card";
+import type { SessionDetailSummary } from "@/types/session";
 
 interface SessionListProps {
-  sessions: Array<{
-    id: string;
-    title: string;
-    description: string | null;
-    status: string;
-    currentStep: string;
-    createdAt: Date;
-    updatedAt: Date;
-  }>;
+  sessions: SessionDetailSummary[];
 }
 
 export function SessionList({ sessions }: SessionListProps) {

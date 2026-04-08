@@ -1,24 +1,39 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
-import { STEP_LABELS, type SessionStep } from "@/types/session";
+import {
+  STEP_LABELS,
+  type SessionStep,
+  type SessionDetailSummary,
+} from "@/types/session";
 
 interface SessionCardProps {
-  session: {
-    id: string;
-    title: string;
-    description: string | null;
-    status: string;
-    currentStep: string;
-    createdAt: Date;
-    updatedAt: Date;
-  };
+  session: SessionDetailSummary;
 }
 
-const STATUS_BADGE_MAP: Record<string, { label: string; variant: "default" | "secondary" | "success" | "warning" | "error" | "info" }> = {
+const STATUS_BADGE_MAP: Record<
+  string,
+  {
+    label: string;
+    variant:
+      | "default"
+      | "secondary"
+      | "success"
+      | "warning"
+      | "error"
+      | "info";
+  }
+> = {
   CREATED: { label: "Created", variant: "secondary" },
   SOURCE_UPLOADED: { label: "Source Uploaded", variant: "info" },
   EXTRACTED: { label: "Extracted", variant: "info" },
@@ -31,7 +46,10 @@ const STATUS_BADGE_MAP: Record<string, { label: string; variant: "default" | "se
 };
 
 export function SessionCard({ session }: SessionCardProps) {
-  const statusInfo = STATUS_BADGE_MAP[session.status] ?? { label: session.status, variant: "secondary" as const };
+  const statusInfo = STATUS_BADGE_MAP[session.status] ?? {
+    label: session.status,
+    variant: "secondary" as const,
+  };
 
   return (
     <Card className="transition-shadow hover:shadow-md">
@@ -47,8 +65,20 @@ export function SessionCard({ session }: SessionCardProps) {
         <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
       </CardHeader>
       <CardContent>
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          <span>Step: {STEP_LABELS[session.currentStep as SessionStep]}</span>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span>{STEP_LABELS[session.currentStep as SessionStep]}</span>
+          {session.sourceFileName && (
+            <span
+              className="max-w-[120px] truncate"
+              title={session.sourceFileName}
+            >
+              {session.sourceFileName}
+            </span>
+          )}
+          {session.targetType && <span>{session.targetType}</span>}
+          {session.extractedFieldCount > 0 && (
+            <span>{session.extractedFieldCount} fields</span>
+          )}
           <span>Updated {formatDate(session.updatedAt)}</span>
         </div>
       </CardContent>
