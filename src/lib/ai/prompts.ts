@@ -35,6 +35,17 @@ export function getExtractionUserPrompt(fileName: string): string {
   return `Extract all data fields from this document: "${fileName}". Return the JSON response as specified.`;
 }
 
+export function getTextExtractionUserPrompt(fileName: string, textContent: string): string {
+  return `Extract all data fields from this document: "${fileName}".
+
+Document text content:
+---
+${textContent}
+---
+
+Return the JSON response as specified.`;
+}
+
 export function getMappingSystemPrompt(): string {
   return `You are a field-mapping specialist. Your task is to match extracted source document fields to target form fields and propose value transformations.
 

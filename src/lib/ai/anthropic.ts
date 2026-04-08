@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "@/lib/logger";
 import { AppError } from "@/lib/errors";
-import { getExtractionSystemPrompt, getExtractionUserPrompt } from "./prompts";
+import { getExtractionSystemPrompt, getExtractionUserPrompt, getTextExtractionUserPrompt } from "./prompts";
 import { parseExtractionResponse } from "./parse";
 import type { AIExtractionRequest, AIExtractionResponse } from "./types";
 
@@ -13,6 +13,12 @@ type ImageMediaType = (typeof IMAGE_MIME_TYPES)[number];
 function buildContentBlocks(
   request: AIExtractionRequest
 ): Anthropic.MessageCreateParams["messages"][0]["content"] {
+  if (request.textContent) {
+    return [
+      { type: "text" as const, text: getTextExtractionUserPrompt(request.fileName, request.textContent) },
+    ];
+  }
+
   const base64Data = request.fileData.toString("base64");
 
   if (IMAGE_MIME_TYPES.includes(request.mimeType as ImageMediaType)) {

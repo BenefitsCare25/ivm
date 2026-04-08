@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { logger } from "@/lib/logger";
 import { AppError } from "@/lib/errors";
-import { getExtractionSystemPrompt, getExtractionUserPrompt } from "./prompts";
+import { getExtractionSystemPrompt, getExtractionUserPrompt, getTextExtractionUserPrompt } from "./prompts";
 import { parseExtractionResponse } from "./parse";
 import type { AIExtractionRequest, AIExtractionResponse } from "./types";
 
@@ -9,6 +9,12 @@ const IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
 const PDF_MIME_TYPE = "application/pdf";
 
 function buildUserContent(request: AIExtractionRequest): OpenAI.ChatCompletionContentPart[] {
+  if (request.textContent) {
+    return [
+      { type: "text", text: getTextExtractionUserPrompt(request.fileName, request.textContent) },
+    ];
+  }
+
   const base64Data = request.fileData.toString("base64");
   const parts: OpenAI.ChatCompletionContentPart[] = [];
 

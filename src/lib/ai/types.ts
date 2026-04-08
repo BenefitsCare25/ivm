@@ -11,6 +11,7 @@ export interface AIExtractionRequest {
   fileName: string;
   provider: AIProvider;
   apiKey: string;
+  textContent?: string; // Pre-extracted text for DOCX files
 }
 
 export interface AIExtractionResponse {
