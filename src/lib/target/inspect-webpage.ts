@@ -73,6 +73,11 @@ export async function inspectWebpage(url: string): Promise<InspectResult> {
     };
   }
 
+  // Google Forms: fields are JS-rendered, parse embedded JSON instead
+  if (url.includes("docs.google.com/forms")) {
+    return inspectGoogleForm(html);
+  }
+
   const $ = cheerio.load(html);
   const fields: TargetField[] = [];
 
@@ -160,4 +165,83 @@ function buildSelector($el: cheerio.Cheerio<AnyNode>): string {
   const name = $el.attr("name");
   if (name) return `[name="${name}"]`;
   return "";
+}
+
+// Google Forms field type codes in FB_PUBLIC_LOAD_DATA_
+const GF_FIELD_TYPE: Record<number, TargetField["fieldType"]> = {
+  0: "text",      // Short answer
+  1: "textarea",  // Paragraph
+  2: "radio",     // Multiple choice
+  3: "select",    // Dropdown
+  4: "checkbox",  // Checkboxes
+  5: "other",     // Linear scale
+  9: "date",      // Date
+  10: "other",    // Time
+};
+
+function inspectGoogleForm(html: string): InspectResult {
+  // FB_PUBLIC_LOAD_DATA_ is assigned as a JS variable in a <script> tag
+  const match = html.match(/FB_PUBLIC_LOAD_DATA_\s*=\s*(\[[\s\S]*?\]);\s*<\/script>/);
+  if (!match) {
+    return {
+      fields: [],
+      isSupported: true,
+      unsupportedReason: "Could not parse Google Form structure (form may require sign-in)",
+    };
+  }
+
+  let data: unknown;
+  try {
+    data = JSON.parse(match[1]);
+  } catch {
+    return { fields: [], isSupported: false, unsupportedReason: "Failed to parse Google Form data" };
+  }
+
+  // Structure: data[1][1] is the array of form items
+  const items = (data as unknown[][])?.[1]?.[1];
+  if (!Array.isArray(items)) {
+    return { fields: [], isSupported: true };
+  }
+
+  const fields: TargetField[] = [];
+
+  for (const item of items) {
+    if (!Array.isArray(item)) continue;
+
+    const label = (item[1] as string) ?? "";
+    const typeCode = item[3] as number;
+    const fieldType = GF_FIELD_TYPE[typeCode] ?? "other";
+
+    // item[4] contains the question data including entry IDs and options
+    const questionData = item[4];
+    if (!Array.isArray(questionData) || questionData.length === 0) continue;
+
+    const entryId = questionData[0]?.[0];
+    if (!entryId) continue;
+
+    const entryName = `entry.${entryId}`;
+
+    // Extract options for radio/select/checkbox types
+    let options: string[] | undefined;
+    if (typeCode === 2 || typeCode === 3 || typeCode === 4) {
+      const rawOptions = questionData[0]?.[1];
+      if (Array.isArray(rawOptions)) {
+        options = rawOptions
+          .map((o: unknown[]) => o?.[0] as string)
+          .filter((o): o is string => typeof o === "string" && o.length > 0);
+      }
+    }
+
+    fields.push({
+      id: randomUUID(),
+      name: entryName,
+      label: label || formatFieldLabel(entryName),
+      fieldType,
+      required: item[4]?.[0]?.[2] === 1,
+      options,
+      selector: `[name="${entryName}"]`,
+    });
+  }
+
+  return { fields, isSupported: true };
 }

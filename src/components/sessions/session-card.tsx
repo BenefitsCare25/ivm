@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { DeleteSessionButton } from "./delete-session-button";
 import {
   Card,
   CardHeader,
@@ -82,8 +83,9 @@ export function SessionCard({ session }: SessionCardProps) {
           <span>Updated {formatDate(session.updatedAt)}</span>
         </div>
       </CardContent>
-      <CardFooter>
-        <Button variant="ghost" size="sm" asChild className="ml-auto">
+      <CardFooter className="justify-between">
+        <DeleteSessionButton sessionId={session.id} />
+        <Button variant="ghost" size="sm" asChild>
           <Link href={`/sessions/${session.id}`}>
             Continue
             <ArrowRight className="ml-2 h-3.5 w-3.5" />

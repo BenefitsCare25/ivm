@@ -23,6 +23,7 @@ model User {
   authSessions AuthSession[]
   fillSessions FillSession[]
   apiKeys      UserApiKey[]
+  portals      Portal[]
 }
 
 model Account {
@@ -263,4 +264,147 @@ model AuditEvent {
   @@index([fillSessionId])
   @@index([timestamp])
   @@map("audit_events")
+}
+
+// ─── Portal Tracker ──────────────────────────────────────────────
+
+enum PortalAuthMethod {
+  COOKIES
+  CREDENTIALS
+}
+
+enum ScrapeSessionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum TrackedItemStatus {
+  DISCOVERED
+  PROCESSING
+  COMPARED
+  FLAGGED
+  VERIFIED
+  ERROR
+}
+
+enum ComparisonFieldStatus {
+  MATCH
+  MISMATCH
+  MISSING_IN_PDF
+  MISSING_ON_PAGE
+  UNCERTAIN
+}
+
+model Portal {
+  id              String           @id @default(cuid())
+  userId          String
+  name            String
+  baseUrl         String
+  authMethod      PortalAuthMethod @default(COOKIES)
+  listPageUrl     String?
+  listSelectors   Json             @default("{}")
+  detailSelectors Json             @default("{}")
+  scheduleEnabled Boolean          @default(false)
+  scheduleCron    String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credential     PortalCredential?
+  scrapeSessions ScrapeSession[]
+
+  @@index([userId])
+  @@map("portals")
+}
+
+model PortalCredential {
+  id                String    @id @default(cuid())
+  portalId          String    @unique
+  encryptedUsername  String?   @db.Text
+  encryptedPassword String?   @db.Text
+  cookieData        Json?
+  cookieExpiresAt   DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  portal Portal @relation(fields: [portalId], references: [id], onDelete: Cascade)
+
+  @@map("portal_credentials")
+}
+
+model ScrapeSession {
+  id             String              @id @default(cuid())
+  portalId       String
+  status         ScrapeSessionStatus @default(PENDING)
+  triggeredBy    String              @default("MANUAL")
+  itemsFound     Int                 @default(0)
+  itemsProcessed Int                 @default(0)
+  startedAt      DateTime?
+  completedAt    DateTime?
+  errorMessage   String?
+  createdAt      DateTime            @default(now())
+
+  portal       Portal        @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  trackedItems TrackedItem[]
+
+  @@index([portalId])
+  @@index([createdAt])
+  @@map("scrape_sessions")
+}
+
+model TrackedItem {
+  id              String            @id @default(cuid())
+  scrapeSessionId String
+  portalItemId    String
+  listData        Json              @default("{}")
+  detailData      Json?
+  detailPageUrl   String?
+  status          TrackedItemStatus @default(DISCOVERED)
+  errorMessage    String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  scrapeSession    ScrapeSession     @relation(fields: [scrapeSessionId], references: [id], onDelete: Cascade)
+  files            TrackedItemFile[]
+  comparisonResult ComparisonResult?
+
+  @@index([scrapeSessionId])
+  @@index([portalItemId])
+  @@map("tracked_items")
+}
+
+model TrackedItemFile {
+  id              String   @id @default(cuid())
+  trackedItemId   String
+  fileName        String
+  originalName    String
+  mimeType        String
+  sizeBytes       Int
+  storagePath     String
+  storageProvider String   @default("local")
+  downloadedAt    DateTime @default(now())
+
+  trackedItem TrackedItem @relation(fields: [trackedItemId], references: [id], onDelete: Cascade)
+
+  @@index([trackedItemId])
+  @@map("tracked_item_files")
+}
+
+model ComparisonResult {
+  id               String   @id @default(cuid())
+  trackedItemId    String   @unique
+  provider         String   @default("anthropic")
+  fieldComparisons Json     @default("[]")
+  matchCount       Int      @default(0)
+  mismatchCount    Int      @default(0)
+  summary          String?
+  completedAt      DateTime?
+  errorMessage     String?
+
+  trackedItem TrackedItem @relation(fields: [trackedItemId], references: [id], onDelete: Cascade)
+
+  @@map("comparison_results")
 }

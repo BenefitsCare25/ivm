@@ -21,6 +21,7 @@ const envSchema = z.object({
   GITHUB_CLIENT_SECRET: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   REDIS_URL: z.string().optional(),
+  PLAYWRIGHT_HEADLESS: z.enum(["true", "false"]).default("true"),
   FEATURE_BROWSER_WORKSPACE: z.string().optional(),
   FEATURE_PDF_FILL: z.string().optional(),
   FEATURE_DOCX_FILL: z.string().optional(),

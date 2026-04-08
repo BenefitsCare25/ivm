@@ -31,3 +31,7 @@ export interface AIMappingResponse {
   mappings: FieldMapping[];
   rawResponse: unknown;
 }
+
+// Re-export portal AI types for convenience
+export type { PageAnalysisRequest, PageAnalysisResponse } from "./page-analysis";
+export type { ComparisonRequest, ComparisonResponse } from "./comparison";

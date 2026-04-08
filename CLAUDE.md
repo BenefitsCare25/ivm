@@ -18,6 +18,8 @@ The AI model is the primary intelligence layer — not hardcoded templates. But 
 - **Logging**: Pino (pino-pretty in dev, JSON in prod)
 - **Storage**: Abstracted via `StorageAdapter` interface (local/S3)
 - **AI**: Multi-provider BYOK — Anthropic Claude (`@anthropic-ai/sdk`), OpenAI GPT-4o (`openai`), Google Gemini 2.0 Flash (`@google/generative-ai`)
+- **Browser automation**: Playwright (Chromium, headless, BullMQ workers only)
+- **Job queues**: BullMQ + Redis 7 (extraction, portal scrape, item detail)
 - **Dev infra**: Docker Compose (PostgreSQL 16 + Redis 7)
 
 ## Critical Constraints
@@ -134,7 +136,7 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 - **Rate limiting**: `src/lib/rate-limit.ts` — in-memory sliding window; `globalLimiter` (100/min per IP), `authLimiter` (10/min per IP), `aiLimiter` (5/min per user); applied in `middleware.ts`
 - **Retry**: `src/lib/retry.ts` — `withRetry(fn, opts)` with exponential backoff, max 2 retries on transient errors (429, 500, 502, 503); wraps all AI extraction and mapping calls
 - **Request ID**: `middleware.ts` generates `X-Request-ID` (crypto.randomUUID) on every request, forwarded to route handlers via request headers
-- **Health check**: `GET /api/health` — pings DB, returns status/uptime/latency; excluded from auth middleware
+- **Health check**: `GET /api/health` — pings DB + Redis, returns status/uptime/latency; excluded from auth middleware. Playwright health check intentionally excluded (would launch Chromium on every call)
 - **Security headers**: `next.config.ts` `headers()` — CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
 - **AI timeouts**: 60s extraction, 30s mapping, 15s key validation; Anthropic/OpenAI use `{ signal: AbortSignal.timeout() }` in options; Gemini uses `Promise.race` with timeout
 - **Error boundaries**: `src/app/error.tsx` (root) + `src/app/(dashboard)/error.tsx` (dashboard) — catch unhandled React errors
@@ -160,6 +162,22 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 - Wrong: `<EmptyState icon={FileText} />`
 - If a Server Component must pass icons to a Client Component, either make the parent a Client Component (like `Sidebar`) or pass pre-rendered `<Icon />` elements
 
+### Portal Tracker (RPA + Comparison Engine)
+- **Purpose**: Connect to authenticated web portals, scrape item lists, download files, AI-compare portal data vs PDF data
+- **Browser automation**: Playwright runs in BullMQ workers only, never in API routes. Singleton browser via `src/lib/playwright/browser.ts` with launch-promise guard to prevent concurrent launches
+- **Auth strategies**: Cookie injection (Chrome Extension capture) or credential login (Playwright automated). `resolveAuth()` tries cookies first, falls back to credentials
+- **AI page analysis**: `analyzePageStructure()` sends screenshot + HTML to AI → returns CSS selectors for table, columns, links, pagination
+- **AI field comparison**: `compareFields()` sends portal detail page fields vs PDF-extracted fields → per-field match/mismatch with confidence scores
+- **Scrape queue**: `portal-scrape-queue.ts` (concurrency 1, no retry). Worker: login → scrape list pages → create TrackedItems → enqueue detail jobs
+- **Detail queue**: `item-detail-queue.ts` (concurrency 2, 2 attempts). Worker: scrape detail → download files → AI extract PDFs → AI compare → save ComparisonResult
+- **Scheduling**: `portal-scheduler.ts` syncs BullMQ repeatable jobs. `addPortalSchedule()` / `removePortalSchedule()`
+- **Prisma models**: `Portal`, `PortalCredential`, `ScrapeSession`, `TrackedItem`, `TrackedItemFile`, `ComparisonResult`
+- **Types**: `src/types/portal.ts` — all portal enums, selector configs, summary/detail interfaces
+- **Validations**: `src/lib/validations/portal.ts` — Zod schemas for portal CRUD, selectors, credentials, cookies, schedule
+- **API routes**: `/api/portals/*` — full CRUD, analyze, selectors, scrape, items, files, schedule
+- **UI pages**: `/portals` (list), `/portals/new` (setup wizard), `/portals/[id]` (detail + sessions), `/portals/[id]/sessions/[sessionId]` (tracked items), `/portals/[id]/sessions/[sessionId]/items/[itemId]` (item detail + comparison)
+- **Components**: `src/components/portals/` — portal-card, portal-list, portal-setup-wizard, portal-detail-view, tracked-items-table, item-detail-view, portal-status-badge
+
 ## Phase Status
 
 | Phase | Description | Status |
@@ -173,6 +191,7 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 | 7 | Production Hardening | Deployed |
 | 8 | Deferred Features (Redis, S3, DOCX, BullMQ, Sentry, Metrics, OpenAPI) | Deployed |
 | 9 | AI Accuracy + Webpage Fill UX + Chrome Extension | Deployed |
+| 10 | Portal Tracker — RPA + AI Comparison Dashboard | Deployed |
 
 ## Plan Documents
 
@@ -241,9 +260,12 @@ src/
     auth/                 # Auth-specific components
     layout/               # Shell, sidebar, header
     sessions/             # Session-specific components (upload, preview, extraction table, target selection, mapping review, step clients, use-download-fill hook, session-timeline, session-metadata, review-tabs)
+    portals/              # Portal Tracker components (portal-card, portal-list, portal-setup-wizard, portal-detail-view, tracked-items-table, item-detail-view, portal-status-badge)
     settings/             # Settings components (api-keys-form)
   lib/                    # Core utilities and services
-    ai/                   # Multi-provider AI extraction + mapping (index, anthropic, openai, gemini, mapping, parse, parse-mapping, resolve-provider, validate-key, prompts, types)
+    ai/                   # Multi-provider AI extraction + mapping + page analysis + comparison
+    playwright/           # Browser automation (browser manager, auth strategies, scraper, screenshot)
+    queue/                # BullMQ queues (extraction, portal-scrape, item-detail, portal-scheduler)
     fill/                 # Fill execution engines (PDF/DOCX/webpage)
     target/               # Target inspection engines (webpage/PDF/DOCX)
     storage/              # Storage adapter abstraction

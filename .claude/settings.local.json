@@ -43,7 +43,14 @@
       "Bash(mkdir -p \"C:/Users/huien/ivm/src/app/api/sessions/[id]/fill/download\")",
       "Bash(mkdir -p \"C:/Users/huien/ivm/src/app/api/sessions/[id]/complete\")",
       "Bash(echo \"Exit: $?\")",
-      "Bash(git diff:*)"
+      "Bash(git diff:*)",
+      "Bash(docker.exe compose:*)",
+      "Bash(\"/c/Program Files/Docker/Docker/resources/bin/docker.exe\" compose up -d)",
+      "Bash(\"/c/Program Files/Docker/Docker/Docker Desktop.exe\")",
+      "Bash(npx playwright:*)",
+      "Bash(C:/Users/huien/IVM/node_modules/.bin/tsc --noEmit)",
+      "Bash(echo \"EXIT CODE: $?\")",
+      "Bash(git push:*)"
     ]
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LayoutDashboard, Plus, Settings } from "lucide-react";
+import { LayoutDashboard, Plus, Settings, Radar } from "lucide-react";
 import { NavItem } from "./nav-item";
 
 export function Sidebar() {
@@ -22,6 +22,7 @@ export function Sidebar() {
       <nav className="flex-1 space-y-1 px-3 py-2">
         <NavItem href="/" icon={LayoutDashboard} label="Dashboard" />
         <NavItem href="/sessions/new" icon={Plus} label="New Session" />
+        <NavItem href="/portals" icon={Radar} label="Portal Tracker" />
       </nav>
 
       <div className="border-t border-sidebar-border px-3 py-2">

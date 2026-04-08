@@ -3,7 +3,7 @@
   "name": "IVM Auto-Fill",
   "version": "1.0.0",
   "description": "Fill web forms with data extracted by IVM (Intelligent Value Mapper)",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "scripting", "storage", "cookies"],
   "background": {
     "service_worker": "background.js"
   },

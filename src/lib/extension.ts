@@ -75,3 +75,39 @@ export async function sendFillToExtension(
     sessionId,
   });
 }
+
+export interface ExtensionCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "unspecified" | "no_restriction" | "lax" | "strict";
+}
+
+interface ExtensionCookieResponse {
+  success: boolean;
+  cookies?: ExtensionCookie[];
+  error?: string;
+}
+
+/**
+ * Captures cookies from the user's browser for a given URL via Chrome Extension.
+ * Used by Portal Tracker to reuse authenticated sessions.
+ */
+export async function captureCookiesFromExtension(
+  targetUrl: string
+): Promise<ExtensionCookie[]> {
+  const response = await sendMessageToExtension<ExtensionCookieResponse>({
+    type: "IVM_CAPTURE_COOKIES",
+    targetUrl,
+  });
+
+  if (!response?.success) {
+    throw new Error(response?.error ?? "Failed to capture cookies");
+  }
+
+  return response.cookies ?? [];
+}

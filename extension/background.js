@@ -18,6 +18,22 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
     return;
   }
 
+  if (message.type === "IVM_CAPTURE_COOKIES") {
+    const { targetUrl } = message;
+    if (!targetUrl) {
+      sendResponse({ success: false, error: "targetUrl is required" });
+      return;
+    }
+    chrome.cookies.getAll({ url: targetUrl }, (cookies) => {
+      if (chrome.runtime.lastError) {
+        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+        return;
+      }
+      sendResponse({ success: true, cookies: cookies || [] });
+    });
+    return true;
+  }
+
   if (message.type === "IVM_FILL") {
     const { targetUrl, script, sessionId } = message;
 
