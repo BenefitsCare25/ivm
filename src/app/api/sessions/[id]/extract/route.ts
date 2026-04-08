@@ -8,6 +8,7 @@ import { logger } from "@/lib/logger";
 import { errorResponse, UnauthorizedError, NotFoundError, ValidationError, AppError } from "@/lib/errors";
 import { enqueueAndWaitExtraction } from "@/lib/queue/extraction-queue";
 import type { AIProvider } from "@/lib/ai/types";
+import { getExtractionCounter, getExtractionDuration } from "@/lib/metrics";
 
 async function runExtractionInline(
   sessionId: string,
@@ -17,6 +18,7 @@ async function runExtractionInline(
   apiKey: string,
   userId: string
 ) {
+  const durationTimer = getExtractionDuration().startTimer({ provider });
   try {
     const storage = getStorageAdapter();
     const fileData = await storage.download(sourceAsset.storagePath);
@@ -29,6 +31,9 @@ async function runExtractionInline(
       provider,
       apiKey,
     });
+
+    durationTimer();
+    getExtractionCounter().inc({ provider, status: "completed" });
 
     const [updated] = await Promise.all([
       db.extractionResult.update({
@@ -67,6 +72,8 @@ async function runExtractionInline(
 
     return updated;
   } catch (aiErr) {
+    durationTimer();
+    getExtractionCounter().inc({ provider, status: "failed" });
     const errorMessage = aiErr instanceof Error ? aiErr.message : "Unknown extraction error";
 
     await Promise.all([

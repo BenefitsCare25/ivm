@@ -17,6 +17,7 @@ import {
 import type { FieldMapping } from "@/types/mapping";
 import type { TargetField, TargetType } from "@/types/target";
 import type { FillActionSummary } from "@/types/fill";
+import { getFillCounter, getFillFieldCounter } from "@/lib/metrics";
 
 export async function POST(
   req: Request,
@@ -158,6 +159,14 @@ export async function POST(
     );
 
     await Promise.all(updatePromises);
+
+    // Record metrics
+    const targetType = targetAsset.targetType.toLowerCase();
+    getFillCounter().inc({ target_type: targetType, status: "completed" });
+    getFillFieldCounter().inc({ status: "verified" }, report.verified);
+    getFillFieldCounter().inc({ status: "applied" }, report.applied);
+    getFillFieldCounter().inc({ status: "failed" }, report.failed);
+    getFillFieldCounter().inc({ status: "skipped" }, report.skipped);
 
     logger.info(
       { sessionId: id, targetType: targetAsset.targetType, report },
