@@ -23,9 +23,24 @@ function rateLimitResponse(result: { limit: number; resetAt: number }, message: 
   );
 }
 
+function buildCsp(nonce: string): string {
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'unsafe-eval'`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; ");
+}
+
 export default auth(async (req) => {
   const { pathname } = req.nextUrl;
   const requestId = crypto.randomUUID();
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const ip = getClientIp(req);
 
   if (pathname === "/api/auth/register" || pathname === "/api/auth/callback/credentials") {
@@ -71,8 +86,10 @@ export default auth(async (req) => {
 
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set(REQUEST_ID_HEADER, requestId);
+  requestHeaders.set("x-nonce", nonce);
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set(REQUEST_ID_HEADER, requestId);
+  response.headers.set("Content-Security-Policy", buildCsp(nonce));
   return response;
 });
 
