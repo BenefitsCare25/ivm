@@ -4,19 +4,10 @@ import { requireAuth } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { notFound } from "next/navigation";
 import { ReviewStepClient } from "@/components/sessions/review-step-client";
+import { buildFillReport, toFillActionSummary } from "@/types/fill";
 import type { FieldMapping } from "@/types/mapping";
 import type { TargetField, TargetType } from "@/types/target";
-import type { FillActionSummary, FillReport, FillSessionData } from "@/types/fill";
-
-function buildReport(actions: FillActionSummary[]): FillReport {
-  return {
-    total: actions.length,
-    applied: actions.filter((a) => a.status === "APPLIED").length,
-    verified: actions.filter((a) => a.status === "VERIFIED").length,
-    failed: actions.filter((a) => a.status === "FAILED").length,
-    skipped: actions.filter((a) => a.status === "SKIPPED").length,
-  };
-}
+import type { FillSessionData } from "@/types/fill";
 
 export default async function ReviewStepPage({
   params,
@@ -55,24 +46,13 @@ export default async function ReviewStepPage({
       ? (targetAsset.detectedFields as unknown as TargetField[])
       : [];
 
-    const actions: FillActionSummary[] = fillSession.fillActions.map((fa) => {
-      const tf = targetFields.find((f) => f.id === fa.targetFieldId);
-      const mapping = mappings.find((m) => m.targetFieldId === fa.targetFieldId);
-      return {
-        id: fa.id,
-        targetFieldId: fa.targetFieldId,
-        targetLabel: tf?.label ?? mapping?.targetLabel ?? fa.targetFieldId,
-        intendedValue: fa.intendedValue,
-        appliedValue: fa.appliedValue,
-        verifiedValue: fa.verifiedValue,
-        status: fa.status as FillActionSummary["status"],
-        errorMessage: fa.errorMessage,
-      };
-    });
+    const actions = fillSession.fillActions.map((fa) =>
+      toFillActionSummary(fa, targetFields, mappings)
+    );
 
     fillData = {
       actions,
-      report: buildReport(actions),
+      report: buildFillReport(actions),
       hasFilledDocument: !!targetAsset?.filledStoragePath,
       webpageFillScript: null,
     };

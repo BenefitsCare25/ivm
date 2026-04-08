@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { FormError } from "@/components/ui/form-error";
 import { FillReportCard } from "./fill-report-card";
 import { FillActionsTable } from "./fill-actions-table";
+import { useDownloadFill } from "./use-download-fill";
 import type { FillSessionData } from "@/types/fill";
 import type { TargetType } from "@/types/target";
 
@@ -26,6 +27,7 @@ export function ReviewStepClient({
   fillData,
 }: ReviewStepClientProps) {
   const router = useRouter();
+  const handleDownload = useDownloadFill(sessionId);
   const [completing, setCompleting] = useState(false);
   const [completed, setCompleted] = useState(sessionStatus === "COMPLETED");
   const [error, setError] = useState("");
@@ -54,22 +56,6 @@ export function ReviewStepClient({
       setCompleting(false);
     }
   }, [sessionId, router]);
-
-  const handleDownload = useCallback(async () => {
-    const res = await fetch(`/api/sessions/${sessionId}/fill/download`);
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download =
-      res.headers
-        .get("Content-Disposition")
-        ?.split("filename=")[1]
-        ?.replace(/"/g, "") ?? "filled-document";
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  }, [sessionId]);
 
   if (!hasPrerequisites || !fillData) {
     return (

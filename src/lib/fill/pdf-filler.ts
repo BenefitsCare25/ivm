@@ -102,7 +102,6 @@ export async function fillPdf(ctx: FillContext): Promise<FillerResult> {
   const filledKey = `filled/${ctx.sessionId}/${randomUUID()}.pdf`;
   await storage.upload(filledKey, filledBuffer, "application/pdf");
 
-  // Verify by reloading
   const verifyPdf = await PDFDocument.load(filledBuffer, { ignoreEncryption: true });
   const verifyForm = verifyPdf.getForm();
 

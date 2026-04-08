@@ -1,5 +1,4 @@
 import JSZip from "jszip";
-import mammoth from "mammoth";
 import { randomUUID } from "crypto";
 import { getStorageAdapter } from "@/lib/storage";
 import { logger } from "@/lib/logger";
@@ -99,24 +98,18 @@ export async function fillDocx(ctx: FillContext): Promise<FillerResult> {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   );
 
-  // Verify by extracting text from filled DOCX
-  try {
-    const { value: filledText } = await mammoth.extractRawText({ buffer: filledBuffer });
-    for (const result of results) {
-      if (result.status !== "APPLIED") continue;
-      const targetField = ctx.targetFields.find((f) => f.id === result.targetFieldId);
-      const placeholderName = targetField?.name ?? result.targetFieldId;
+  for (const result of results) {
+    if (result.status !== "APPLIED") continue;
+    const targetField = ctx.targetFields.find((f) => f.id === result.targetFieldId);
+    const placeholderName = targetField?.name ?? result.targetFieldId;
 
-      if (
-        !filledText.includes(`{{${placeholderName}}}`) &&
-        filledText.includes(result.intendedValue)
-      ) {
-        result.verifiedValue = result.intendedValue;
-        result.status = "VERIFIED";
-      }
+    if (
+      !docXml.includes(`{{${placeholderName}}}`) &&
+      docXml.includes(escapeXml(result.intendedValue))
+    ) {
+      result.verifiedValue = result.intendedValue;
+      result.status = "VERIFIED";
     }
-  } catch (err) {
-    logger.warn({ err }, "DOCX verification failed — keeping APPLIED status");
   }
 
   return {

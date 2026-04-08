@@ -8,6 +8,7 @@ import { FormError } from "@/components/ui/form-error";
 import { FillReportCard } from "./fill-report-card";
 import { FillActionsTable } from "./fill-actions-table";
 import { WebpageFillScript } from "./webpage-fill-script";
+import { useDownloadFill } from "./use-download-fill";
 import type { FillState, FillSessionData } from "@/types/fill";
 import type { TargetType } from "@/types/target";
 
@@ -33,15 +34,13 @@ export function FillStepClient({
   initialData,
 }: FillStepClientProps) {
   const router = useRouter();
+  const handleDownload = useDownloadFill(sessionId);
 
   const [fillState, setFillState] = useState<FillState>(() =>
     resolveInitialState(initialData)
   );
   const [fillData, setFillData] = useState<FillSessionData | null>(initialData);
   const [error, setError] = useState("");
-  const [webpageScript, setWebpageScript] = useState<string | null>(
-    initialData?.webpageFillScript ?? null
-  );
 
   const handleExecute = useCallback(async () => {
     setFillState("processing");
@@ -61,7 +60,6 @@ export function FillStepClient({
 
       const result = await res.json();
       setFillData(result);
-      setWebpageScript(result.webpageFillScript);
       setFillState("completed");
       router.refresh();
     } catch (err) {
@@ -71,22 +69,6 @@ export function FillStepClient({
       setFillState("failed");
     }
   }, [sessionId, router]);
-
-  const handleDownload = useCallback(async () => {
-    const res = await fetch(`/api/sessions/${sessionId}/fill/download`);
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download =
-      res.headers
-        .get("Content-Disposition")
-        ?.split("filename=")[1]
-        ?.replace(/"/g, "") ?? "filled-document";
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  }, [sessionId]);
 
   if (!hasPrerequisites) {
     return (
@@ -166,8 +148,11 @@ export function FillStepClient({
       {fillState === "completed" && fillData && (
         <>
           <FillReportCard report={fillData.report} />
-          {webpageScript && targetType === "WEBPAGE" && (
-            <WebpageFillScript script={webpageScript} targetUrl={targetUrl} />
+          {fillData.webpageFillScript && targetType === "WEBPAGE" && (
+            <WebpageFillScript
+              script={fillData.webpageFillScript}
+              targetUrl={targetUrl}
+            />
           )}
           <FillActionsTable actions={fillData.actions} />
         </>

@@ -10,19 +10,13 @@ import {
 } from "@/lib/errors";
 import { executeFillSchema } from "@/lib/validations/fill";
 import { buildFillContext, executeFill } from "@/lib/fill";
+import {
+  buildFillReport,
+  toFillActionSummary,
+} from "@/types/fill";
 import type { FieldMapping } from "@/types/mapping";
 import type { TargetField, TargetType } from "@/types/target";
-import type { FillActionSummary, FillReport } from "@/types/fill";
-
-function buildReport(actions: FillActionSummary[]): FillReport {
-  return {
-    total: actions.length,
-    applied: actions.filter((a) => a.status === "APPLIED").length,
-    verified: actions.filter((a) => a.status === "VERIFIED").length,
-    failed: actions.filter((a) => a.status === "FAILED").length,
-    skipped: actions.filter((a) => a.status === "SKIPPED").length,
-  };
-}
+import type { FillActionSummary } from "@/types/fill";
 
 export async function POST(
   req: Request,
@@ -68,7 +62,6 @@ export async function POST(
     const mappings = mappingSet.mappings as unknown as FieldMapping[];
     const targetFields = targetAsset.detectedFields as unknown as TargetField[];
 
-    // Delete existing fill actions (re-fill support)
     await db.fillAction.deleteMany({ where: { fillSessionId: id } });
 
     const ctx = buildFillContext({
@@ -91,46 +84,47 @@ export async function POST(
 
     const result = await executeFill(ctx);
 
-    // Create FillAction records
     const now = new Date();
-    const fillActions = await Promise.all(
-      result.results.map((r) =>
-        db.fillAction.create({
-          data: {
-            fillSessionId: id,
-            mappingSetId: mappingSet.id,
-            targetFieldId: r.targetFieldId,
-            intendedValue: r.intendedValue,
-            appliedValue: r.appliedValue,
-            verifiedValue: r.verifiedValue,
-            status: r.status,
-            errorMessage: r.errorMessage,
-            appliedAt:
-              r.status !== "FAILED" && r.status !== "SKIPPED" ? now : null,
-            verifiedAt: r.status === "VERIFIED" ? now : null,
-          },
-        })
-      )
-    );
-
-    // Update target asset with filled storage path
-    if (result.filledStoragePath) {
-      await db.targetAsset.update({
-        where: { id: targetAsset.id },
-        data: { filledStoragePath: result.filledStoragePath },
-      });
-    }
-
-    // Update session status
-    await db.fillSession.updateMany({
-      where: { id, userId: session.user.id },
-      data: { status: "FILLED", currentStep: "FILL" },
+    await db.fillAction.createMany({
+      data: result.results.map((r) => ({
+        fillSessionId: id,
+        mappingSetId: mappingSet.id,
+        targetFieldId: r.targetFieldId,
+        intendedValue: r.intendedValue,
+        appliedValue: r.appliedValue,
+        verifiedValue: r.verifiedValue,
+        status: r.status,
+        errorMessage: r.errorMessage,
+        appliedAt:
+          r.status !== "FAILED" && r.status !== "SKIPPED" ? now : null,
+        verifiedAt: r.status === "VERIFIED" ? now : null,
+      })),
     });
 
-    const actions: FillActionSummary[] = fillActions.map((fa, i) => ({
+    const dbActions = await db.fillAction.findMany({
+      where: { fillSessionId: id },
+    });
+
+    const updatePromises: Promise<unknown>[] = [
+      db.fillSession.updateMany({
+        where: { id, userId: session.user.id },
+        data: { status: "FILLED", currentStep: "FILL" },
+      }),
+    ];
+
+    if (result.filledStoragePath) {
+      updatePromises.push(
+        db.targetAsset.update({
+          where: { id: targetAsset.id },
+          data: { filledStoragePath: result.filledStoragePath },
+        })
+      );
+    }
+
+    const actions: FillActionSummary[] = dbActions.map((fa, i) => ({
       id: fa.id,
       targetFieldId: fa.targetFieldId,
-      targetLabel: result.results[i].targetLabel,
+      targetLabel: result.results[i]?.targetLabel ?? fa.targetFieldId,
       intendedValue: fa.intendedValue,
       appliedValue: fa.appliedValue,
       verifiedValue: fa.verifiedValue,
@@ -138,18 +132,22 @@ export async function POST(
       errorMessage: fa.errorMessage,
     }));
 
-    const report = buildReport(actions);
+    const report = buildFillReport(actions);
 
-    await db.auditEvent.create({
-      data: {
-        fillSessionId: id,
-        eventType: "FILL_EXECUTED",
-        actor: session.user.id,
-        payload: JSON.parse(
-          JSON.stringify({ targetType: targetAsset.targetType, report })
-        ),
-      },
-    });
+    updatePromises.push(
+      db.auditEvent.create({
+        data: {
+          fillSessionId: id,
+          eventType: "FILL_EXECUTED",
+          actor: session.user.id,
+          payload: JSON.parse(
+            JSON.stringify({ targetType: targetAsset.targetType, report })
+          ),
+        },
+      })
+    );
+
+    await Promise.all(updatePromises);
 
     logger.info(
       { sessionId: id, targetType: targetAsset.targetType, report },
@@ -204,30 +202,14 @@ export async function GET(
       ? (targetAsset.detectedFields as unknown as TargetField[])
       : [];
 
-    const actions: FillActionSummary[] = fillSession.fillActions.map((fa) => {
-      const targetField = targetFields.find((f) => f.id === fa.targetFieldId);
-      const mapping = mappings.find((m) => m.targetFieldId === fa.targetFieldId);
-      return {
-        id: fa.id,
-        targetFieldId: fa.targetFieldId,
-        targetLabel:
-          targetField?.label ?? mapping?.targetLabel ?? fa.targetFieldId,
-        intendedValue: fa.intendedValue,
-        appliedValue: fa.appliedValue,
-        verifiedValue: fa.verifiedValue,
-        status: fa.status as FillActionSummary["status"],
-        errorMessage: fa.errorMessage,
-      };
-    });
-
-    const report = buildReport(actions);
+    const actions = fillSession.fillActions.map((fa) =>
+      toFillActionSummary(fa, targetFields, mappings)
+    );
 
     return NextResponse.json({
       actions,
-      report,
-      hasFilledDocument:
-        targetAsset?.filledStoragePath !== null &&
-        targetAsset?.filledStoragePath !== undefined,
+      report: buildFillReport(actions),
+      hasFilledDocument: !!targetAsset?.filledStoragePath,
       webpageFillScript: null,
     });
   } catch (err) {
