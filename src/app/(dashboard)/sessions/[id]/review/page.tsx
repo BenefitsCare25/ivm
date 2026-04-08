@@ -31,7 +31,7 @@ export default async function ReviewStepPage({
         take: 1,
       },
       fillActions: true,
-      auditEvents: { orderBy: { timestamp: "asc" } },
+      auditEvents: { orderBy: { timestamp: "asc" }, take: 100 },
     },
   });
 
@@ -43,12 +43,12 @@ export default async function ReviewStepPage({
   const mappingSet = fillSession.mappingSets[0] ?? null;
   const hasFillActions = fillSession.fillActions.length > 0;
 
-  // Build fill data
+  const mappings = mappingSet
+    ? (mappingSet.mappings as unknown as FieldMapping[])
+    : [];
+
   let fillData: FillSessionData | null = null;
   if (hasFillActions) {
-    const mappings = mappingSet
-      ? (mappingSet.mappings as unknown as FieldMapping[])
-      : [];
     const targetFields = targetAsset
       ? (targetAsset.detectedFields as unknown as TargetField[])
       : [];
@@ -63,7 +63,6 @@ export default async function ReviewStepPage({
     };
   }
 
-  // Build audit events
   const auditEvents: AuditEventSummary[] = fillSession.auditEvents.map((e) => ({
     id: e.id,
     eventType: e.eventType,
@@ -72,11 +71,7 @@ export default async function ReviewStepPage({
     payload: e.payload as Record<string, unknown>,
   }));
 
-  // Build metadata
   const extractedFields = extraction?.fields;
-  const mappings = mappingSet
-    ? (mappingSet.mappings as unknown as FieldMapping[])
-    : [];
   const metadata: SessionMetadataProps = {
     sourceFileName: sourceAsset?.originalName ?? null,
     sourceMimeType: sourceAsset?.mimeType ?? null,

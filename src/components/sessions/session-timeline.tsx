@@ -17,7 +17,7 @@ import {
   Circle,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
-import { getEventLabel, formatPayloadSummary } from "@/types/audit";
+import { getEventLabel, getEventIconName, formatPayloadSummary } from "@/types/audit";
 import type { AuditEventSummary } from "@/types/audit";
 
 type LucideIcon = React.ElementType;
@@ -39,25 +39,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Circle,
 };
 
-const EVENT_ICON_NAMES: Record<string, string> = {
-  SESSION_CREATED: "Plus",
-  SOURCE_UPLOADED: "Upload",
-  EXTRACTION_STARTED: "Loader",
-  EXTRACTION_COMPLETED: "CheckCircle",
-  EXTRACTION_FAILED: "XCircle",
-  EXTRACTION_FIELD_EDITED: "Pencil",
-  TARGET_SELECTED: "Target",
-  TARGET_DELETED: "Trash2",
-  MAPPING_PROPOSED: "GitBranch",
-  MAPPING_REVIEWED: "Eye",
-  MAPPING_ACCEPTED: "ThumbsUp",
-  FILL_EXECUTED: "Play",
-  SESSION_COMPLETED: "CheckCircle2",
-};
-
 function getIconComponent(eventType: string): LucideIcon {
-  const name = EVENT_ICON_NAMES[eventType] ?? "Circle";
-  return ICON_MAP[name] ?? Circle;
+  return ICON_MAP[getEventIconName(eventType)] ?? Circle;
 }
 
 function getEventColor(eventType: string): string {

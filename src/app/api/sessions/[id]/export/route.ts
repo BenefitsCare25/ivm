@@ -102,7 +102,7 @@ export async function GET(
       auditEvents: fillSession.auditEvents,
     };
 
-    return new NextResponse(JSON.stringify(exportData, null, 2), {
+    return new NextResponse(JSON.stringify(exportData), {
       headers: {
         "Content-Type": "application/json",
         "Content-Disposition": `attachment; filename="session-${id}-export.json"`,
