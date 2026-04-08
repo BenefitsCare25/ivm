@@ -1,5 +1,7 @@
 export type FillActionStatus = "PENDING" | "APPLIED" | "VERIFIED" | "FAILED" | "SKIPPED";
 
+export type FillState = "idle" | "processing" | "completed" | "failed";
+
 export interface FillActionSummary {
   id: string;
   targetFieldId: string;
@@ -17,4 +19,17 @@ export interface FillReport {
   verified: number;
   failed: number;
   skipped: number;
+}
+
+export interface FillSessionData {
+  actions: FillActionSummary[];
+  report: FillReport;
+  hasFilledDocument: boolean;
+  webpageFillScript: string | null;
+}
+
+export interface WebpageFillScript {
+  script: string;
+  fieldCount: number;
+  targetUrl: string;
 }

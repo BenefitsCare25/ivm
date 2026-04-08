@@ -92,6 +92,21 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 - Map step UI: server component fetches data (`map/page.tsx`), client component manages state (`map-step-client.tsx`), review table (`mapping-review-table.tsx`) supports inline editing, approve/reject, approve-all
 - `MappingState` type (`"idle" | "processing" | "completed" | "failed"`) maps from Prisma status via `resolveInitialState()` — `"PROPOSED"`/`"ACCEPTED"` both resolve to `"completed"`
 
+### Fill Execution
+- Three fillers in `src/lib/fill/`: `pdf-filler.ts` (pdf-lib AcroForm), `docx-filler.ts` (JSZip XML replacement), `webpage-filler.ts` (JS script generation)
+- Dispatcher: `executeFill()` from `src/lib/fill/index.ts` — routes by `TargetType`
+- `buildFillContext()` filters to approved mappings, resolves intended values (`userOverrideValue ?? transformedValue`)
+- Fill + verify runs synchronously in one API call (sub-second for PDF/DOCX, instant for webpage)
+- `FillAction` model tracks per-field status: `PENDING → APPLIED → VERIFIED` (or `FAILED`/`SKIPPED`)
+- `TargetAsset.filledStoragePath` stores the filled PDF/DOCX in storage
+- Webpage fills produce a JS snippet (not persisted) — user copies and runs in browser console
+- Re-fill support: POST to fill API deletes existing FillActions and overwrites filledStoragePath
+- DOCX caveat: placeholders split across XML formatting runs will fail — must be contiguous `{{placeholder}}` text
+
+### Session Completion
+- `POST /api/sessions/[id]/complete` — transitions `FILLED → COMPLETED`
+- Review step shows FillReport summary + FillActionsTable + download link
+
 ### Shared Type Sources of Truth
 - `src/types/extraction.ts`: `FIELD_TYPES`, `FieldType`, `ExtractedField`, `ExtractionState`, `SourceAssetData`
 - `src/types/target.ts`: `TargetType`, `TargetField`, `TargetAssetData`, `TargetAssetSummary`
@@ -128,7 +143,7 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 | 2 | Source Ingestion & AI Extraction | Deployed |
 | 3 | Target Ingestion (Web/PDF/DOCX) | Deployed |
 | 4 | AI Field Understanding & Mapping | Deployed |
-| 5 | Fill Actions & Verification | Not started |
+| 5 | Fill Actions & Verification | Deployed |
 | 6 | Review UX, History & Audit | Not started |
 | 7 | Production Hardening | Not started |
 
@@ -140,6 +155,7 @@ Detailed implementation plans live in `docs/superpowers/plans/`. Write a plan be
 - Phase 2: `docs/superpowers/plans/2026-04-07-ivm-phase2-source-extraction.md`
 - Phase 3: `docs/superpowers/plans/2026-04-07-ivm-phase3-target-ingestion.md`
 - Phase 4: `docs/superpowers/plans/2026-04-07-ivm-phase4-field-mapping.md` (plan file at `C:\Users\huien\.claude-work\plans\wise-nibbling-church.md`)
+- Phase 5: `docs/superpowers/plans/2026-04-08-ivm-phase5-fill-verification.md`
 
 ## Deployment
 
@@ -185,6 +201,9 @@ src/
         target/           # Target CRUD (GET/POST/DELETE)
         mapping/          # AI mapping propose + fetch (POST/GET)
         mapping/[mappingSetId]/ # Accept mapping review (PATCH)
+        fill/             # Execute fill (POST) + fetch results (GET)
+          download/       # Download filled document (GET)
+        complete/         # Mark session completed (POST)
   components/
     ui/                   # Reusable primitives (button, card, input, etc.)
     auth/                 # Auth-specific components
@@ -193,9 +212,10 @@ src/
     settings/             # Settings components (api-keys-form)
   lib/                    # Core utilities and services
     ai/                   # Multi-provider AI extraction + mapping (index, anthropic, openai, gemini, mapping, parse, parse-mapping, resolve-provider, validate-key, prompts, types)
+    fill/                 # Fill execution engines (PDF/DOCX/webpage)
     target/               # Target inspection engines (webpage/PDF/DOCX)
     storage/              # Storage adapter abstraction
-    validations/          # Zod schemas (session, upload, extraction, target, mapping, api-key)
+    validations/          # Zod schemas (session, upload, extraction, target, mapping, fill, api-key)
   styles/                 # CSS tokens and globals
   types/                  # TypeScript type definitions (session, extraction, target, mapping, fill)
 prisma/                   # Schema and seed
