@@ -54,10 +54,26 @@ export function errorResponse(err: unknown): Response {
     );
   }
   if (err instanceof AppError) {
+    // Only capture 5xx errors in Sentry — 4xx are expected client errors
+    if (err.statusCode >= 500) {
+      try {
+        const Sentry = require("@sentry/nextjs");
+        Sentry.captureException(err);
+      } catch {
+        // Sentry not configured — ignore
+      }
+    }
     return NextResponse.json(
       { error: err.message, code: err.code },
       { status: err.statusCode }
     );
+  }
+  // Unhandled/unknown errors — always capture
+  try {
+    const Sentry = require("@sentry/nextjs");
+    Sentry.captureException(err);
+  } catch {
+    // Sentry not configured — ignore
   }
   const { logger } = require("@/lib/logger");
   logger.error({ err }, "Unhandled error");
