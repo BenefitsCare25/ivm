@@ -18,6 +18,15 @@ export const STEP_LABELS: Record<SessionStep, string> = {
   REVIEW: "Review",
 };
 
+export const STEP_ROUTES: Record<SessionStep, string> = {
+  SOURCE: "source",
+  EXTRACT: "extract",
+  TARGET: "target",
+  MAP: "map",
+  FILL: "fill",
+  REVIEW: "review",
+};
+
 export const STEP_DESCRIPTIONS: Record<SessionStep, string> = {
   SOURCE: "Upload your source document",
   EXTRACT: "Review extracted fields",
@@ -32,7 +41,15 @@ export interface SessionSummary {
   title: string;
   description: string | null;
   status: string;
-  currentStep: SessionStep;
-  createdAt: string;
-  updatedAt: string;
+  currentStep: string;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}
+
+export interface SessionDetailSummary extends SessionSummary {
+  sourceFileName: string | null;
+  sourceMimeType: string | null;
+  targetType: string | null;
+  targetName: string | null;
+  extractedFieldCount: number;
 }
