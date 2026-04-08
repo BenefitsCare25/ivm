@@ -1,8 +1,14 @@
+"use client";
+
+import { RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import type { FillActionSummary, FillActionStatus } from "@/types/fill";
 
 interface FillActionsTableProps {
   actions: FillActionSummary[];
+  onRetryField?: (targetFieldId: string) => void;
+  retryingFieldId?: string | null;
 }
 
 const STATUS_VARIANT: Record<
@@ -24,7 +30,11 @@ const STATUS_LABEL: Record<FillActionStatus, string> = {
   SKIPPED: "Skipped",
 };
 
-export function FillActionsTable({ actions }: FillActionsTableProps) {
+export function FillActionsTable({
+  actions,
+  onRetryField,
+  retryingFieldId,
+}: FillActionsTableProps) {
   if (actions.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
@@ -84,9 +94,30 @@ export function FillActionsTable({ actions }: FillActionsTableProps) {
                 )}
               </td>
               <td className="px-4 py-2">
-                <Badge variant={STATUS_VARIANT[action.status]}>
-                  {STATUS_LABEL[action.status]}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={STATUS_VARIANT[action.status]}>
+                    {action.targetFieldId === retryingFieldId ? (
+                      <span className="flex items-center gap-1">
+                        <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+                        Retrying
+                      </span>
+                    ) : (
+                      STATUS_LABEL[action.status]
+                    )}
+                  </Badge>
+                  {action.status === "FAILED" && onRetryField && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      disabled={retryingFieldId !== null && retryingFieldId !== undefined}
+                      onClick={() => onRetryField(action.targetFieldId)}
+                    >
+                      <RotateCcw className="mr-1 h-3 w-3" />
+                      Retry
+                    </Button>
+                  )}
+                </div>
                 {action.errorMessage && (
                   <p className="mt-1 text-xs text-red-500">
                     {action.errorMessage}

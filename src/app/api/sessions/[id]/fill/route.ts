@@ -61,8 +61,16 @@ export async function POST(
 
     const mappings = mappingSet.mappings as unknown as FieldMapping[];
     const targetFields = targetAsset.detectedFields as unknown as TargetField[];
+    const { retryFieldIds, skipFieldIds } = parsed.data;
 
-    await db.fillAction.deleteMany({ where: { fillSessionId: id } });
+    // Partial re-fill: only delete FillActions for the retried fields
+    if (retryFieldIds && retryFieldIds.length > 0) {
+      await db.fillAction.deleteMany({
+        where: { fillSessionId: id, targetFieldId: { in: retryFieldIds } },
+      });
+    } else {
+      await db.fillAction.deleteMany({ where: { fillSessionId: id } });
+    }
 
     const ctx = buildFillContext({
       sessionId: id,
@@ -73,7 +81,8 @@ export async function POST(
       storagePath: targetAsset.storagePath,
       targetUrl: targetAsset.url,
       targetFileName: targetAsset.fileName,
-      skipFieldIds: parsed.data.skipFieldIds,
+      skipFieldIds,
+      retryFieldIds,
     });
 
     if (ctx.approvedMappings.length === 0) {
@@ -101,6 +110,7 @@ export async function POST(
       })),
     });
 
+    // Load all fill actions (includes unchanged ones when doing partial retry)
     const dbActions = await db.fillAction.findMany({
       where: { fillSessionId: id },
     });

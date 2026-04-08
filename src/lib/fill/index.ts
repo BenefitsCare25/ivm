@@ -15,11 +15,13 @@ export function buildFillContext(params: {
   targetUrl: string | null;
   targetFileName: string | null;
   skipFieldIds?: string[];
+  retryFieldIds?: string[];
 }): FillContext {
   const approved = params.mappings.filter((m) => {
     if (!m.userApproved) return false;
     if (m.sourceFieldId === null && !m.userOverrideValue) return false;
     if (params.skipFieldIds?.includes(m.targetFieldId)) return false;
+    if (params.retryFieldIds && !params.retryFieldIds.includes(m.targetFieldId)) return false;
     return true;
   });
 

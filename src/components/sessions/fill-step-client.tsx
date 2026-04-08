@@ -41,6 +41,7 @@ export function FillStepClient({
   );
   const [fillData, setFillData] = useState<FillSessionData | null>(initialData);
   const [error, setError] = useState("");
+  const [retryingFieldId, setRetryingFieldId] = useState<string | null>(null);
 
   const handleExecute = useCallback(async () => {
     setFillState("processing");
@@ -67,6 +68,33 @@ export function FillStepClient({
         err instanceof Error ? err.message : "Fill execution failed";
       setError(message);
       setFillState("failed");
+    }
+  }, [sessionId, router]);
+
+  const handleRetryField = useCallback(async (targetFieldId: string) => {
+    setRetryingFieldId(targetFieldId);
+    setError("");
+
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/fill`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ retryFieldIds: [targetFieldId] }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Retry failed");
+      }
+
+      const result = await res.json();
+      setFillData(result);
+      router.refresh();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Retry failed";
+      setError(message);
+    } finally {
+      setRetryingFieldId(null);
     }
   }, [sessionId, router]);
 
@@ -154,7 +182,11 @@ export function FillStepClient({
               targetUrl={targetUrl}
             />
           )}
-          <FillActionsTable actions={fillData.actions} />
+          <FillActionsTable
+            actions={fillData.actions}
+            onRetryField={handleRetryField}
+            retryingFieldId={retryingFieldId}
+          />
         </>
       )}
     </div>
