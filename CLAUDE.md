@@ -170,6 +170,7 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 | 5 | Fill Actions & Verification | Deployed |
 | 6 | Review UX, History & Audit | Deployed |
 | 7 | Production Hardening | Deployed |
+| 8 | Deferred Features (Redis, S3, DOCX, BullMQ, Sentry, Metrics, OpenAPI) | Deployed |
 
 ## Plan Documents
 
@@ -182,6 +183,7 @@ Detailed implementation plans live in `docs/superpowers/plans/`. Write a plan be
 - Phase 5: `docs/superpowers/plans/2026-04-08-ivm-phase5-fill-verification.md`
 - Phase 6: `docs/superpowers/plans/2026-04-08-ivm-phase6-review-history-audit.md`
 - Phase 7: `docs/superpowers/plans/2026-04-08-ivm-phase7-production-hardening.md`
+- Phase 8: `docs/superpowers/plans/2026-04-08-ivm-phase8-deferred-features.md`
 
 ## Deployment
 
