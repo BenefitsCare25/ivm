@@ -213,8 +213,9 @@ Detailed implementation plans live in `docs/superpowers/plans/`. Write a plan be
 - **Database**: Supabase PostgreSQL 15.8 in Docker on port 5433
 - **Process**: PM2 (`ivm`) on port 3001, nginx proxies 443 → 3001
 - **Login**: `dev@ivm.local / password123`
-- **Deploy**: `tar czf` → `scp` → extract → `npm ci && npx prisma generate && npm run build && pm2 restart ivm`
-- **Pending**: No domain/proper SSL, no git repo
+- **Deploy**: Copy changed files via `scp` → `npm run build && pm2 restart ivm` on VPS
+- **Deploy (full)**: `tar czf` → `scp` → extract → `npm ci && npx prisma generate && npm run build && pm2 restart ivm`
+- **Pending**: No domain/proper SSL, no git repo (deploy directly to VPS via scp)
 
 ## Development Setup
 
