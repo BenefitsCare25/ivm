@@ -1,14 +1,48 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormError } from "@/components/ui/form-error";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ArrowRight, ArrowLeft, Check, Sparkles, Cookie, KeyRound } from "lucide-react";
+import { Loader2, ArrowRight, ArrowLeft, Check, Sparkles, Cookie, KeyRound, AlertTriangle, ExternalLink, ChevronDown, CheckCircle2, RefreshCw } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { detectExtension, captureCookiesFromExtension } from "@/lib/extension";
+import type { ExtensionCookie } from "@/lib/extension";
 import type { ListSelectors, DetailSelectors } from "@/types/portal";
+
+/** Map Chrome extension sameSite values to the format expected by the Zod schema */
+function mapSameSite(v?: string): "Strict" | "Lax" | "None" | undefined {
+  switch (v) {
+    case "strict": return "Strict";
+    case "lax": return "Lax";
+    case "no_restriction": return "None";
+    default: return undefined;
+  }
+}
+
+function normalizeUrl(url: string): string {
+  const trimmed = url.trim();
+  if (trimmed && !/^https?:\/\//i.test(trimmed)) return `https://${trimmed}`;
+  return trimmed;
+}
+
+/** Transform Chrome extension cookies to the format expected by the save API */
+function mapChromeCookies(cookies: ExtensionCookie[]) {
+  return cookies.map((c) => ({
+    name: c.name,
+    value: c.value,
+    domain: c.domain,
+    path: c.path || "/",
+    // Chrome API returns `expirationDate` (seconds); our Zod schema expects `expires`
+    expires: c.expires ?? c.expirationDate,
+    httpOnly: c.httpOnly,
+    secure: c.secure,
+    sameSite: mapSameSite(c.sameSite),
+  }));
+}
 
 type WizardStep = "url" | "auth" | "analyze" | "selectors" | "save";
 
@@ -33,9 +67,13 @@ export function PortalSetupWizard() {
 
   // Step 2: Auth
   const [authMethod, setAuthMethod] = useState<"COOKIES" | "CREDENTIALS">("COOKIES");
-  const [loginUrl, setLoginUrl] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [cookieJson, setCookieJson] = useState("");
+  const [extensionDetected, setExtensionDetected] = useState(false);
+  const [capturingCookies, setCapturingCookies] = useState(false);
+  const [capturedCount, setCapturedCount] = useState<number | null>(null);
+  const [showManualPaste, setShowManualPaste] = useState(false);
 
   // Step 3-4: Analysis results
   const [portalId, setPortalId] = useState<string | null>(null);
@@ -45,23 +83,54 @@ export function PortalSetupWizard() {
 
   const currentIdx = STEPS.findIndex((s) => s.key === step);
 
+  // Detect Chrome extension when entering auth step with cookies method
+  useEffect(() => {
+    if (step === "auth" && authMethod === "COOKIES") {
+      detectExtension().then(setExtensionDetected).catch(() => setExtensionDetected(false));
+    }
+  }, [step, authMethod]);
+
+  const handleCaptureCookies = useCallback(async () => {
+    if (!baseUrl.trim()) return;
+    setCapturingCookies(true);
+    setError(null);
+    setCapturedCount(null);
+    try {
+      const normalizedBase = normalizeUrl(baseUrl);
+      const cookies = await captureCookiesFromExtension(normalizedBase);
+      const mapped = mapChromeCookies(cookies);
+      setCookieJson(JSON.stringify(mapped, null, 2));
+      setCapturedCount(mapped.length);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to capture cookies from extension");
+    } finally {
+      setCapturingCookies(false);
+    }
+  }, [baseUrl]);
+
+  function apiError(data: Record<string, unknown>, fallback: string): string {
+    return (data.error as string) || (data.message as string) || fallback;
+  }
+
   async function createPortal() {
     setLoading(true);
     setError(null);
+    const normalizedBase = normalizeUrl(baseUrl);
+    const normalizedList = normalizeUrl(listPageUrl);
     try {
       const res = await fetch("/api/portals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
-          baseUrl,
-          listPageUrl: listPageUrl || undefined,
+          baseUrl: normalizedBase,
+          listPageUrl: normalizedList || undefined,
           authMethod,
         }),
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.message || "Failed to create portal");
+        throw new Error(apiError(data, "Failed to create portal"));
       }
       const portal = await res.json();
       setPortalId(portal.id);
@@ -79,14 +148,29 @@ export function PortalSetupWizard() {
         const res = await fetch(`/api/portals/${id}/credentials`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ loginUrl, username, password }),
+          body: JSON.stringify({ username, password }),
         });
         if (!res.ok) {
           const data = await res.json();
-          throw new Error(data.message || "Failed to save credentials");
+          throw new Error(apiError(data, "Failed to save credentials"));
+        }
+      } else if (authMethod === "COOKIES" && cookieJson.trim()) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(cookieJson.trim());
+        } catch {
+          throw new Error("Invalid cookie JSON — paste a valid JSON array of cookie objects");
+        }
+        const res = await fetch(`/api/portals/${id}/cookies`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cookies: parsed }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(apiError(data, "Failed to save cookies"));
         }
       }
-      // For cookies, user will use Chrome Extension from the portal detail page
     } finally {
       setLoading(false);
     }
@@ -99,7 +183,7 @@ export function PortalSetupWizard() {
       const res = await fetch(`/api/portals/${id}/analyze`, { method: "POST" });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.message || "Analysis failed");
+        throw new Error(apiError(data, "Analysis failed"));
       }
       const data = await res.json();
       setListSelectors(data.listSelectors ?? {});
@@ -121,7 +205,7 @@ export function PortalSetupWizard() {
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.message || "Failed to save selectors");
+        throw new Error(apiError(data, "Failed to save selectors"));
       }
     } finally {
       setLoading(false);
@@ -261,14 +345,6 @@ export function PortalSetupWizard() {
               {authMethod === "CREDENTIALS" && (
                 <>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">Login Page URL</label>
-                    <Input
-                      placeholder="https://portal.example.com/login"
-                      value={loginUrl}
-                      onChange={(e) => setLoginUrl(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
                     <label className="text-sm font-medium text-foreground">Username</label>
                     <Input
                       value={username}
@@ -287,11 +363,115 @@ export function PortalSetupWizard() {
               )}
 
               {authMethod === "COOKIES" && (
-                <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
-                  <p>
-                    After setup, use the Chrome Extension to capture cookies from your
-                    logged-in browser session. You can do this from the portal detail page.
-                  </p>
+                <div className="space-y-3">
+                  {extensionDetected ? (
+                    <>
+                      {/* Primary flow: one-click capture */}
+                      <div className="space-y-3">
+                        <p className="text-sm text-muted-foreground">
+                          Login to your portal in Chrome, then capture your session cookies with one click.
+                        </p>
+
+                        <div className="flex items-center gap-2">
+                          {!capturedCount && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(normalizeUrl(baseUrl), "_blank")}
+                              disabled={!baseUrl.trim()}
+                            >
+                              <ExternalLink className="mr-2 h-3.5 w-3.5" />
+                              Open Portal in New Tab
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={handleCaptureCookies}
+                            disabled={capturingCookies || !baseUrl.trim()}
+                          >
+                            {capturingCookies ? (
+                              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                            ) : capturedCount ? (
+                              <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                            ) : (
+                              <Cookie className="mr-2 h-3.5 w-3.5" />
+                            )}
+                            {capturedCount ? "Re-capture Cookies" : "Capture Cookies from Browser"}
+                          </Button>
+                        </div>
+
+                        {capturedCount !== null && capturedCount > 0 && (
+                          <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-400">
+                            <CheckCircle2 className="h-4 w-4 shrink-0" />
+                            <span>Captured {capturedCount} cookies from your browser session.</span>
+                          </div>
+                        )}
+
+                        {capturedCount === 0 && (
+                          <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+                            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                            <span>No cookies found for this URL. Make sure you are logged into the portal in Chrome first.</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Collapsible manual paste fallback */}
+                      <button
+                        type="button"
+                        onClick={() => setShowManualPaste(!showManualPaste)}
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        <ChevronDown className={`h-3 w-3 transition-transform ${showManualPaste ? "rotate-180" : ""}`} />
+                        Paste manually instead
+                      </button>
+
+                      {showManualPaste && (
+                        <div className="space-y-2">
+                          <Textarea
+                            placeholder={`Paste cookie JSON array, e.g.:\n[{"name":"session","value":"abc123","domain":".example.com","path":"/"}]`}
+                            value={cookieJson}
+                            onChange={(e) => { setCookieJson(e.target.value); setCapturedCount(null); }}
+                            className="font-mono text-xs h-28 resize-none"
+                          />
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {/* Fallback: no extension detected */}
+                      <div className="flex items-start gap-2 rounded-lg bg-primary/5 p-3 text-xs text-muted-foreground">
+                        <Cookie className="h-4 w-4 shrink-0 mt-0.5 text-primary" />
+                        <span>
+                          Install the <strong>IVM Chrome Extension</strong> for one-click cookie capture.
+                          Without it, paste cookie JSON manually below.
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-foreground">
+                          Cookie JSON <span className="text-muted-foreground">(required for AI analysis)</span>
+                        </label>
+                        <Textarea
+                          placeholder={`Paste cookie JSON array, e.g.:\n[{"name":"session","value":"abc123","domain":".example.com","path":"/"}]`}
+                          value={cookieJson}
+                          onChange={(e) => setCookieJson(e.target.value)}
+                          className="font-mono text-xs h-28 resize-none"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          In Chrome: DevTools &rarr; Application &rarr; Cookies &rarr; right-click &rarr; Copy all as JSON.
+                        </p>
+                      </div>
+                    </>
+                  )}
+
+                  {!cookieJson.trim() && !capturedCount && (
+                    <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+                      <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <span>Without cookies, AI analysis will navigate without authentication and may see the login page instead of your data.</span>
+                    </div>
+                  )}
                 </div>
               )}
             </>

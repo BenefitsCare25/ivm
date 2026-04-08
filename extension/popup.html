@@ -81,14 +81,60 @@
       color: #64748b;
       cursor: not-allowed;
     }
+    .divider {
+      height: 1px;
+      background: #334155;
+      margin: 14px 0;
+    }
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+    .tab-domain {
+      font-size: 11px;
+      color: #64748b;
+      margin-bottom: 8px;
+      word-break: break-all;
+    }
+    .cookie-status {
+      font-size: 11px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+    .cookie-status.success {
+      background: #0f2e1e;
+      border: 1px solid #166534;
+      color: #86efac;
+    }
+    .cookie-status.error {
+      background: #2e0f0f;
+      border: 1px solid #991b1b;
+      color: #fca5a5;
+    }
+    button.secondary {
+      background: #1e3a5f;
+      color: #93c5fd;
+    }
+    button.secondary:hover { background: #1e4b7a; }
+    button.secondary:disabled {
+      background: #334155;
+      color: #64748b;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>IVM Auto-Fill</h1>
-    <span class="badge">v1.0</span>
+    <span class="badge">v1.1</span>
   </div>
 
+  <!-- Fill Section -->
   <div id="status" class="status idle">
     Waiting for fill data from IVM...
   </div>
@@ -100,6 +146,13 @@
   </div>
 
   <button id="refillBtn" class="primary" disabled>Re-run Fill on Active Tab</button>
+
+  <!-- Portal Cookies Section -->
+  <div class="divider"></div>
+  <div class="section-title">Portal Cookies</div>
+  <div id="tabDomain" class="tab-domain">Detecting current tab...</div>
+  <button id="sendCookiesBtn" class="secondary" disabled>Send Cookies to IVM</button>
+  <div id="cookieStatus" class="cookie-status" style="display:none;"></div>
 
   <script src="popup.js"></script>
 </body>

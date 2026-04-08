@@ -82,6 +82,8 @@ export interface ExtensionCookie {
   domain: string;
   path: string;
   expires?: number;
+  /** Chrome API returns `expirationDate` instead of `expires` — handle both */
+  expirationDate?: number;
   httpOnly?: boolean;
   secure?: boolean;
   sameSite?: "unspecified" | "no_restriction" | "lax" | "strict";

@@ -166,7 +166,10 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 - **Purpose**: Connect to authenticated web portals, scrape item lists, download files, AI-compare portal data vs PDF data
 - **Browser automation**: Playwright runs in BullMQ workers only, never in API routes. Singleton browser via `src/lib/playwright/browser.ts` with launch-promise guard to prevent concurrent launches
 - **Auth strategies**: Cookie injection (Chrome Extension capture) or credential login (Playwright automated). `resolveAuth()` tries cookies first, falls back to credentials
-- **AI page analysis**: `analyzePageStructure()` sends screenshot + HTML to AI → returns CSS selectors for table, columns, links, pagination
+- **Cookie capture UX**: Setup wizard detects extension via `detectExtension()` → shows one-click "Capture Cookies from Browser" flow. Falls back to manual JSON paste if extension not installed. Cookie format mapping (Chrome `expirationDate`/`sameSite` → Zod schema) in `mapChromeCookies()` in `portal-setup-wizard.tsx`
+- **Extension popup cookie push**: Extension popup (v1.1) has "Send Cookies to IVM" button — detects active tab, captures cookies, POSTs to `/api/extension/cookies`. Reads `ivmBaseUrl` from `chrome.storage.local` at click time (default: `http://localhost:3000`). Extension requires `tabs` + `host_permissions` in manifest
+- **Extension cookie API**: `POST /api/extension/cookies` — receives `{ url, cookies }` from extension popup, matches URL domain to user's portals via exact `startsWith` DB query, saves via `portalCredential.upsert`
+- **AI page analysis**: `analyzePageStructure()` sends screenshot + HTML to AI → returns CSS selectors for table, columns, links, pagination. Falls back to unauthenticated navigation if no credentials saved yet
 - **AI field comparison**: `compareFields()` sends portal detail page fields vs PDF-extracted fields → per-field match/mismatch with confidence scores
 - **Scrape queue**: `portal-scrape-queue.ts` (concurrency 1, no retry). Worker: login → scrape list pages → create TrackedItems → enqueue detail jobs
 - **Detail queue**: `item-detail-queue.ts` (concurrency 2, 2 attempts). Worker: scrape detail → download files → AI extract PDFs → AI compare → save ComparisonResult
@@ -174,7 +177,7 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 - **Prisma models**: `Portal`, `PortalCredential`, `ScrapeSession`, `TrackedItem`, `TrackedItemFile`, `ComparisonResult`
 - **Types**: `src/types/portal.ts` — all portal enums, selector configs, summary/detail interfaces
 - **Validations**: `src/lib/validations/portal.ts` — Zod schemas for portal CRUD, selectors, credentials, cookies, schedule
-- **API routes**: `/api/portals/*` — full CRUD, analyze, selectors, scrape, items, files, schedule
+- **API routes**: `/api/portals/*` — full CRUD, analyze, selectors, scrape, items, files, schedule. `/api/extension/cookies` — extension popup cookie push
 - **UI pages**: `/portals` (list), `/portals/new` (setup wizard), `/portals/[id]` (detail + sessions), `/portals/[id]/sessions/[sessionId]` (tracked items), `/portals/[id]/sessions/[sessionId]/items/[itemId]` (item detail + comparison)
 - **Components**: `src/components/portals/` — portal-card, portal-list, portal-setup-wizard, portal-detail-view, tracked-items-table, item-detail-view, portal-status-badge
 
