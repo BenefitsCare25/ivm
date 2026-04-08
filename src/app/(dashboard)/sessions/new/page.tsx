@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { requireAuth } from "@/lib/auth-helpers";
 import { CreateSessionForm } from "@/components/sessions/create-session-form";
 

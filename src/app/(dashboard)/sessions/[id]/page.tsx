@@ -1,16 +1,10 @@
+export const dynamic = "force-dynamic";
+
 import { redirect } from "next/navigation";
-import { requireAuth } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { notFound } from "next/navigation";
-
-const STEP_ROUTES: Record<string, string> = {
-  SOURCE: "source",
-  EXTRACT: "extract",
-  TARGET: "target",
-  MAP: "map",
-  FILL: "fill",
-  REVIEW: "review",
-};
+import { STEP_ROUTES } from "@/types/session";
+import { requireAuth } from "@/lib/auth-helpers";
 
 export default async function SessionDetailPage({
   params,
@@ -29,6 +23,6 @@ export default async function SessionDetailPage({
     notFound();
   }
 
-  const stepRoute = STEP_ROUTES[fillSession.currentStep] ?? "source";
+  const stepRoute = STEP_ROUTES[fillSession.currentStep as keyof typeof STEP_ROUTES] ?? "source";
   redirect(`/sessions/${id}/${stepRoute}`);
 }

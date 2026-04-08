@@ -1,5 +1,6 @@
-import { Settings } from "lucide-react";
-import { EmptyState } from "@/components/ui/empty-state";
+export const dynamic = "force-dynamic";
+
+import { ApiKeysForm } from "@/components/settings/api-keys-form";
 
 export default function SettingsPage() {
   return (
@@ -7,14 +8,19 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Manage your account and application preferences
+          Manage your API keys and application preferences
         </p>
       </div>
-      <EmptyState
-        icon={Settings}
-        title="Settings coming soon"
-        description="Account settings, API key configuration, and preferences will be available in a future update."
-      />
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-medium text-foreground">AI Provider Keys</h2>
+          <p className="text-sm text-muted-foreground">
+            Connect your own API keys for document extraction. Keys are encrypted and stored securely.
+          </p>
+        </div>
+        <ApiKeysForm />
+      </section>
     </div>
   );
 }

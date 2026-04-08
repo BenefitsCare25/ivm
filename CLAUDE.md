@@ -111,6 +111,7 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 - `src/types/extraction.ts`: `FIELD_TYPES`, `FieldType`, `ExtractedField`, `ExtractionState`, `SourceAssetData`
 - `src/types/target.ts`: `TargetType`, `TargetField`, `TargetAssetData`, `TargetAssetSummary`
 - `src/types/mapping.ts`: `FieldMapping`, `MappingSetSummary`, `MappingState`
+- `src/types/fill.ts`: `FillActionStatus`, `FillState`, `FillActionSummary`, `FillReport`, `FillSessionData` + helpers `buildFillReport()`, `toFillActionSummary()`
 - Never redeclare these types locally in components — always import from the shared module
 
 ### Prisma JSON Fields
@@ -208,7 +209,7 @@ src/
     ui/                   # Reusable primitives (button, card, input, etc.)
     auth/                 # Auth-specific components
     layout/               # Shell, sidebar, header
-    sessions/             # Session-specific components (upload, preview, extraction table, target selection, mapping review, step clients)
+    sessions/             # Session-specific components (upload, preview, extraction table, target selection, mapping review, step clients, use-download-fill hook)
     settings/             # Settings components (api-keys-form)
   lib/                    # Core utilities and services
     ai/                   # Multi-provider AI extraction + mapping (index, anthropic, openai, gemini, mapping, parse, parse-mapping, resolve-provider, validate-key, prompts, types)

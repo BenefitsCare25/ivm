@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { requireAuth } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { notFound } from "next/navigation";
@@ -30,11 +32,9 @@ export default async function SessionLayout({
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">
-          {fillSession.title}
-        </h1>
-      </div>
+      <h1 className="text-xl font-semibold text-foreground">
+        {fillSession.title}
+      </h1>
       <SessionStepper
         sessionId={fillSession.id}
         currentStep={fillSession.currentStep as SessionStep}

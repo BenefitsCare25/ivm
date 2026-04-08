@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { updateSessionSchema } from "@/lib/validations/session";
 import { logger } from "@/lib/logger";
+import { errorResponse, UnauthorizedError, NotFoundError, ValidationError } from "@/lib/errors";
 
 export async function GET(
   _req: Request,
@@ -10,9 +11,7 @@ export async function GET(
 ) {
   try {
     const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!session?.user?.id) throw new UnauthorizedError();
 
     const { id } = await params;
 
@@ -27,14 +26,11 @@ export async function GET(
       },
     });
 
-    if (!fillSession) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
+    if (!fillSession) throw new NotFoundError("Session", id);
 
     return NextResponse.json(fillSession);
   } catch (err) {
-    logger.error({ err }, "Failed to get session");
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return errorResponse(err);
   }
 }
 
@@ -44,38 +40,30 @@ export async function PATCH(
 ) {
   try {
     const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!session?.user?.id) throw new UnauthorizedError();
 
     const { id } = await params;
     const body = await req.json();
     const parsed = updateSessionSchema.safeParse(body);
 
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Validation failed", details: parsed.error.flatten().fieldErrors },
-        { status: 400 }
-      );
+      throw new ValidationError("Validation failed", parsed.error.flatten().fieldErrors);
     }
 
-    const existing = await db.fillSession.findFirst({
+    const { count } = await db.fillSession.updateMany({
       where: { id, userId: session.user.id },
+      data: parsed.data,
     });
 
-    if (!existing) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
+    if (count === 0) throw new NotFoundError("Session", id);
 
-    const updated = await db.fillSession.update({
-      where: { id },
-      data: parsed.data,
+    const updated = await db.fillSession.findFirst({
+      where: { id, userId: session.user.id },
     });
 
     return NextResponse.json(updated);
   } catch (err) {
-    logger.error({ err }, "Failed to update session");
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return errorResponse(err);
   }
 }
 
@@ -85,26 +73,19 @@ export async function DELETE(
 ) {
   try {
     const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!session?.user?.id) throw new UnauthorizedError();
 
     const { id } = await params;
 
-    const existing = await db.fillSession.findFirst({
+    const { count } = await db.fillSession.deleteMany({
       where: { id, userId: session.user.id },
     });
 
-    if (!existing) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
-
-    await db.fillSession.delete({ where: { id } });
+    if (count === 0) throw new NotFoundError("Session", id);
 
     logger.info({ sessionId: id }, "Session deleted");
     return NextResponse.json({ success: true });
   } catch (err) {
-    logger.error({ err }, "Failed to delete session");
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return errorResponse(err);
   }
 }

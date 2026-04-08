@@ -44,3 +44,22 @@ export class ValidationError extends AppError {
     this.fieldErrors = fieldErrors;
   }
 }
+
+export function errorResponse(err: unknown): Response {
+  const { NextResponse } = require("next/server");
+  if (err instanceof ValidationError) {
+    return NextResponse.json(
+      { error: err.message, code: err.code, details: err.fieldErrors },
+      { status: err.statusCode }
+    );
+  }
+  if (err instanceof AppError) {
+    return NextResponse.json(
+      { error: err.message, code: err.code },
+      { status: err.statusCode }
+    );
+  }
+  const { logger } = require("@/lib/logger");
+  logger.error({ err }, "Unhandled error");
+  return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+}

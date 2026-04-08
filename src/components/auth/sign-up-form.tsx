@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { FormError } from "@/components/ui/form-error";
 
 export function SignUpForm() {
   const router = useRouter();
@@ -36,11 +37,7 @@ export function SignUpForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <div className="rounded-md border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">
-          {error}
-        </div>
-      )}
+      {error && <FormError message={error} />}
       <div className="space-y-2">
         <label htmlFor="name" className="text-sm font-medium text-foreground">
           Name

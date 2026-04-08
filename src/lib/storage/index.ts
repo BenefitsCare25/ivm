@@ -5,18 +5,25 @@ export interface StorageAdapter {
   getUrl(key: string): Promise<string>;
 }
 
+let cachedAdapter: StorageAdapter | undefined;
+
 export function getStorageAdapter(): StorageAdapter {
+  if (cachedAdapter) return cachedAdapter;
+
   const provider = process.env.STORAGE_PROVIDER ?? "local";
   switch (provider) {
     case "local": {
       const { LocalStorageAdapter } = require("./local");
-      return new LocalStorageAdapter();
+      cachedAdapter = new LocalStorageAdapter();
+      break;
     }
     case "s3": {
       const { S3StorageAdapter } = require("./s3");
-      return new S3StorageAdapter();
+      cachedAdapter = new S3StorageAdapter();
+      break;
     }
     default:
       throw new Error(`Unknown storage provider: ${provider}`);
   }
+  return cachedAdapter!;
 }

@@ -3,22 +3,18 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { createSessionSchema } from "@/lib/validations/session";
 import { logger } from "@/lib/logger";
+import { errorResponse, UnauthorizedError, ValidationError } from "@/lib/errors";
 
 export async function POST(req: Request) {
   try {
     const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!session?.user?.id) throw new UnauthorizedError();
 
     const body = await req.json();
     const parsed = createSessionSchema.safeParse(body);
 
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Validation failed", details: parsed.error.flatten().fieldErrors },
-        { status: 400 }
-      );
+      throw new ValidationError("Validation failed", parsed.error.flatten().fieldErrors);
     }
 
     const fillSession = await db.fillSession.create({
@@ -45,17 +41,14 @@ export async function POST(req: Request) {
       { status: 201 }
     );
   } catch (err) {
-    logger.error({ err }, "Failed to create session");
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return errorResponse(err);
   }
 }
 
 export async function GET() {
   try {
     const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!session?.user?.id) throw new UnauthorizedError();
 
     const sessions = await db.fillSession.findMany({
       where: { userId: session.user.id },
@@ -73,7 +66,6 @@ export async function GET() {
 
     return NextResponse.json(sessions);
   } catch (err) {
-    logger.error({ err }, "Failed to list sessions");
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return errorResponse(err);
   }
 }

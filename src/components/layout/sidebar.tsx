@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { LayoutDashboard, Plus, Settings } from "lucide-react";
 import { NavItem } from "./nav-item";

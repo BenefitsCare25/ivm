@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
+import { FormError } from "@/components/ui/form-error";
 
 export function CreateSessionForm() {
   const router = useRouter();
@@ -40,11 +41,7 @@ export function CreateSessionForm() {
     <Card>
       <CardContent className="pt-6">
         <form onSubmit={handleSubmit} className="space-y-4">
-          {error && (
-            <div className="rounded-md border border-status-error/30 bg-status-error/10 p-3 text-sm text-status-error">
-              {error}
-            </div>
-          )}
+          {error && <FormError message={error} />}
           <div className="space-y-2">
             <label htmlFor="title" className="text-sm font-medium text-foreground">
               Title <span className="text-status-error">*</span>

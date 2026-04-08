@@ -2,22 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { Stepper, type Step } from "@/components/ui/stepper";
-import { SESSION_STEPS, STEP_LABELS, type SessionStep } from "@/types/session";
+import { SESSION_STEPS, STEP_LABELS, STEP_ROUTES, type SessionStep } from "@/types/session";
 
 interface SessionStepperProps {
   sessionId: string;
   currentStep: SessionStep;
   sessionStatus: string;
 }
-
-const STEP_ROUTES: Record<SessionStep, string> = {
-  SOURCE: "source",
-  EXTRACT: "extract",
-  TARGET: "target",
-  MAP: "map",
-  FILL: "fill",
-  REVIEW: "review",
-};
 
 function getStepStatus(
   step: SessionStep,
