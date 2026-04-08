@@ -59,12 +59,15 @@ export async function extractWithAnthropic(request: AIExtractionRequest): Promis
     "Starting AI extraction"
   );
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
-    system: getExtractionSystemPrompt(),
-    messages: [{ role: "user", content }],
-  });
+  const response = await client.messages.create(
+    {
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      system: getExtractionSystemPrompt(),
+      messages: [{ role: "user", content }],
+    },
+    { signal: AbortSignal.timeout(60_000) }
+  );
 
   const textBlock = response.content.find((block) => block.type === "text");
   if (!textBlock || textBlock.type !== "text") {

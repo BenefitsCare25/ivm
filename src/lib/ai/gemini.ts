@@ -35,9 +35,16 @@ export async function extractWithGemini(request: AIExtractionRequest): Promise<A
 
   const base64Data = request.fileData.toString("base64");
 
-  const result = await model.generateContent([
-    { inlineData: { mimeType, data: base64Data } },
-    { text: getExtractionUserPrompt(request.fileName) },
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new AppError("AI extraction timed out after 60s", 504, "AI_TIMEOUT")), 60_000)
+  );
+
+  const result = await Promise.race([
+    model.generateContent([
+      { inlineData: { mimeType, data: base64Data } },
+      { text: getExtractionUserPrompt(request.fileName) },
+    ]),
+    timeoutPromise,
   ]);
 
   const text = result.response.text();

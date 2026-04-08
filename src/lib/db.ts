@@ -1,4 +1,6 @@
+import "@/lib/env";
 import { PrismaClient } from "@prisma/client";
+import { logger } from "@/lib/logger";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -14,3 +16,13 @@ export const db =
   });
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = db;
+
+if (process.env.NODE_ENV === "production") {
+  const shutdown = async (signal: string) => {
+    logger.info({ signal }, "Shutting down gracefully...");
+    await db.$disconnect();
+    process.exit(0);
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+}

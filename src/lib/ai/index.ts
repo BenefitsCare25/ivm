@@ -1,4 +1,5 @@
 import { AppError } from "@/lib/errors";
+import { withRetry } from "@/lib/retry";
 import { extractWithAnthropic } from "./anthropic";
 import { extractWithOpenAI } from "./openai";
 import { extractWithGemini } from "./gemini";
@@ -11,14 +12,19 @@ export { proposeFieldMappings } from "./mapping";
 export async function extractFieldsFromDocument(
   request: AIExtractionRequest
 ): Promise<AIExtractionResponse> {
-  switch (request.provider) {
-    case "anthropic":
-      return extractWithAnthropic(request);
-    case "openai":
-      return extractWithOpenAI(request);
-    case "gemini":
-      return extractWithGemini(request);
-    default:
-      throw new AppError(`Unsupported AI provider: ${request.provider}`, 400, "INVALID_PROVIDER");
-  }
+  return withRetry(
+    () => {
+      switch (request.provider) {
+        case "anthropic":
+          return extractWithAnthropic(request);
+        case "openai":
+          return extractWithOpenAI(request);
+        case "gemini":
+          return extractWithGemini(request);
+        default:
+          throw new AppError(`Unsupported AI provider: ${request.provider}`, 400, "INVALID_PROVIDER");
+      }
+    },
+    { maxRetries: 2, operation: `extraction:${request.provider}` }
+  );
 }

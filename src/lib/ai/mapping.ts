@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { logger } from "@/lib/logger";
 import { AppError } from "@/lib/errors";
+import { withRetry } from "@/lib/retry";
 import { getMappingSystemPrompt, getMappingUserPrompt } from "./prompts";
 import { parseMappingResponse } from "./parse-mapping";
 import type { AIMappingRequest, AIMappingResponse } from "./types";
@@ -18,12 +19,15 @@ async function callAnthropic(
   userPrompt: string
 ): Promise<TextCallResult> {
   const client = new Anthropic({ apiKey });
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userPrompt }],
-  });
+  const response = await client.messages.create(
+    {
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+    },
+    { signal: AbortSignal.timeout(30_000) }
+  );
 
   const textBlock = response.content.find((b) => b.type === "text");
   const rawText = textBlock && textBlock.type === "text" ? textBlock.text : null;
@@ -41,14 +45,17 @@ async function callOpenAI(
   userPrompt: string
 ): Promise<TextCallResult> {
   const client = new OpenAI({ apiKey });
-  const response = await client.chat.completions.create({
-    model: "gpt-4o",
-    max_tokens: 4096,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-  });
+  const response = await client.chat.completions.create(
+    {
+      model: "gpt-4o",
+      max_tokens: 4096,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    },
+    { signal: AbortSignal.timeout(30_000) }
+  );
 
   const rawText = response.choices[0]?.message?.content ?? null;
 
@@ -70,7 +77,13 @@ async function callGemini(
     systemInstruction: systemPrompt,
   });
 
-  const result = await model.generateContent([{ text: userPrompt }]);
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new AppError("AI mapping timed out after 30s", 504, "AI_TIMEOUT")), 30_000)
+  );
+  const result = await Promise.race([
+    model.generateContent([{ text: userPrompt }]),
+    timeoutPromise,
+  ]);
   const rawText = result.response.text();
 
   if (!rawText) {
@@ -102,19 +115,28 @@ export async function proposeFieldMappings(
 
   switch (provider) {
     case "anthropic": {
-      const result = await callAnthropic(apiKey, systemPrompt, userPrompt);
+      const result = await withRetry(
+        () => callAnthropic(apiKey, systemPrompt, userPrompt),
+        { maxRetries: 2, operation: "mapping:anthropic" }
+      );
       rawText = result.rawText;
       rawResponse = result.rawResponse;
       break;
     }
     case "openai": {
-      const result = await callOpenAI(apiKey, systemPrompt, userPrompt);
+      const result = await withRetry(
+        () => callOpenAI(apiKey, systemPrompt, userPrompt),
+        { maxRetries: 2, operation: "mapping:openai" }
+      );
       rawText = result.rawText;
       rawResponse = result.rawResponse;
       break;
     }
     case "gemini": {
-      const result = await callGemini(apiKey, systemPrompt, userPrompt);
+      const result = await withRetry(
+        () => callGemini(apiKey, systemPrompt, userPrompt),
+        { maxRetries: 2, operation: "mapping:gemini" }
+      );
       rawText = result.rawText;
       rawResponse = result.rawResponse;
       break;

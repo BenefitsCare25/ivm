@@ -42,14 +42,17 @@ export async function extractWithOpenAI(request: AIExtractionRequest): Promise<A
     "Starting AI extraction"
   );
 
-  const response = await client.chat.completions.create({
-    model: "gpt-4o",
-    max_tokens: 4096,
-    messages: [
-      { role: "system", content: getExtractionSystemPrompt() },
-      { role: "user", content: buildUserContent(request) },
-    ],
-  });
+  const response = await client.chat.completions.create(
+    {
+      model: "gpt-4o",
+      max_tokens: 4096,
+      messages: [
+        { role: "system", content: getExtractionSystemPrompt() },
+        { role: "user", content: buildUserContent(request) },
+      ],
+    },
+    { signal: AbortSignal.timeout(60_000) }
+  );
 
   const text = response.choices[0]?.message?.content;
   if (!text) {

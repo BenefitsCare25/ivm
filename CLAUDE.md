@@ -105,17 +105,40 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 
 ### Session Completion
 - `POST /api/sessions/[id]/complete` — transitions `FILLED → COMPLETED`
-- Review step shows FillReport summary + FillActionsTable + download link
+- Review step has two tabs: **Results** (FillReport + FillActionsTable + download/export buttons + Complete Session button) and **History** (SessionTimeline + SessionMetadata)
+- `GET /api/sessions/[id]/export` — returns full session JSON as attachment download (`Content-Disposition: attachment`)
+- `GET /api/sessions/[id]/audit-events` — paginated audit events; Zod-validated `limit`/`offset`/`eventType` query params; capped at 100 events
+- Review page server component (`src/app/(dashboard)/sessions/[id]/review/page.tsx`) fetches audit events with `take: 100`
+
+### Audit Events
+- `AuditEventSummary` interface, `getEventLabel()`, `getEventIconName()`, `formatPayloadSummary()` all in `src/types/audit.ts` — single source of truth for audit event display logic
+- `SessionTimeline` component (`src/components/sessions/session-timeline.tsx`) renders vertical timeline; uses `ICON_MAP` record + `getEventIconName()` for icon lookup
+- `SessionMetadata` component (`src/components/sessions/session-metadata.tsx`) — 13-field summary panel; exports `SessionMetadataProps`
+- `ReviewTabs` component (`src/components/sessions/review-tabs.tsx`) — client-side tab switcher; accepts `resultsContent` and `historyContent` as `React.ReactNode`
 
 ### Shared Type Sources of Truth
 - `src/types/extraction.ts`: `FIELD_TYPES`, `FieldType`, `ExtractedField`, `ExtractionState`, `SourceAssetData`
 - `src/types/target.ts`: `TargetType`, `TargetField`, `TargetAssetData`, `TargetAssetSummary`
 - `src/types/mapping.ts`: `FieldMapping`, `MappingSetSummary`, `MappingState`
 - `src/types/fill.ts`: `FillActionStatus`, `FillState`, `FillActionSummary`, `FillReport`, `FillSessionData` + helpers `buildFillReport()`, `toFillActionSummary()`
+- `src/types/audit.ts`: `AuditEventSummary` + display helpers `getEventLabel()`, `getEventIconName()`, `formatPayloadSummary()`
+- `src/types/session.ts`: `SessionDetailSummary` extends `SessionSummary` with `sourceFileName`, `sourceMimeType`, `targetType`, `targetName`, `extractedFieldCount` — used by dashboard list
 - Never redeclare these types locally in components — always import from the shared module
 
 ### Prisma JSON Fields
 - When writing typed arrays/objects to Prisma `Json` fields, wrap with `JSON.parse(JSON.stringify(...))` to strip class instances and satisfy Prisma's `InputJsonValue` type
+
+### Production Hardening
+- **Env validation**: `src/lib/env.ts` — Zod schema validates all env vars at startup, imported by `db.ts` for early fail-fast
+- **Rate limiting**: `src/lib/rate-limit.ts` — in-memory sliding window; `globalLimiter` (100/min per IP), `authLimiter` (10/min per IP), `aiLimiter` (5/min per user); applied in `middleware.ts`
+- **Retry**: `src/lib/retry.ts` — `withRetry(fn, opts)` with exponential backoff, max 2 retries on transient errors (429, 500, 502, 503); wraps all AI extraction and mapping calls
+- **Request ID**: `middleware.ts` generates `X-Request-ID` (crypto.randomUUID) on every request, forwarded to route handlers via request headers
+- **Health check**: `GET /api/health` — pings DB, returns status/uptime/latency; excluded from auth middleware
+- **Security headers**: `next.config.ts` `headers()` — CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
+- **AI timeouts**: 60s extraction, 30s mapping, 15s key validation; Anthropic/OpenAI use `{ signal: AbortSignal.timeout() }` in options; Gemini uses `Promise.race` with timeout
+- **Error boundaries**: `src/app/error.tsx` (root) + `src/app/(dashboard)/error.tsx` (dashboard) — catch unhandled React errors
+- **Graceful shutdown**: `src/lib/db.ts` — SIGTERM/SIGINT handlers disconnect Prisma in production
+- **Seed protection**: `prisma/seed.ts` exits if `NODE_ENV=production`
 
 ### Shared Utilities (`src/lib/utils.ts`)
 - `cn()` — className merging (clsx + tailwind-merge)
@@ -145,8 +168,8 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 | 3 | Target Ingestion (Web/PDF/DOCX) | Deployed |
 | 4 | AI Field Understanding & Mapping | Deployed |
 | 5 | Fill Actions & Verification | Deployed |
-| 6 | Review UX, History & Audit | Not started |
-| 7 | Production Hardening | Not started |
+| 6 | Review UX, History & Audit | Deployed |
+| 7 | Production Hardening | Deployed |
 
 ## Plan Documents
 
@@ -157,6 +180,8 @@ Detailed implementation plans live in `docs/superpowers/plans/`. Write a plan be
 - Phase 3: `docs/superpowers/plans/2026-04-07-ivm-phase3-target-ingestion.md`
 - Phase 4: `docs/superpowers/plans/2026-04-07-ivm-phase4-field-mapping.md` (plan file at `C:\Users\huien\.claude-work\plans\wise-nibbling-church.md`)
 - Phase 5: `docs/superpowers/plans/2026-04-08-ivm-phase5-fill-verification.md`
+- Phase 6: `docs/superpowers/plans/2026-04-08-ivm-phase6-review-history-audit.md`
+- Phase 7: `docs/superpowers/plans/2026-04-08-ivm-phase7-production-hardening.md`
 
 ## Deployment
 
@@ -205,20 +230,22 @@ src/
         fill/             # Execute fill (POST) + fetch results (GET)
           download/       # Download filled document (GET)
         complete/         # Mark session completed (POST)
+        audit-events/     # Paginated audit event history (GET)
+        export/           # Full session JSON export download (GET)
   components/
     ui/                   # Reusable primitives (button, card, input, etc.)
     auth/                 # Auth-specific components
     layout/               # Shell, sidebar, header
-    sessions/             # Session-specific components (upload, preview, extraction table, target selection, mapping review, step clients, use-download-fill hook)
+    sessions/             # Session-specific components (upload, preview, extraction table, target selection, mapping review, step clients, use-download-fill hook, session-timeline, session-metadata, review-tabs)
     settings/             # Settings components (api-keys-form)
   lib/                    # Core utilities and services
     ai/                   # Multi-provider AI extraction + mapping (index, anthropic, openai, gemini, mapping, parse, parse-mapping, resolve-provider, validate-key, prompts, types)
     fill/                 # Fill execution engines (PDF/DOCX/webpage)
     target/               # Target inspection engines (webpage/PDF/DOCX)
     storage/              # Storage adapter abstraction
-    validations/          # Zod schemas (session, upload, extraction, target, mapping, fill, api-key)
+    validations/          # Zod schemas (session, upload, extraction, target, mapping, fill, api-key, audit)
   styles/                 # CSS tokens and globals
-  types/                  # TypeScript type definitions (session, extraction, target, mapping, fill)
+  types/                  # TypeScript type definitions (session, extraction, target, mapping, fill, audit)
 prisma/                   # Schema and seed
 docs/superpowers/plans/   # Implementation plans
 ```

@@ -1,20 +1,26 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { ValidationError } from "@/lib/errors";
+import { AppError, ValidationError } from "@/lib/errors";
 import type { AIProvider } from "@/lib/validations/api-key";
 
 async function validateAnthropicKey(apiKey: string): Promise<boolean> {
   try {
     const client = new Anthropic({ apiKey });
-    await client.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1,
-      messages: [{ role: "user", content: "Hi" }],
-    });
+    await client.messages.create(
+      {
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1,
+        messages: [{ role: "user", content: "Hi" }],
+      },
+      { signal: AbortSignal.timeout(15_000) }
+    );
     return true;
   } catch (err: unknown) {
-    const error = err as { status?: number; message?: string };
+    const error = err as { status?: number; message?: string; name?: string };
+    if (error.name === "AbortError") {
+      throw new ValidationError("Anthropic key validation timed out. Try again.");
+    }
     if (error.status === 401) {
       throw new ValidationError("Invalid Anthropic API key. Check your key and try again.");
     }
@@ -28,14 +34,20 @@ async function validateAnthropicKey(apiKey: string): Promise<boolean> {
 async function validateOpenAIKey(apiKey: string): Promise<boolean> {
   try {
     const client = new OpenAI({ apiKey });
-    await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      max_tokens: 1,
-      messages: [{ role: "user", content: "Hi" }],
-    });
+    await client.chat.completions.create(
+      {
+        model: "gpt-4o-mini",
+        max_tokens: 1,
+        messages: [{ role: "user", content: "Hi" }],
+      },
+      { signal: AbortSignal.timeout(15_000) }
+    );
     return true;
   } catch (err: unknown) {
-    const error = err as { status?: number; message?: string };
+    const error = err as { status?: number; message?: string; name?: string };
+    if (error.name === "AbortError") {
+      throw new ValidationError("OpenAI key validation timed out. Try again.");
+    }
     if (error.status === 401) {
       throw new ValidationError("Invalid OpenAI API key. Check your key and try again.");
     }
@@ -50,9 +62,15 @@ async function validateGeminiKey(apiKey: string): Promise<boolean> {
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-    await model.generateContent("Hi");
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new AppError("Key validation timed out", 504, "AI_TIMEOUT")), 15_000)
+    );
+    await Promise.race([model.generateContent("Hi"), timeoutPromise]);
     return true;
   } catch (err: unknown) {
+    if (err instanceof AppError && err.code === "AI_TIMEOUT") {
+      throw new ValidationError("Gemini key validation timed out. Try again.");
+    }
     const error = err as { status?: number; message?: string };
     const msg = error.message || "Unknown error";
     if (msg.includes("API_KEY_INVALID") || msg.includes("401")) {
