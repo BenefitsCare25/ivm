@@ -2,14 +2,19 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle, Download } from "lucide-react";
+import { CheckCircle, Download, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FormError } from "@/components/ui/form-error";
 import { FillReportCard } from "./fill-report-card";
 import { FillActionsTable } from "./fill-actions-table";
+import { ReviewTabs } from "./review-tabs";
+import { SessionTimeline } from "./session-timeline";
+import { SessionMetadata } from "./session-metadata";
+import type { SessionMetadataProps } from "./session-metadata";
 import { useDownloadFill } from "./use-download-fill";
 import type { FillSessionData } from "@/types/fill";
 import type { TargetType } from "@/types/target";
+import type { AuditEventSummary } from "@/types/audit";
 
 interface ReviewStepClientProps {
   sessionId: string;
@@ -17,6 +22,8 @@ interface ReviewStepClientProps {
   targetType: TargetType | null;
   sessionStatus: string;
   fillData: FillSessionData | null;
+  auditEvents: AuditEventSummary[];
+  metadata: SessionMetadataProps;
 }
 
 export function ReviewStepClient({
@@ -25,6 +32,8 @@ export function ReviewStepClient({
   targetType,
   sessionStatus,
   fillData,
+  auditEvents,
+  metadata,
 }: ReviewStepClientProps) {
   const router = useRouter();
   const handleDownload = useDownloadFill(sessionId);
@@ -35,17 +44,14 @@ export function ReviewStepClient({
   const handleComplete = useCallback(async () => {
     setCompleting(true);
     setError("");
-
     try {
       const res = await fetch(`/api/sessions/${sessionId}/complete`, {
         method: "POST",
       });
-
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || "Failed to complete session");
       }
-
       setCompleted(true);
       router.refresh();
     } catch (err) {
@@ -56,6 +62,18 @@ export function ReviewStepClient({
       setCompleting(false);
     }
   }, [sessionId, router]);
+
+  const handleExport = useCallback(async () => {
+    const res = await fetch(`/api/sessions/${sessionId}/export`);
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `session-${sessionId}-export.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }, [sessionId]);
 
   if (!hasPrerequisites || !fillData) {
     return (
@@ -76,7 +94,7 @@ export function ReviewStepClient({
     );
   }
 
-  return (
+  const resultsContent = (
     <div className="space-y-6">
       {completed && (
         <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 text-center">
@@ -100,9 +118,13 @@ export function ReviewStepClient({
           {fillData.hasFilledDocument && targetType !== "WEBPAGE" && (
             <Button variant="outline" size="sm" onClick={handleDownload}>
               <Download className="mr-2 h-4 w-4" />
-              Download Filled Document
+              Download
             </Button>
           )}
+          <Button variant="outline" size="sm" onClick={handleExport}>
+            <FileDown className="mr-2 h-4 w-4" />
+            Export JSON
+          </Button>
           {!completed && (
             <Button onClick={handleComplete} disabled={completing}>
               <CheckCircle className="mr-2 h-4 w-4" />
@@ -116,5 +138,25 @@ export function ReviewStepClient({
 
       <FillActionsTable actions={fillData.actions} />
     </div>
+  );
+
+  const historyContent = (
+    <div className="grid gap-6 lg:grid-cols-3">
+      <div className="lg:col-span-2">
+        <h3 className="mb-4 text-sm font-medium text-foreground">Activity</h3>
+        <SessionTimeline events={auditEvents} />
+      </div>
+      <div>
+        <h3 className="mb-4 text-sm font-medium text-foreground">Details</h3>
+        <SessionMetadata {...metadata} />
+      </div>
+    </div>
+  );
+
+  return (
+    <ReviewTabs
+      resultsContent={resultsContent}
+      historyContent={historyContent}
+    />
   );
 }

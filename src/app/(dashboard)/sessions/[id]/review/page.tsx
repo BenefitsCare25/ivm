@@ -8,6 +8,8 @@ import { buildFillReport, toFillActionSummary } from "@/types/fill";
 import type { FieldMapping } from "@/types/mapping";
 import type { TargetField, TargetType } from "@/types/target";
 import type { FillSessionData } from "@/types/fill";
+import type { AuditEventSummary } from "@/types/audit";
+import type { SessionMetadataProps } from "@/components/sessions/session-metadata";
 
 export default async function ReviewStepPage({
   params,
@@ -20,6 +22,8 @@ export default async function ReviewStepPage({
   const fillSession = await db.fillSession.findFirst({
     where: { id, userId: session.user.id },
     include: {
+      sourceAssets: { orderBy: { uploadedAt: "desc" }, take: 1 },
+      extractionResults: { where: { status: "COMPLETED" }, take: 1 },
       targetAssets: { orderBy: { inspectedAt: "desc" }, take: 1 },
       mappingSets: {
         where: { status: "ACCEPTED" },
@@ -27,17 +31,20 @@ export default async function ReviewStepPage({
         take: 1,
       },
       fillActions: true,
+      auditEvents: { orderBy: { timestamp: "asc" } },
     },
   });
 
   if (!fillSession) notFound();
 
-  const targetAsset = fillSession.targetAssets[0];
-  const mappingSet = fillSession.mappingSets[0];
+  const sourceAsset = fillSession.sourceAssets[0] ?? null;
+  const extraction = fillSession.extractionResults[0] ?? null;
+  const targetAsset = fillSession.targetAssets[0] ?? null;
+  const mappingSet = fillSession.mappingSets[0] ?? null;
   const hasFillActions = fillSession.fillActions.length > 0;
 
+  // Build fill data
   let fillData: FillSessionData | null = null;
-
   if (hasFillActions) {
     const mappings = mappingSet
       ? (mappingSet.mappings as unknown as FieldMapping[])
@@ -45,11 +52,9 @@ export default async function ReviewStepPage({
     const targetFields = targetAsset
       ? (targetAsset.detectedFields as unknown as TargetField[])
       : [];
-
     const actions = fillSession.fillActions.map((fa) =>
       toFillActionSummary(fa, targetFields, mappings)
     );
-
     fillData = {
       actions,
       report: buildFillReport(actions),
@@ -58,6 +63,38 @@ export default async function ReviewStepPage({
     };
   }
 
+  // Build audit events
+  const auditEvents: AuditEventSummary[] = fillSession.auditEvents.map((e) => ({
+    id: e.id,
+    eventType: e.eventType,
+    actor: e.actor,
+    timestamp: e.timestamp.toISOString(),
+    payload: e.payload as Record<string, unknown>,
+  }));
+
+  // Build metadata
+  const extractedFields = extraction?.fields;
+  const mappings = mappingSet
+    ? (mappingSet.mappings as unknown as FieldMapping[])
+    : [];
+  const metadata: SessionMetadataProps = {
+    sourceFileName: sourceAsset?.originalName ?? null,
+    sourceMimeType: sourceAsset?.mimeType ?? null,
+    targetType: targetAsset?.targetType ?? null,
+    targetName: targetAsset?.url ?? targetAsset?.fileName ?? null,
+    aiProvider: extraction?.provider ?? null,
+    extractedFieldCount: Array.isArray(extractedFields)
+      ? extractedFields.length
+      : 0,
+    mappedFieldCount: mappings.filter((m) => m.sourceFieldId !== null).length,
+    fillTotal: fillData?.report.total ?? 0,
+    fillVerified: fillData?.report.verified ?? 0,
+    fillFailed: fillData?.report.failed ?? 0,
+    createdAt: fillSession.createdAt.toISOString(),
+    updatedAt: fillSession.updatedAt.toISOString(),
+    status: fillSession.status,
+  };
+
   return (
     <ReviewStepClient
       sessionId={id}
@@ -65,6 +102,8 @@ export default async function ReviewStepPage({
       targetType={(targetAsset?.targetType as TargetType) ?? null}
       sessionStatus={fillSession.status}
       fillData={fillData}
+      auditEvents={auditEvents}
+      metadata={metadata}
     />
   );
 }
