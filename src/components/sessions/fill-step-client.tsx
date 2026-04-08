@@ -11,13 +11,7 @@ import { WebpageFillScript } from "./webpage-fill-script";
 import { useDownloadFill } from "./use-download-fill";
 import type { FillState, FillSessionData } from "@/types/fill";
 import type { TargetType } from "@/types/target";
-
-interface PreviewItem {
-  targetFieldId: string;
-  targetLabel: string;
-  intendedValue: string;
-  hasOverride: boolean;
-}
+import type { FillPreviewItem } from "@/app/api/sessions/[id]/fill/preview/route";
 
 interface FillStepClientProps {
   sessionId: string;
@@ -49,7 +43,7 @@ export function FillStepClient({
   const [fillData, setFillData] = useState<FillSessionData | null>(initialData);
   const [error, setError] = useState("");
   const [retryingFieldId, setRetryingFieldId] = useState<string | null>(null);
-  const [previewItems, setPreviewItems] = useState<PreviewItem[] | null>(null);
+  const [previewItems, setFillPreviewItems] = useState<FillPreviewItem[] | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
@@ -130,7 +124,7 @@ export function FillStepClient({
         throw new Error(data.error || "Failed to load preview");
       }
       const data = await res.json();
-      setPreviewItems(data.items ?? []);
+      setFillPreviewItems(data.items ?? []);
       setShowPreview(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load preview";

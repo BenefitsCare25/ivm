@@ -64,7 +64,6 @@ export async function POST(
     const targetFields = targetAsset.detectedFields as unknown as TargetField[];
     const { retryFieldIds, skipFieldIds } = parsed.data;
 
-    // Partial re-fill: only delete FillActions for the retried fields
     if (retryFieldIds && retryFieldIds.length > 0) {
       await db.fillAction.deleteMany({
         where: { fillSessionId: id, targetFieldId: { in: retryFieldIds } },
@@ -111,7 +110,6 @@ export async function POST(
       })),
     });
 
-    // Load all fill actions (includes unchanged ones when doing partial retry)
     const dbActions = await db.fillAction.findMany({
       where: { fillSessionId: id },
     });
@@ -132,10 +130,11 @@ export async function POST(
       );
     }
 
-    const actions: FillActionSummary[] = dbActions.map((fa, i) => ({
+    const labelMap = new Map(result.results.map((r) => [r.targetFieldId, r.targetLabel]));
+    const actions: FillActionSummary[] = dbActions.map((fa) => ({
       id: fa.id,
       targetFieldId: fa.targetFieldId,
-      targetLabel: result.results[i]?.targetLabel ?? fa.targetFieldId,
+      targetLabel: labelMap.get(fa.targetFieldId) ?? fa.targetFieldId,
       intendedValue: fa.intendedValue,
       appliedValue: fa.appliedValue,
       verifiedValue: fa.verifiedValue,
@@ -160,7 +159,6 @@ export async function POST(
 
     await Promise.all(updatePromises);
 
-    // Record metrics
     const targetType = targetAsset.targetType.toLowerCase();
     getFillCounter().inc({ target_type: targetType, status: "completed" });
     getFillFieldCounter().inc({ status: "verified" }, report.verified);

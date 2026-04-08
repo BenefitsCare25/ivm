@@ -1,5 +1,6 @@
 import { Queue, Worker, QueueEvents, Job } from "bullmq";
 import { getQueueConnection } from "./connection";
+import { logger } from "@/lib/logger";
 
 const QUEUE_NAME = "extraction";
 
@@ -42,10 +43,8 @@ export function getQueueEvents(): QueueEvents | null {
   if (!conn) return null;
 
   if (!queueEvents) {
-    // QueueEvents needs its own Redis connection
-    const url = process.env.REDIS_URL;
-    if (!url) return null;
-    queueEvents = new QueueEvents(QUEUE_NAME, { connection: { url } });
+    // QueueEvents needs its own Redis connection (separate from the queue's)
+    queueEvents = new QueueEvents(QUEUE_NAME, { connection: { url: process.env.REDIS_URL! } });
   }
 
   return queueEvents;
@@ -88,11 +87,11 @@ export function startExtractionWorker(
   );
 
   worker.on("completed", (job) => {
-    console.log(`[queue] Job ${job.id} completed for session ${job.data.sessionId}`);
+    logger.info({ jobId: job.id, sessionId: job.data.sessionId }, "[queue] Job completed");
   });
 
   worker.on("failed", (job, err) => {
-    console.error(`[queue] Job ${job?.id} failed:`, err.message);
+    logger.error({ jobId: job?.id, err }, "[queue] Job failed");
   });
 
   return worker;

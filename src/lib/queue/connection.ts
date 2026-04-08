@@ -1,4 +1,5 @@
 import IORedis from "ioredis";
+import { logger } from "@/lib/logger";
 
 let cachedConnection: IORedis | null = null;
 
@@ -23,7 +24,7 @@ export function getQueueConnection(): IORedis | null {
 
   cachedConnection.on("error", (err: Error) => {
     // Non-fatal: queue will fall back to inline execution
-    console.error("[queue] Redis connection error:", err.message);
+    logger.error({ err }, "[queue] Redis connection error");
   });
 
   return cachedConnection;

@@ -42,7 +42,8 @@
       "Bash(powershell.exe:*)",
       "Bash(mkdir -p \"C:/Users/huien/ivm/src/app/api/sessions/[id]/fill/download\")",
       "Bash(mkdir -p \"C:/Users/huien/ivm/src/app/api/sessions/[id]/complete\")",
-      "Bash(echo \"Exit: $?\")"
+      "Bash(echo \"Exit: $?\")",
+      "Bash(git diff:*)"
     ]
   }
 }

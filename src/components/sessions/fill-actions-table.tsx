@@ -110,7 +110,7 @@ export function FillActionsTable({
                       variant="ghost"
                       size="sm"
                       className="h-6 px-2 text-xs"
-                      disabled={retryingFieldId !== null && retryingFieldId !== undefined}
+                      disabled={!!retryingFieldId}
                       onClick={() => onRetryField(action.targetFieldId)}
                     >
                       <RotateCcw className="mr-1 h-3 w-3" />
