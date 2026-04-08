@@ -1,19 +1,66 @@
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { StorageAdapter } from "./index";
 
 export class S3StorageAdapter implements StorageAdapter {
-  async upload(_key: string, _data: Buffer, _contentType: string): Promise<string> {
-    throw new Error("S3 adapter not implemented. Configure in Phase 2+.");
+  private client: S3Client;
+  private bucket: string;
+
+  constructor() {
+    const bucket = process.env.S3_BUCKET;
+    if (!bucket) throw new Error("S3_BUCKET environment variable is required for S3 storage");
+
+    this.bucket = bucket;
+    this.client = new S3Client({
+      region: process.env.S3_REGION ?? "ap-southeast-1",
+      ...(process.env.S3_ENDPOINT && { endpoint: process.env.S3_ENDPOINT }),
+      ...(process.env.S3_ACCESS_KEY_ID && {
+        credentials: {
+          accessKeyId: process.env.S3_ACCESS_KEY_ID,
+          secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? "",
+        },
+      }),
+    });
   }
 
-  async download(_key: string): Promise<Buffer> {
-    throw new Error("S3 adapter not implemented.");
+  async upload(key: string, data: Buffer, contentType: string): Promise<string> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: data,
+        ContentType: contentType,
+      })
+    );
+    return key;
   }
 
-  async delete(_key: string): Promise<void> {
-    throw new Error("S3 adapter not implemented.");
+  async download(key: string): Promise<Buffer> {
+    const response = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key })
+    );
+    const stream = response.Body;
+    if (!stream) throw new Error(`Empty response for key: ${key}`);
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of stream as AsyncIterable<Uint8Array>) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
   }
 
-  async getUrl(_key: string): Promise<string> {
-    throw new Error("S3 adapter not implemented.");
+  async delete(key: string): Promise<void> {
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: key })
+    );
+  }
+
+  async getUrl(key: string): Promise<string> {
+    const command = new GetObjectCommand({ Bucket: this.bucket, Key: key });
+    return getSignedUrl(this.client, command, { expiresIn: 3600 });
   }
 }

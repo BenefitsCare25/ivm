@@ -8,6 +8,11 @@ const envSchema = z.object({
 
   STORAGE_PROVIDER: z.enum(["local", "s3"]).default("local"),
   STORAGE_LOCAL_PATH: z.string().default("./uploads"),
+  S3_BUCKET: z.string().optional(),
+  S3_REGION: z.string().default("ap-southeast-1"),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_ENDPOINT: z.string().optional(),
   AI_PROVIDER: z.enum(["anthropic", "openai", "gemini"]).default("anthropic"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
