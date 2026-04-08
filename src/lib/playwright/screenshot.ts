@@ -34,7 +34,7 @@ export async function captureSimplifiedHtml(page: Page): Promise<string> {
     clone.querySelectorAll("*").forEach((el) => {
       const attrs = Array.from(el.attributes);
       for (const attr of attrs) {
-        if (["style", "onclick", "onload", "onerror", "data-reactroot"].includes(attr.name)) {
+        if (["style", "onload", "onerror", "data-reactroot"].includes(attr.name)) {
           el.removeAttribute(attr.name);
         }
         // Truncate very long attribute values

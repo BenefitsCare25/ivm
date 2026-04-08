@@ -59,7 +59,17 @@ export async function scrapeListPage(
     let detailUrl: string | null = null;
     if (detailLinkSelector) {
       const link = await row.$(detailLinkSelector);
-      detailUrl = link ? await link.getAttribute("href") : null;
+      if (link) {
+        detailUrl = await link.getAttribute("href");
+        // Fallback: extract URL from onclick (e.g. onclick="location.href='/path'")
+        if (!detailUrl) {
+          const onclick = await link.getAttribute("onclick");
+          if (onclick) {
+            const match = onclick.match(/['"]([^'"]*\/[^'"]+)['"]/);
+            if (match) detailUrl = match[1];
+          }
+        }
+      }
     } else {
       // Fallback: look for first anchor in the row
       const link = await row.$("a[href]");
