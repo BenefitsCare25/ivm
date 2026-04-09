@@ -120,6 +120,17 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Template UI**: `GroupingFieldConfig` (set grouping fields), `TemplateList` (view/delete templates), `ComparisonTemplateModal` (configure new template inline) — all on portal detail page or session actions
 - **Item detail view**: Shows template name badge or "Full comparison" badge alongside provider on the comparison result card
 - **Key helper**: `itemMatchesGroupingKey(groupingFields, itemData, templateKey)` — pure function, used in both template matching and recompare filtering
+- **Copy setup API**: `POST /api/portals/[id]/comparison-setup/import` with `{ sourcePortalId }` — copies `groupingFields` + all `ComparisonTemplate` records from source portal in a single transaction; deletes existing templates on target first. Both portals must belong to the same user.
+- **Copy setup UI**: "Copy from portal" ghost button in Comparison Setup card header → fetches portal list → select source → import. Auto-refreshes on success.
+
+### Portal Tracker — Inline Re-authentication
+- **Problem**: Cookie-based auth expires; previously required navigating away to re-configure.
+- **Auth status detection**: `useEffect` in `portal-detail-view.tsx` computes `AuthStatus` (`ok | warn | expired | missing`) client-side to avoid SSR hydration mismatch with `new Date()` comparisons.
+- **Visual indicators**: Auth card gets colored ring + colored Shield icon + status text. Red banner at page top when `expired` or `missing` with "Update auth" shortcut button.
+- **Inline re-auth panel**: Clicking "Set up ↓" / "Update ↓" on the auth card expands a full-width card below the 4-column grid:
+  - COOKIES auth: textarea for JSON cookie array paste (same format as `saveCookiesSchema`) → `POST /api/portals/{id}/cookies`
+  - CREDENTIALS auth: username + password inputs → `POST /api/portals/{id}/credentials`
+- On save: panel closes, `router.refresh()` re-fetches fresh auth status.
 
 ### Portal Tracker — Item Event Observability
 - **Purpose**: Per-item structured event log for self-diagnosing scrape failures from the UI (no SSH needed)
