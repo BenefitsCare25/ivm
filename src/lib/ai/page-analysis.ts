@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { logger } from "@/lib/logger";
 import { AppError } from "@/lib/errors";
+import { PROVIDER_MODELS } from "@/lib/validations/api-key";
 import { stripMarkdownFences } from "./parse";
 import { getPageAnalysisSystemPrompt, getPageAnalysisUserPrompt } from "./prompts-portal";
 import type { AIProvider } from "./types";
@@ -67,7 +68,7 @@ async function analyzeWithAnthropic(request: PageAnalysisRequest): Promise<strin
 
   const response = await client.messages.create(
     {
-      model: request.model ?? "claude-sonnet-4-6",
+      model: request.model ?? PROVIDER_MODELS.anthropic.defaults.vision,
       max_tokens: 4096,
       system: getPageAnalysisSystemPrompt(),
       messages: [{
@@ -100,7 +101,7 @@ async function analyzeWithOpenAI(request: PageAnalysisRequest): Promise<string> 
 
   const response = await client.chat.completions.create(
     {
-      model: request.model ?? "gpt-4.1",
+      model: request.model ?? PROVIDER_MODELS.openai.defaults.vision,
       max_tokens: 4096,
       messages: [
         { role: "system", content: getPageAnalysisSystemPrompt() },
@@ -127,7 +128,7 @@ async function analyzeWithOpenAI(request: PageAnalysisRequest): Promise<string> 
 
 async function analyzeWithGemini(request: PageAnalysisRequest): Promise<string> {
   const genAI = new GoogleGenerativeAI(request.apiKey);
-  const model = genAI.getGenerativeModel({ model: request.model ?? "gemini-2.5-flash" });
+  const model = genAI.getGenerativeModel({ model: request.model ?? PROVIDER_MODELS.gemini.defaults.vision });
   const base64 = request.screenshot.toString("base64");
 
   let timer: ReturnType<typeof setTimeout>;

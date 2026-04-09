@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Key, Trash2, CheckCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -89,6 +89,7 @@ export function ApiKeysForm() {
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [successes, setSuccesses] = useState<Record<string, string>>({});
+  const modelSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchKeys = useCallback(async () => {
     try {
@@ -175,7 +176,7 @@ export function ApiKeysForm() {
     }
   };
 
-  const handleModelChange = async (provider: AIProvider, tier: "visionModel" | "textModel", modelId: string) => {
+  const handleModelChange = (provider: AIProvider, tier: "visionModel" | "textModel", modelId: string) => {
     const current = state.modelPreferences ?? {};
     const defaults = PROVIDER_MODELS[provider].defaults;
     const updated: ModelPreferences = {
@@ -189,15 +190,14 @@ export function ApiKeysForm() {
 
     setState((prev) => ({ ...prev, modelPreferences: updated }));
 
-    try {
-      await fetch("/api/settings/model-preferences", {
+    if (modelSaveTimerRef.current) clearTimeout(modelSaveTimerRef.current);
+    modelSaveTimerRef.current = setTimeout(() => {
+      fetch("/api/settings/model-preferences", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updated),
-      });
-    } catch {
-      // silently fail for model preference toggle
-    }
+      }).catch(() => {/* silently fail */});
+    }, 600);
   };
 
   if (loading) {

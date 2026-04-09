@@ -73,11 +73,11 @@ async function callGemini(
   apiKey: string,
   systemPrompt: string,
   userPrompt: string,
-  modelId?: string
+  model?: string
 ): Promise<TextCallResult> {
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: modelId ?? env.GEMINI_MODEL,
+  const geminiModel = genAI.getGenerativeModel({
+    model: model ?? env.GEMINI_MODEL,
     systemInstruction: systemPrompt,
   });
 
@@ -86,10 +86,10 @@ async function callGemini(
     timeoutId = setTimeout(() => reject(new AppError("AI mapping timed out after 30s", 504, "AI_TIMEOUT")), 30_000);
   });
 
-  let result: Awaited<ReturnType<typeof model.generateContent>>;
+  let result: Awaited<ReturnType<typeof geminiModel.generateContent>>;
   try {
     result = await Promise.race([
-      model.generateContent([{ text: userPrompt }]),
+      geminiModel.generateContent([{ text: userPrompt }]),
       timeoutPromise,
     ]);
   } finally {

@@ -63,7 +63,7 @@ export async function PUT(req: Request) {
 
     await db.user.update({
       where: { id: session.user.id },
-      data: { modelPreferences: JSON.parse(JSON.stringify(parsed.data)) },
+      data: { modelPreferences: parsed.data },
     });
 
     logger.info({ userId: session.user.id }, "Model preferences updated");

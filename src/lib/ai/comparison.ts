@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { logger } from "@/lib/logger";
 import { AppError } from "@/lib/errors";
+import { PROVIDER_MODELS } from "@/lib/validations/api-key";
 import { stripMarkdownFences } from "./parse";
 import { getComparisonSystemPrompt, getComparisonUserPrompt, getTemplatedComparisonUserPrompt } from "./prompts-comparison";
 import type { AIProvider } from "./types";
@@ -66,7 +67,7 @@ async function compareWithAnthropic(request: ComparisonRequest, userPrompt: stri
 
   const response = await client.messages.create(
     {
-      model: request.model ?? "claude-sonnet-4-6",
+      model: request.model ?? PROVIDER_MODELS.anthropic.defaults.text,
       max_tokens: 4096,
       system: getComparisonSystemPrompt(),
       messages: [{ role: "user", content: userPrompt }],
@@ -86,7 +87,7 @@ async function compareWithOpenAI(request: ComparisonRequest, userPrompt: string)
 
   const response = await client.chat.completions.create(
     {
-      model: request.model ?? "gpt-4.1-mini",
+      model: request.model ?? PROVIDER_MODELS.openai.defaults.text,
       max_tokens: 4096,
       messages: [
         { role: "system", content: getComparisonSystemPrompt() },
@@ -101,7 +102,7 @@ async function compareWithOpenAI(request: ComparisonRequest, userPrompt: string)
 
 async function compareWithGemini(request: ComparisonRequest, userPrompt: string): Promise<string> {
   const genAI = new GoogleGenerativeAI(request.apiKey);
-  const model = genAI.getGenerativeModel({ model: request.model ?? "gemini-2.5-flash" });
+  const model = genAI.getGenerativeModel({ model: request.model ?? PROVIDER_MODELS.gemini.defaults.text });
 
   let timer: ReturnType<typeof setTimeout>;
   const result = await Promise.race([
