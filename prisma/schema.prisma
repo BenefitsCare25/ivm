@@ -25,6 +25,16 @@ model User {
   fillSessions FillSession[]
   apiKeys      UserApiKey[]
   portals      Portal[]
+
+  // Intelligence Hub
+  documentTypes    DocumentType[]
+  documentSets     DocumentSet[]
+  referenceDatasets ReferenceDataset[]
+  codeMappingRules CodeMappingRule[]
+  businessRules    BusinessRule[]
+  extractionTemplates ExtractionTemplate[]
+  normalizationRules  NormalizationRule[]
+  escalationConfig    EscalationConfig?
 }
 
 model Account {
@@ -450,4 +460,268 @@ model ComparisonTemplate {
   @@unique([portalId, name])
   @@index([portalId])
   @@map("comparison_templates")
+}
+
+// ─── Intelligence Hub ────────────────────────────────────────────
+
+// Phase 1: Document Types & Validation
+
+model DocumentType {
+  id             String   @id @default(cuid())
+  userId         String
+  name           String
+  aliases        Json     @default("[]")
+  category       String?
+  requiredFields Json     @default("[]")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentSetItems DocumentSetItem[]
+  extractionTemplates ExtractionTemplate[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("document_types")
+}
+
+model DocumentSet {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items DocumentSetItem[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("document_sets")
+}
+
+model DocumentSetItem {
+  id             String  @id @default(cuid())
+  documentSetId  String
+  documentTypeId String
+  isRequired     Boolean @default(true)
+  minCount       Int     @default(1)
+  maxCount       Int?
+
+  documentSet  DocumentSet  @relation(fields: [documentSetId], references: [id], onDelete: Cascade)
+  documentType DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([documentSetId, documentTypeId])
+  @@map("document_set_items")
+}
+
+enum ValidationStatus {
+  PASS
+  FAIL
+  WARNING
+}
+
+model ValidationResult {
+  id            String           @id @default(cuid())
+  fillSessionId String?
+  trackedItemId String?
+  ruleType      String
+  status        ValidationStatus
+  message       String
+  metadata      Json             @default("{}")
+  createdAt     DateTime         @default(now())
+
+  @@index([fillSessionId])
+  @@index([trackedItemId])
+  @@map("validation_results")
+}
+
+// Phase 2: Reference Datasets & Code Mapping
+
+model ReferenceDataset {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  columns     Json     @default("[]")
+  rowCount    Int      @default(0)
+  sourceType  String   @default("manual")
+  version     Int      @default(1)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries      ReferenceEntry[]
+  mappingRules CodeMappingRule[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("reference_datasets")
+}
+
+model ReferenceEntry {
+  id         String   @id @default(cuid())
+  datasetId  String
+  data       Json
+  searchText String   @db.Text
+  createdAt  DateTime @default(now())
+
+  dataset ReferenceDataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@index([datasetId])
+  @@map("reference_entries")
+}
+
+model CodeMappingRule {
+  id               String   @id @default(cuid())
+  userId           String
+  name             String
+  sourceFieldLabel String
+  datasetId        String
+  lookupColumn     String
+  outputColumn     String
+  matchStrategy    String   @default("fuzzy")
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dataset ReferenceDataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("code_mapping_rules")
+}
+
+// Phase 3: Business Rules Engine
+
+model BusinessRule {
+  id           String    @id @default(cuid())
+  userId       String
+  name         String
+  description  String?
+  priority     Int       @default(0)
+  isActive     Boolean   @default(true)
+  triggerPoint String
+  conditions   Json
+  actions      Json
+  scope        Json      @default("{}")
+  runCount     Int       @default(0)
+  lastRunAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  executions RuleExecution[]
+
+  @@index([userId])
+  @@index([triggerPoint])
+  @@map("business_rules")
+}
+
+model RuleExecution {
+  id            String   @id @default(cuid())
+  ruleId        String
+  fillSessionId String?
+  trackedItemId String?
+  triggered     Boolean
+  actionsRun    Json     @default("[]")
+  inputSnapshot Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  rule BusinessRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId])
+  @@index([fillSessionId])
+  @@index([trackedItemId])
+  @@index([createdAt])
+  @@map("rule_executions")
+}
+
+// Phase 4: Smart Extraction
+
+model ExtractionTemplate {
+  id             String   @id @default(cuid())
+  userId         String
+  documentTypeId String?
+  name           String
+  expectedFields Json     @default("[]")
+  instructions   String?  @db.Text
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentType DocumentType? @relation(fields: [documentTypeId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([documentTypeId])
+  @@map("extraction_templates")
+}
+
+model NormalizationRule {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  fieldType    String
+  pattern      String?
+  outputFormat String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("normalization_rules")
+}
+
+model EscalationConfig {
+  id                  String  @id @default(cuid())
+  userId              String  @unique
+  confidenceThreshold Float   @default(0.7)
+  autoFlagLowConfidence Boolean @default(true)
+  escalationMessage   String  @default("Low confidence extraction — requires human review")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("escalation_configs")
+}
+
+// Phase 5: Analytics
+
+model ProcessingMetric {
+  id          String   @id @default(cuid())
+  userId      String
+  metricType  String
+  metricKey   String
+  metricValue Float
+  period      String
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@index([userId, metricType, period])
+  @@index([metricKey])
+  @@map("processing_metrics")
+}
+
+// Phase 6: Versioning & Governance
+
+model ConfigVersion {
+  id         String   @id @default(cuid())
+  userId     String
+  entityType String
+  entityId   String
+  version    Int
+  snapshot   Json
+  changeNote String?
+  createdBy  String
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@map("config_versions")
 }

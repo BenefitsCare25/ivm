@@ -168,6 +168,21 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Click-discovery**: When no `detailLinkSelector` and no `href` links, detect `cursor:pointer` rows → Phase 1: extract data; Phase 2 (post-loop): click first row, wait for URL change via `waitForFunction((orig) => location.href !== orig)`, extract URL pattern, apply to all rows, `goBack()`
 - **SPA navigation**: Use `waitForFunction((orig) => location.href !== orig, currentUrl)` — NOT `waitForNavigation()` (SPA routing doesn't fire navigation events)
 
+### Intelligence Hub (Phase 1 — Document Types & Validation)
+- **Purpose**: User-configurable document classification, document set validation, required field checking, and duplicate detection. Zero hardcoded business logic.
+- **Sidebar**: Brain icon → `/intelligence` hub page with card links to all sub-sections
+- **Prisma models**: `DocumentType` (name, aliases JSON, category, requiredFields JSON, isActive), `DocumentSet` + `DocumentSetItem` join table (isRequired, minCount, maxCount), `ValidationResult` (fillSessionId?, trackedItemId?, ruleType, status PASS/FAIL/WARNING, message, metadata JSON)
+- **API routes**: `GET/POST /api/intelligence/document-types`, `PATCH/DELETE /api/intelligence/document-types/[id]`, same pattern for document-sets
+- **Validation API**: `GET /api/sessions/[id]/validations` (Auto Form), `GET /api/portals/[id]/scrape/[sessionId]/items/[itemId]/validations` (Portal Tracker)
+- **Runtime lib** (`src/lib/intelligence/`):
+  - `classifier.ts` — `fetchDocTypes(userId)` pre-fetches once; `classifyDocumentTypeFromCache(aiDocType, docTypes)` pure Jaro-Winkler fuzzy match; `classifyDocumentType()` accepts optional cached array
+  - `validator.ts` — `validateDocumentSet(userId, classifiedDocs, options)` checks items against user's active DocumentSets; `validateRequiredFields(docType, extractedFields, options)` checks requiredFields array; `validateRequiredFieldsSync()` pure version
+  - `deduplicator.ts` — `checkDuplicate(userId, documentTypeId, keyFields, extractedFields, options)` SHA-256 hashes key field values, 90-day lookback, scoped by documentTypeId in metadata
+- **Worker integration** (`item-detail-worker.ts`): Non-fatal pipeline after extraction — `fetchDocTypes()` once, then per file: classify → `Promise.all([validateRequiredFields, checkDuplicate])`. Then `validateDocumentSet()` for the full item. Any error is logged as warn and never blocks the comparison pipeline.
+- **UI components**: `ValidationSummary` (pass/fail/warning badge + message list, shown on both Auto Form extract page and Portal Tracker item detail), `document-type-list.tsx`, `document-set-list.tsx`
+- **Types/Validations**: `src/types/intelligence.ts`, `src/lib/validations/intelligence.ts`
+- **Key constraint**: `ValidationResult` has no `userId` column — cross-user isolation is enforced by scoping dedup queries to `metadata.documentTypeId`. Do not query ValidationResult without a documentTypeId or session/item scope.
+
 ## Deployment
 
 - **VPS**: Hostinger VPS 2 (`72.62.75.247`), Ubuntu 24.04, 8GB RAM

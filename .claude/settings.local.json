@@ -89,7 +89,10 @@
       "Bash(sed -n '91,96p' /c/Users/huien/ivm/src/components/sessions/session-metadata.tsx)",
       "Bash(sed -n '103,107p' /c/Users/huien/ivm/src/components/sessions/session-timeline.tsx)",
       "WebSearch",
-      "WebFetch(domain:ai.google.dev)"
+      "WebFetch(domain:ai.google.dev)",
+      "Bash(npx --yes tsc --noEmit)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(timeout 60 ./node_modules/.bin/tsc --noEmit --skipLibCheck)"
     ]
   }
 }

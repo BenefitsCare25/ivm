@@ -8,6 +8,8 @@ import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { extractFieldsFromDocument } from "@/lib/ai";
 import { compareFields } from "@/lib/ai/comparison";
 import { findMatchingTemplate, filterFieldsByTemplate } from "@/lib/comparison-templates";
+import { classifyDocumentType, fetchDocTypes, validateDocumentSet, validateRequiredFields, checkDuplicate } from "@/lib/intelligence";
+import type { DocTypeRecord } from "@/lib/intelligence";
 import { emitItemEvent, emitFailureEvent, withEventTracking } from "@/lib/portal-events";
 import {
   startItemDetailWorker,
@@ -133,6 +135,7 @@ async function processItemDetailCore(
       // ── AI extraction from downloaded files ─────────────────
       const { provider, apiKey, visionModel, textModel } = await resolveProviderAndKey(userId);
       const pdfFields: Record<string, string> = {};
+      const fileExtractions: { fileName: string; documentType: string; fields: { label: string; value: string }[] }[] = [];
 
       for (const file of downloadedFiles) {
         if (file.mimeType === "application/pdf" || file.mimeType.startsWith("image/")) {
@@ -161,6 +164,12 @@ async function processItemDetailCore(
               pdfFields[field.label] = field.value;
             }
 
+            fileExtractions.push({
+              fileName: file.originalName,
+              documentType: extraction.documentType,
+              fields: extraction.fields.map((f) => ({ label: f.label, value: f.value })),
+            });
+
             await emitItemEvent(
               trackedItemId,
               "AI_EXTRACT_DONE",
@@ -171,6 +180,53 @@ async function processItemDetailCore(
             logger.warn({ err, fileName: file.originalName }, "[worker] Failed to extract from file");
             await emitFailureEvent(trackedItemId, "AI_EXTRACT_FAIL", err);
           }
+        }
+      }
+
+      // ── Intelligence: classify, validate, deduplicate ──────
+      const classifiedDocs: { documentTypeId: string | null; documentTypeName: string | null; fileName: string }[] = [];
+
+      let cachedDocTypes: DocTypeRecord[] | undefined;
+      try {
+        cachedDocTypes = await fetchDocTypes(userId);
+      } catch (intErr) {
+        logger.warn({ err: intErr }, "[worker] Failed to fetch doc types (non-fatal)");
+      }
+
+      for (const ext of fileExtractions) {
+        try {
+          const classification = await classifyDocumentType(userId, ext.documentType, cachedDocTypes);
+          classifiedDocs.push({
+            documentTypeId: classification.documentTypeId,
+            documentTypeName: classification.documentTypeName,
+            fileName: ext.fileName,
+          });
+
+          if (classification.documentTypeId) {
+            const matchedDocType = cachedDocTypes?.find((dt) => dt.id === classification.documentTypeId);
+            const keyFields = (matchedDocType?.requiredFields as string[]) ?? [];
+
+            await Promise.all([
+              validateRequiredFields(
+                { name: matchedDocType?.name ?? ext.documentType, requiredFields: matchedDocType?.requiredFields },
+                ext.fields,
+                { trackedItemId }
+              ),
+              checkDuplicate(userId, classification.documentTypeId, keyFields, ext.fields, {
+                trackedItemId,
+              }),
+            ]);
+          }
+        } catch (intErr) {
+          logger.warn({ err: intErr, fileName: ext.fileName }, "[worker] Intelligence pipeline error (non-fatal)");
+        }
+      }
+
+      if (classifiedDocs.length > 0) {
+        try {
+          await validateDocumentSet(userId, classifiedDocs, { trackedItemId });
+        } catch (intErr) {
+          logger.warn({ err: intErr }, "[worker] Document set validation error (non-fatal)");
         }
       }
 
