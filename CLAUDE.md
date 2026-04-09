@@ -147,9 +147,13 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 
 - **VPS**: Hostinger VPS 2 (`72.62.75.247`), Ubuntu 24.04, 8GB RAM
 - **SSH**: `ssh -i /c/Users/huien/.ssh/id_ed25519 root@72.62.75.247`
-- **Database**: Supabase PostgreSQL in Docker on port 5433
+- **Database**: Supabase PostgreSQL in Docker on port **5433** (NOT 5432)
 - **Login**: `dev@ivm.local / password123`
-- **Database name**: `ivm` (not `ivm_dev`) — `DATABASE_URL` must use `localhost:5433/ivm`
+- **Database name**: `ivm` (NOT `ivm_dev`) — correct `DATABASE_URL`:
+  ```
+  DATABASE_URL="postgresql://ivm:ivm_dev_password@localhost:5433/ivm?schema=public"
+  ```
+- **🔴 Before every deploy**: verify VPS `.env` has the correct DATABASE_URL — `grep DATABASE_URL /var/www/ivm/.env`
 - **Deploy**: `tar czf` locally → `scp` → `tar xzf` on VPS (bracket filenames break plain `scp`) → `npm run build && pm2 restart ivm`
 - **Full deploy**: add `npm ci && npx prisma generate && npx prisma migrate deploy` before build
 - **Schema migrations**: `prisma migrate deploy` requires `DATABASE_URL` pointing to port 5433. If the `ivm` user lacks DDL privileges, run migration SQL directly: `docker exec supabase-db psql -U postgres -d ivm -f migration.sql`, then insert into `_prisma_migrations` manually
