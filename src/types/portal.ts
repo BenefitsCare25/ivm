@@ -170,3 +170,87 @@ export const COMPARISON_STATUS_LABELS: Record<ComparisonFieldStatus, string> = {
   MISSING_ON_PAGE: "Missing on Page",
   UNCERTAIN: "Uncertain",
 };
+
+// ─── Item Events (observability timeline) ───────────────────────
+
+export const ITEM_EVENT_TYPES = [
+  "AUTH_START",
+  "AUTH_SUCCESS",
+  "AUTH_FAIL",
+  "PAGE_LOAD",
+  "PAGE_LOAD_FAIL",
+  "SELECTOR_MATCH",
+  "SELECTOR_FAIL",
+  "DETAIL_SCRAPE_START",
+  "DETAIL_SCRAPE_DONE",
+  "DETAIL_SCRAPE_FAIL",
+  "DOWNLOAD_START",
+  "DOWNLOAD_DONE",
+  "DOWNLOAD_FAIL",
+  "AI_EXTRACT_START",
+  "AI_EXTRACT_DONE",
+  "AI_EXTRACT_FAIL",
+  "AI_COMPARE_START",
+  "AI_COMPARE_DONE",
+  "AI_COMPARE_FAIL",
+  "ITEM_COMPLETE",
+  "ITEM_ERROR",
+] as const;
+export type ItemEventType = (typeof ITEM_EVENT_TYPES)[number];
+
+export interface ItemEventSummary {
+  id: string;
+  eventType: ItemEventType;
+  payload: Record<string, unknown>;
+  screenshotPath: string | null;
+  durationMs: number | null;
+  createdAt: string;
+}
+
+export const EVENT_TYPE_LABELS: Record<ItemEventType, string> = {
+  AUTH_START: "Authenticating",
+  AUTH_SUCCESS: "Authenticated",
+  AUTH_FAIL: "Auth Failed",
+  PAGE_LOAD: "Page Loaded",
+  PAGE_LOAD_FAIL: "Page Load Failed",
+  SELECTOR_MATCH: "Selectors Matched",
+  SELECTOR_FAIL: "Selector Failed",
+  DETAIL_SCRAPE_START: "Scraping Detail Page",
+  DETAIL_SCRAPE_DONE: "Detail Page Scraped",
+  DETAIL_SCRAPE_FAIL: "Detail Scrape Failed",
+  DOWNLOAD_START: "Downloading Files",
+  DOWNLOAD_DONE: "Files Downloaded",
+  DOWNLOAD_FAIL: "Download Failed",
+  AI_EXTRACT_START: "AI Extracting",
+  AI_EXTRACT_DONE: "AI Extraction Done",
+  AI_EXTRACT_FAIL: "AI Extraction Failed",
+  AI_COMPARE_START: "AI Comparing Fields",
+  AI_COMPARE_DONE: "AI Comparison Done",
+  AI_COMPARE_FAIL: "AI Comparison Failed",
+  ITEM_COMPLETE: "Completed",
+  ITEM_ERROR: "Error",
+};
+
+export const EVENT_SEVERITY: Record<ItemEventType, "info" | "success" | "error"> = {
+  AUTH_START: "info",
+  AUTH_SUCCESS: "success",
+  AUTH_FAIL: "error",
+  PAGE_LOAD: "success",
+  PAGE_LOAD_FAIL: "error",
+  SELECTOR_MATCH: "success",
+  SELECTOR_FAIL: "error",
+  DETAIL_SCRAPE_START: "info",
+  DETAIL_SCRAPE_DONE: "success",
+  DETAIL_SCRAPE_FAIL: "error",
+  DOWNLOAD_START: "info",
+  DOWNLOAD_DONE: "success",
+  DOWNLOAD_FAIL: "error",
+  AI_EXTRACT_START: "info",
+  AI_EXTRACT_DONE: "success",
+  AI_EXTRACT_FAIL: "error",
+  AI_COMPARE_START: "info",
+  AI_COMPARE_DONE: "success",
+  AI_COMPARE_FAIL: "error",
+  ITEM_COMPLETE: "success",
+  ITEM_ERROR: "error",
+};
