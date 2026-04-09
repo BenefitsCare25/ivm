@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Loader2, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, X, Eye, EyeOff } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -80,6 +80,46 @@ export function ExtractionConfig({ templates, documentTypes, normRules, escalati
   );
 }
 
+// ─── Prompt Preview ───────────────────────────────────────────────
+
+function buildPromptPreview(form: TemplateFormState): string {
+  const fieldLines =
+    form.expectedFields.length > 0
+      ? form.expectedFields
+          .map((f) => `  • ${f.label || "(unnamed)"}  [${f.fieldType}${f.required ? ", required" : ", optional"}]`)
+          .join("\n")
+      : "  (no specific fields defined — AI will extract whatever it finds)";
+
+  const instructionBlock = form.instructions.trim()
+    ? `\nAdditional instructions:\n${form.instructions.trim()}`
+    : "";
+
+  return `System: You are an expert document extraction AI. Extract structured data from the provided document and return it as JSON.
+
+Extract the following fields:
+${fieldLines}${instructionBlock}
+
+For each field, return:
+  "value": the extracted value (null if not found)
+  "confidence": a score from 0.0 (uncertain) to 1.0 (certain)
+
+Respond only with valid JSON. Do not include explanation or markdown.`;
+}
+
+function PromptPreview({ form }: { form: TemplateFormState }) {
+  return (
+    <div className="rounded-md border border-blue-500/20 bg-blue-500/5 p-3 space-y-1.5">
+      <p className="text-xs font-medium text-blue-600 dark:text-blue-400">AI Prompt Preview</p>
+      <p className="text-xs text-muted-foreground">
+        This approximates what gets sent to the AI. Actual prompt includes document content.
+      </p>
+      <pre className="whitespace-pre-wrap rounded bg-muted/60 p-2.5 font-mono text-[11px] leading-relaxed text-foreground/80 overflow-x-auto">
+        {buildPromptPreview(form)}
+      </pre>
+    </div>
+  );
+}
+
 // ─── Templates Tab ────────────────────────────────────────────────
 
 interface TemplateFormState {
@@ -106,6 +146,7 @@ function TemplatesTab({ templates, documentTypes }: { templates: ExtractionTempl
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   const isOpen = creating || editingId !== null;
 
@@ -182,9 +223,27 @@ function TemplatesTab({ templates, documentTypes }: { templates: ExtractionTempl
                 </select>
               </div>
               <div className="sm:col-span-2">
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">Instructions</label>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Instructions
+                    <span className="ml-1 font-normal text-muted-foreground/60">(custom guidance added to the AI prompt)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowPreview((v) => !v)}
+                    className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 transition-colors"
+                  >
+                    {showPreview ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                    {showPreview ? "Hide preview" : "Preview prompt"}
+                  </button>
+                </div>
                 <textarea rows={2} className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" value={form.instructions} disabled={saving} onChange={(e) => setForm((p) => ({ ...p, instructions: e.target.value }))} />
               </div>
+              {showPreview && (
+                <div className="sm:col-span-2">
+                  <PromptPreview form={form} />
+                </div>
+              )}
               <div className="flex items-center">
                 <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
                   <input type="checkbox" checked={form.isActive} disabled={saving} onChange={(e) => setForm((p) => ({ ...p, isActive: e.target.checked }))} className="h-4 w-4 rounded border-border" />Active

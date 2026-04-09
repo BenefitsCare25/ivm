@@ -46,6 +46,98 @@ const emptyForm: FormState = {
 const OPERATORS = Object.keys(OPERATOR_LABELS) as Array<keyof typeof OPERATOR_LABELS>;
 const ACTION_TYPES = Object.keys(ACTION_TYPE_LABELS) as Array<keyof typeof ACTION_TYPE_LABELS>;
 
+const inputCls =
+  "h-8 rounded-md border border-border bg-background px-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
+const selectCls = inputCls + " cursor-pointer";
+
+// Structured param editors per action type — replaces freeform JSON textarea
+function ActionParamsForm({
+  action,
+  index,
+  onUpdate,
+}: {
+  action: RuleAction;
+  index: number;
+  onUpdate: (i: number, params: Record<string, string>) => void;
+}) {
+  const params = (action.params ?? {}) as Record<string, string>;
+
+  switch (action.type) {
+    case "FLAG":
+      return (
+        <input
+          placeholder="Reason (e.g. Amount exceeds threshold)"
+          className={inputCls + " flex-1 min-w-40"}
+          value={params.reason ?? ""}
+          onChange={(e) => onUpdate(index, { reason: e.target.value })}
+        />
+      );
+    case "SET_STATUS":
+      return (
+        <select
+          className={selectCls + " flex-1"}
+          value={params.status ?? "REVIEW"}
+          onChange={(e) => onUpdate(index, { status: e.target.value })}
+        >
+          {["REVIEW", "APPROVED", "REJECTED", "ESCALATED", "PENDING", "FLAGGED"].map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+      );
+    case "ADD_NOTE":
+      return (
+        <input
+          placeholder="Note text"
+          className={inputCls + " flex-1 min-w-40"}
+          value={params.note ?? ""}
+          onChange={(e) => onUpdate(index, { note: e.target.value })}
+        />
+      );
+    case "SET_FIELD":
+      return (
+        <>
+          <input
+            placeholder="Field name"
+            className={inputCls + " w-32"}
+            value={params.field ?? ""}
+            onChange={(e) => onUpdate(index, { ...params, field: e.target.value })}
+          />
+          <input
+            placeholder="New value"
+            className={inputCls + " flex-1 min-w-28"}
+            value={params.value ?? ""}
+            onChange={(e) => onUpdate(index, { ...params, value: e.target.value })}
+          />
+        </>
+      );
+    case "ESCALATE":
+      return (
+        <>
+          <input
+            placeholder="To (e.g. supervisor)"
+            className={inputCls + " w-32"}
+            value={params.to ?? ""}
+            onChange={(e) => onUpdate(index, { ...params, to: e.target.value })}
+          />
+          <input
+            placeholder="Reason"
+            className={inputCls + " flex-1 min-w-28"}
+            value={params.reason ?? ""}
+            onChange={(e) => onUpdate(index, { ...params, reason: e.target.value })}
+          />
+        </>
+      );
+    case "SKIP":
+      return (
+        <span className="flex-1 px-1 text-xs italic text-muted-foreground">
+          No parameters needed — stops further rule processing for this item.
+        </span>
+      );
+    default:
+      return null;
+  }
+}
+
 export function BusinessRuleList({ rules }: BusinessRuleListProps) {
   const router = useRouter();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -176,28 +268,21 @@ export function BusinessRuleList({ rules }: BusinessRuleListProps) {
   }
 
   function updateAction(i: number, type: RuleAction["type"]) {
+    // reset params when action type changes so stale keys don't carry over
     setForm((p) => ({
       ...p,
-      actions: p.actions.map((a, idx) => (idx === i ? { ...a, type } : a)),
+      actions: p.actions.map((a, idx) => (idx === i ? { type, params: {} } : a)),
     }));
   }
 
-  function updateActionParams(i: number, raw: string) {
-    try {
-      const params = JSON.parse(raw) as Record<string, string>;
-      setForm((p) => ({
-        ...p,
-        actions: p.actions.map((a, idx) => (idx === i ? { ...a, params } : a)),
-      }));
-    } catch {
-      // ignore invalid JSON while typing
-    }
+  function updateActionParams(i: number, params: Record<string, string>) {
+    setForm((p) => ({
+      ...p,
+      actions: p.actions.map((a, idx) => (idx === i ? { ...a, params } : a)),
+    }));
   }
 
   const isFormOpen = creating || editingId !== null;
-  const inputCls =
-    "h-8 rounded-md border border-border bg-background px-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
-  const selectCls = inputCls + " cursor-pointer";
 
   return (
     <div className="space-y-4">
@@ -222,7 +307,7 @@ export function BusinessRuleList({ rules }: BusinessRuleListProps) {
           updateCondition={updateCondition} addAction={addAction}
           removeAction={removeAction} updateAction={updateAction}
           updateActionParams={updateActionParams}
-          inputCls={inputCls} selectCls={selectCls} title="New Business Rule"
+          title="New Business Rule"
         />
       )}
 
@@ -236,7 +321,7 @@ export function BusinessRuleList({ rules }: BusinessRuleListProps) {
             updateCondition={updateCondition} addAction={addAction}
             removeAction={removeAction} updateAction={updateAction}
             updateActionParams={updateActionParams}
-            inputCls={inputCls} selectCls={selectCls} title={`Edit: ${rule.name}`}
+            title={`Edit: ${rule.name}`}
           />
         ) : (
           <RuleCard
@@ -259,7 +344,7 @@ function RuleForm({
   form, setForm, saving, error, onSave, onCancel,
   addCondition, removeCondition, updateCondition,
   addAction, removeAction, updateAction, updateActionParams,
-  inputCls, selectCls, title,
+  title,
 }: {
   form: FormState;
   setForm: React.Dispatch<React.SetStateAction<FormState>>;
@@ -273,9 +358,7 @@ function RuleForm({
   addAction: () => void;
   removeAction: (i: number) => void;
   updateAction: (i: number, t: RuleAction["type"]) => void;
-  updateActionParams: (i: number, raw: string) => void;
-  inputCls: string;
-  selectCls: string;
+  updateActionParams: (i: number, params: Record<string, string>) => void;
   title: string;
 }) {
   return (
@@ -363,9 +446,7 @@ function RuleForm({
                 onChange={(e) => updateAction(i, e.target.value as RuleAction["type"])}>
                 {ACTION_TYPES.map((t) => <option key={t} value={t}>{ACTION_TYPE_LABELS[t]}</option>)}
               </select>
-              <input placeholder='params JSON e.g. {"note":"..."}' className={inputCls + " flex-1 min-w-40"}
-                defaultValue={Object.keys(a.params).length ? JSON.stringify(a.params) : ""}
-                onBlur={(e) => updateActionParams(i, e.target.value || "{}")} />
+              <ActionParamsForm action={a} index={i} onUpdate={updateActionParams} />
               <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive"
                 onClick={() => removeAction(i)}>
                 <Trash2 className="h-3.5 w-3.5" />
