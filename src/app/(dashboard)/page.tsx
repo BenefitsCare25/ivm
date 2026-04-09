@@ -65,7 +65,7 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Sessions</h1>
+          <h1 className="text-2xl font-semibold text-foreground">Auto Form</h1>
           <p className="text-sm text-muted-foreground">
             Manage your document-to-form mapping sessions
           </p>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LayoutDashboard, Plus, Settings, Radar, ChevronLeft, ChevronRight } from "lucide-react";
+import { LayoutDashboard, Settings, Radar, ChevronLeft, ChevronRight } from "lucide-react";
 import { NavItem } from "./nav-item";
 import { useSidebar } from "@/lib/sidebar-context";
 import { cn } from "@/lib/utils";
@@ -47,8 +47,7 @@ export function Sidebar() {
 
       {/* Nav items */}
       <nav className="flex-1 space-y-1 px-2 py-2">
-        <NavItem href="/" icon={LayoutDashboard} label="Dashboard" collapsed={collapsed} />
-        <NavItem href="/sessions/new" icon={Plus} label="New Session" collapsed={collapsed} />
+        <NavItem href="/" icon={LayoutDashboard} label="Auto Form" collapsed={collapsed} />
         <NavItem href="/portals" icon={Radar} label="Portal Tracker" collapsed={collapsed} />
       </nav>
 
