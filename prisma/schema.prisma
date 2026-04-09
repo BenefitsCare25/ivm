@@ -373,12 +373,28 @@ model TrackedItem {
   scrapeSession    ScrapeSession     @relation(fields: [scrapeSessionId], references: [id], onDelete: Cascade)
   files            TrackedItemFile[]
   comparisonResult ComparisonResult?
+  events           TrackedItemEvent[]
 
   @@index([scrapeSessionId])
   @@index([portalItemId])
   @@index([status])
   @@index([createdAt])
   @@map("tracked_items")
+}
+
+model TrackedItemEvent {
+  id             String   @id @default(cuid())
+  trackedItemId  String
+  eventType      String
+  payload        Json     @default("{}")
+  screenshotPath String?
+  durationMs     Int?
+  createdAt      DateTime @default(now())
+
+  trackedItem TrackedItem @relation(fields: [trackedItemId], references: [id], onDelete: Cascade)
+
+  @@index([trackedItemId, createdAt])
+  @@map("tracked_item_events")
 }
 
 model TrackedItemFile {
