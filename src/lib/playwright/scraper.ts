@@ -30,13 +30,30 @@ export async function scrapeListPage(
 
   await page.waitForSelector(tableSelector, { timeout: 15_000 });
 
+  // Wait for rows to render (SPA portals load the table shell first, then fetch data)
+  await page.waitForFunction(
+    ([tSel, rSel]) => {
+      const rows = document.querySelectorAll(`${tSel} ${rSel}`);
+      return rows.length > 0;
+    },
+    [tableSelector, rowSelector] as const,
+    { timeout: 15_000 }
+  ).catch(() => {
+    logger.warn("[scraper] Timed out waiting for table rows to render");
+  });
+
+  await page.waitForTimeout(1000);
+
   const rows = await page.$$(
     `${tableSelector} ${rowSelector}`
   );
 
   logger.info({ rowCount: rows.length }, "[scraper] Found rows on list page");
 
+  // Phase 1: Extract all field data and href-based URLs without navigation
   const results: ScrapedRow[] = [];
+  let hasAnyUrl = false;
+  let firstClickableRow = false;
 
   for (const row of rows) {
     const fields: Record<string, string> = {};
@@ -47,7 +64,6 @@ export async function scrapeListPage(
         fields[col.name] = cell ? (await cell.textContent() ?? "").trim() : "";
       }
     } else {
-      // Fallback: extract all td cells by index
       const cells = await row.$$("td");
       for (let i = 0; i < cells.length; i++) {
         const text = (await cells[i].textContent() ?? "").trim();
@@ -55,13 +71,11 @@ export async function scrapeListPage(
       }
     }
 
-    // Extract detail page link
     let detailUrl: string | null = null;
     if (detailLinkSelector) {
       const link = await row.$(detailLinkSelector);
       if (link) {
         detailUrl = await link.getAttribute("href");
-        // Fallback: extract URL from onclick (e.g. onclick="location.href='/path'")
         if (!detailUrl) {
           const onclick = await link.getAttribute("onclick");
           if (onclick) {
@@ -71,20 +85,76 @@ export async function scrapeListPage(
         }
       }
     } else {
-      // Fallback: look for first anchor in the row
       const link = await row.$("a[href]");
       detailUrl = link ? await link.getAttribute("href") : null;
     }
 
-    // Resolve relative URLs
     if (detailUrl && !detailUrl.startsWith("http")) {
       detailUrl = new URL(detailUrl, page.url()).href;
     }
 
-    // Use first non-empty field as portalItemId, or first column
-    const portalItemId = Object.values(fields).find((v) => v.length > 0) ?? `row-${results.length}`;
+    if (detailUrl) hasAnyUrl = true;
 
+    if (!firstClickableRow && !detailUrl) {
+      const isClickable = await row.evaluate((el) =>
+        window.getComputedStyle(el).cursor === "pointer"
+      );
+      if (isClickable) firstClickableRow = true;
+    }
+
+    const portalItemId = Object.values(fields).find((v) => v.length > 0) ?? `row-${results.length}`;
     results.push({ portalItemId, detailUrl, fields });
+  }
+
+  // Phase 2: If no URLs found and rows are clickable, discover URL pattern by clicking first row
+  if (!hasAnyUrl && firstClickableRow && results.length > 0) {
+    logger.info("[scraper] No URLs found, attempting click-discovery on first row");
+    try {
+      const firstRow = (await page.$$(`${tableSelector} ${rowSelector}`))[0];
+      if (firstRow) {
+        const currentUrl = page.url();
+        await firstRow.click();
+        await page.waitForFunction(
+          (origUrl) => window.location.href !== origUrl,
+          currentUrl,
+          { timeout: 5_000 }
+        ).catch(() => {});
+
+        if (page.url() !== currentUrl) {
+          const discoveredUrl = page.url();
+          const firstId = results[0].portalItemId;
+          const lowerFirstId = firstId.toLowerCase().replace(/\s+/g, "-");
+
+          if (discoveredUrl.toLowerCase().includes(lowerFirstId)) {
+            const baseDetailUrl = discoveredUrl.substring(
+              0, discoveredUrl.toLowerCase().indexOf(lowerFirstId)
+            );
+            logger.info({ baseDetailUrl, discoveredUrl, firstId }, "[scraper] Detected detail URL pattern");
+
+            // Apply pattern to all rows
+            for (const row of results) {
+              const id = row.portalItemId.toLowerCase().replace(/\s+/g, "-");
+              row.detailUrl = baseDetailUrl + id;
+            }
+          } else {
+            // URL pattern doesn't match ID — just assign first row's URL
+            results[0].detailUrl = discoveredUrl;
+            logger.warn({ discoveredUrl, firstId }, "[scraper] URL doesn't contain row ID, cannot extrapolate");
+          }
+
+          // Navigate back to list page for pagination support
+          await page.goBack({ timeout: 15_000 });
+          await page.waitForFunction(
+            ([tSel, rSel]) => document.querySelectorAll(`${tSel} ${rSel}`).length > 0,
+            [tableSelector, rowSelector] as const,
+            { timeout: 15_000 }
+          ).catch(() => {});
+          await page.waitForTimeout(1000);
+        }
+      }
+    } catch {
+      logger.warn("[scraper] Click-discovery failed");
+    }
   }
 
   return results;
@@ -162,7 +232,9 @@ export interface DownloadedFile {
 
 /**
  * Downloads files linked on the current page.
- * Uses configured selectors or falls back to finding all PDF/document links.
+ * Uses direct HTTP fetch (inherits session cookies) for href-based links so inline
+ * PDFs and new-tab links are captured reliably. Falls back to click+download event
+ * only for javascript: / onclick links that have no navigable href.
  */
 export async function downloadFiles(
   page: Page,
@@ -173,15 +245,72 @@ export async function downloadFiles(
     ?? 'a[href$=".pdf"], a[href$=".doc"], a[href$=".docx"], a[href$=".xlsx"], a[href$=".csv"], a[href*="download"]';
 
   const links = await page.$$(downloadSelector);
-  logger.info({ linkCount: links.length }, "[scraper] Found download links");
+  logger.info({ linkCount: links.length, selector: downloadSelector }, "[scraper] Found download links");
+
+  if (links.length === 0) return [];
 
   const storage = getStorageAdapter();
   const results: DownloadedFile[] = [];
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "ivm-download-"));
+  const seenUrls = new Set<string>();
 
   try {
     for (const link of links) {
       try {
+        const href = await link.getAttribute("href");
+
+        // --- Direct fetch path (preferred) ---
+        // Works for inline PDFs, new-tab links, and any navigable URL.
+        if (href && !href.startsWith("javascript:")) {
+          const absoluteUrl = href.startsWith("http")
+            ? href
+            : new URL(href, page.url()).href;
+
+          if (seenUrls.has(absoluteUrl)) continue;
+          seenUrls.add(absoluteUrl);
+
+          const response = await page.request.get(absoluteUrl, { timeout: 30_000 });
+
+          if (!response.ok()) {
+            logger.warn({ url: absoluteUrl, status: response.status() }, "[scraper] Download request failed");
+            continue;
+          }
+
+          const contentType = response.headers()["content-type"] ?? "";
+          const contentDisposition = response.headers()["content-disposition"] ?? "";
+
+          let suggestedName =
+            extractFilenameFromDisposition(contentDisposition) ??
+            path.basename(new URL(absoluteUrl).pathname) ??
+            "download";
+
+          // Add extension from content-type if missing
+          if (!path.extname(suggestedName)) {
+            if (contentType.includes("pdf")) suggestedName += ".pdf";
+            else if (contentType.includes("msword") || contentType.includes("wordprocessingml")) suggestedName += ".docx";
+            else if (contentType.includes("spreadsheetml")) suggestedName += ".xlsx";
+          }
+
+          const fileBuffer = await response.body();
+          const safeName = sanitizeFileName(suggestedName);
+          const mimeType = guessMimeType(suggestedName) || contentType.split(";")[0].trim();
+          const storagePath = `${storagePrefix}/${safeName}`;
+
+          await storage.upload(storagePath, fileBuffer, mimeType);
+
+          results.push({
+            fileName: safeName,
+            originalName: suggestedName,
+            mimeType,
+            sizeBytes: fileBuffer.length,
+            storagePath,
+          });
+
+          logger.info({ fileName: safeName, size: fileBuffer.length }, "[scraper] File downloaded via direct fetch");
+          continue;
+        }
+
+        // --- Click+download fallback (onclick / javascript: links) ---
         const [download] = await Promise.all([
           page.waitForEvent("download", { timeout: 15_000 }),
           link.click(),
@@ -207,9 +336,12 @@ export async function downloadFiles(
           storagePath,
         });
 
-        logger.info({ fileName: safeName, size: stat.size }, "[scraper] File downloaded");
+        logger.info({ fileName: safeName, size: stat.size }, "[scraper] File downloaded via click event");
       } catch (err) {
-        logger.warn({ err, link: await link.textContent() }, "[scraper] Failed to download file");
+        logger.warn(
+          { err, linkText: await link.textContent().catch(() => "?") },
+          "[scraper] Failed to download file"
+        );
       }
     }
   } finally {
@@ -217,6 +349,13 @@ export async function downloadFiles(
   }
 
   return results;
+}
+
+function extractFilenameFromDisposition(disposition: string): string | null {
+  // Handles both `filename="foo.pdf"` and `filename*=UTF-8''foo.pdf`
+  const match = disposition.match(/filename[^;=\n]*=(?:UTF-8'')?(?:['"]?)([^'"\n;]*)(?:['"]?)/i);
+  const name = match?.[1]?.trim();
+  return name || null;
 }
 
 function guessMimeType(fileName: string): string {
