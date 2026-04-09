@@ -93,3 +93,30 @@ export const updateTrackedItemSchema = z.object({
 });
 
 export type UpdateTrackedItemInput = z.infer<typeof updateTrackedItemSchema>;
+
+export const templateFieldSchema = z.object({
+  fieldName: z.string().min(1).max(200),
+  mode: z.enum(["fuzzy", "exact", "numeric"]),
+  tolerance: z.number().min(0).max(1000).optional(),
+});
+
+export const createComparisonTemplateSchema = z.object({
+  name: z.string().min(1).max(200),
+  groupingKey: z.record(z.string().max(200), z.string().max(500)),
+  fields: z.array(templateFieldSchema).min(1, "Select at least one field").max(100),
+});
+
+export type CreateComparisonTemplateInput = z.infer<typeof createComparisonTemplateSchema>;
+
+export const updateComparisonTemplateSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  fields: z.array(templateFieldSchema).min(1).max(100).optional(),
+});
+
+export type UpdateComparisonTemplateInput = z.infer<typeof updateComparisonTemplateSchema>;
+
+export const updateGroupingFieldsSchema = z.object({
+  groupingFields: z.array(z.string().min(1).max(200)).max(5),
+});
+
+export type UpdateGroupingFieldsInput = z.infer<typeof updateGroupingFieldsSchema>;
