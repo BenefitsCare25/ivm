@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { errorResponse, NotFoundError, ValidationError } from "@/lib/errors";
 import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { compareFields } from "@/lib/ai/comparison";
-import { filterFieldsByTemplate } from "@/lib/comparison-templates";
+import { filterFieldsByTemplate, itemMatchesGroupingKey } from "@/lib/comparison-templates";
 import { logger } from "@/lib/logger";
 import type { TemplateField } from "@/types/portal";
 
@@ -49,11 +49,9 @@ export async function POST(
     const matchingItems = items.filter((item) => {
       const allData = {
         ...(item.listData as Record<string, string>),
-        ...(item.detailData as Record<string, string> ?? {}),
+        ...((item.detailData as Record<string, string>) ?? {}),
       };
-      return groupingFields.every(
-        (f) => allData[f]?.toLowerCase().trim() === templateKey[f]?.toLowerCase().trim()
-      );
+      return itemMatchesGroupingKey(groupingFields, allData, templateKey);
     });
 
     if (matchingItems.length === 0) {

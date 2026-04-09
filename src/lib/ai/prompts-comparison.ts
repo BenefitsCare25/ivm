@@ -1,3 +1,5 @@
+import type { TemplateField } from "@/types/portal";
+
 export function getComparisonSystemPrompt(): string {
   return `You are an expert data comparison analyst. Your job is to compare structured data from a web portal page against data extracted from PDF/document files to identify matches, mismatches, and missing data.
 
@@ -34,8 +36,6 @@ COMPARISON RULES:
 
 Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.`;
 }
-
-import type { TemplateField } from "@/types/portal";
 
 export function getTemplatedComparisonUserPrompt(
   pageFields: Record<string, string>,

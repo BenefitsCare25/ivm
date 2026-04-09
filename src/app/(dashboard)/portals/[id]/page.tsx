@@ -58,14 +58,26 @@ export default async function PortalDetailPage({
     return acc;
   }, {});
 
+  // Derive available fields from configured selectors for grouping field picker
+  const listSelectors = (portal.listSelectors ?? {}) as Record<string, unknown>;
+  const detailSelectors = (portal.detailSelectors ?? {}) as Record<string, unknown>;
+  const listColumns = (listSelectors.columns as Array<{ name: string }> | undefined) ?? [];
+  const detailFieldKeys = Object.keys(
+    (detailSelectors.fieldSelectors as Record<string, unknown> | undefined) ?? {}
+  );
+  const availableFields = [...new Set([
+    ...listColumns.map((c) => c.name),
+    ...detailFieldKeys,
+  ])];
+
   const serialized = {
     id: portal.id,
     name: portal.name,
     baseUrl: portal.baseUrl,
     listPageUrl: portal.listPageUrl,
     authMethod: portal.authMethod,
-    listSelectors: (portal.listSelectors ?? {}) as Record<string, unknown>,
-    detailSelectors: (portal.detailSelectors ?? {}) as Record<string, unknown>,
+    listSelectors,
+    detailSelectors,
     scheduleEnabled: portal.scheduleEnabled,
     scheduleCron: portal.scheduleCron,
     hasCredentials: !!portal.credential?.encryptedUsername,
@@ -73,6 +85,8 @@ export default async function PortalDetailPage({
     cookieExpiresAt: portal.credential?.cookieExpiresAt?.toISOString() ?? null,
     createdAt: portal.createdAt.toISOString(),
     updatedAt: portal.updatedAt.toISOString(),
+    groupingFields: (portal.groupingFields ?? []) as string[],
+    availableFields,
     sessions: portal.scrapeSessions.map((s) => ({
       ...s,
       startedAt: s.startedAt?.toISOString() ?? null,

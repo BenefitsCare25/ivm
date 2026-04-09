@@ -73,7 +73,18 @@
       "Bash(taskkill /F /IM chrome.exe /T)",
       "Bash(taskkill:*)",
       "Bash(powershell:*)",
-      "Bash(echo \"exit:$?\")"
+      "Bash(echo \"exit:$?\")",
+      "Bash(where docker:*)",
+      "Bash(\"C:/Program Files/Docker/Docker/resources/bin/docker.exe\" compose -f C:/Users/huien/ivm/docker-compose.yml up -d)",
+      "Bash(dir:*)",
+      "Bash(npx --prefix C:/Users/huien/ivm tsc --noEmit --project C:/Users/huien/ivm/tsconfig.json)",
+      "Read(//tmp/**)",
+      "Bash(docker compose:*)",
+      "Bash(DATABASE_URL=\"postgresql://ivm:ivm_dev_password@localhost:5433/ivm?schema=public\" npx prisma migrate dev --name add-comparison-templates)",
+      "Bash(mkdir -p \"C:/Users/huien/ivm/src/app/api/portals/[id]/templates/[templateId]\")",
+      "Bash(mkdir -p \"C:/Users/huien/ivm/src/app/api/portals/[id]/grouping-fields\")",
+      "Bash(mkdir -p \"C:/Users/huien/ivm/src/app/api/portals/[id]/scrape/[sessionId]/unconfigured-types\")",
+      "Bash(mkdir -p \"C:/Users/huien/ivm/src/app/api/portals/[id]/scrape/[sessionId]/recompare\")"
     ]
   }
 }

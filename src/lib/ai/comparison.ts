@@ -34,14 +34,18 @@ export async function compareFields(
     "[ai] Starting field comparison"
   );
 
+  const userPrompt = request.templateFields
+    ? getTemplatedComparisonUserPrompt(request.pageFields, request.pdfFields, request.templateFields)
+    : getComparisonUserPrompt(request.pageFields, request.pdfFields);
+
   let rawText: string;
 
   if (provider === "anthropic") {
-    rawText = await compareWithAnthropic(request);
+    rawText = await compareWithAnthropic(request, userPrompt);
   } else if (provider === "openai") {
-    rawText = await compareWithOpenAI(request);
+    rawText = await compareWithOpenAI(request, userPrompt);
   } else if (provider === "gemini") {
-    rawText = await compareWithGemini(request);
+    rawText = await compareWithGemini(request, userPrompt);
   } else {
     throw new AppError(`Unsupported provider: ${provider}`, 400, "UNSUPPORTED_PROVIDER");
   }
@@ -56,7 +60,7 @@ export async function compareFields(
   return { ...parsed, rawResponse: rawText };
 }
 
-async function compareWithAnthropic(request: ComparisonRequest): Promise<string> {
+async function compareWithAnthropic(request: ComparisonRequest, userPrompt: string): Promise<string> {
   const client = new Anthropic({ apiKey: request.apiKey });
 
   const response = await client.messages.create(
@@ -64,12 +68,7 @@ async function compareWithAnthropic(request: ComparisonRequest): Promise<string>
       model: "claude-sonnet-4-20250514",
       max_tokens: 4096,
       system: getComparisonSystemPrompt(),
-      messages: [{
-        role: "user",
-        content: request.templateFields
-          ? getTemplatedComparisonUserPrompt(request.pageFields, request.pdfFields, request.templateFields)
-          : getComparisonUserPrompt(request.pageFields, request.pdfFields),
-      }],
+      messages: [{ role: "user", content: userPrompt }],
     },
     { signal: AbortSignal.timeout(30_000) }
   );
@@ -81,7 +80,7 @@ async function compareWithAnthropic(request: ComparisonRequest): Promise<string>
   return textBlock.text;
 }
 
-async function compareWithOpenAI(request: ComparisonRequest): Promise<string> {
+async function compareWithOpenAI(request: ComparisonRequest, userPrompt: string): Promise<string> {
   const client = new OpenAI({ apiKey: request.apiKey });
 
   const response = await client.chat.completions.create(
@@ -90,12 +89,7 @@ async function compareWithOpenAI(request: ComparisonRequest): Promise<string> {
       max_tokens: 4096,
       messages: [
         { role: "system", content: getComparisonSystemPrompt() },
-        {
-          role: "user",
-          content: request.templateFields
-            ? getTemplatedComparisonUserPrompt(request.pageFields, request.pdfFields, request.templateFields)
-            : getComparisonUserPrompt(request.pageFields, request.pdfFields),
-        },
+        { role: "user", content: userPrompt },
       ],
     },
     { signal: AbortSignal.timeout(30_000) }
@@ -104,7 +98,7 @@ async function compareWithOpenAI(request: ComparisonRequest): Promise<string> {
   return response.choices[0]?.message?.content ?? "";
 }
 
-async function compareWithGemini(request: ComparisonRequest): Promise<string> {
+async function compareWithGemini(request: ComparisonRequest, userPrompt: string): Promise<string> {
   const genAI = new GoogleGenerativeAI(request.apiKey);
   const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
@@ -112,11 +106,7 @@ async function compareWithGemini(request: ComparisonRequest): Promise<string> {
   const result = await Promise.race([
     model.generateContent([
       { text: getComparisonSystemPrompt() },
-      {
-        text: request.templateFields
-          ? getTemplatedComparisonUserPrompt(request.pageFields, request.pdfFields, request.templateFields)
-          : getComparisonUserPrompt(request.pageFields, request.pdfFields),
-      },
+      { text: userPrompt },
     ]).finally(() => clearTimeout(timer)),
     new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error("Gemini timeout")), 30_000);

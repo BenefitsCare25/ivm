@@ -31,6 +31,8 @@ interface ComparisonData {
   summary: string | null;
   fields: ComparisonField[];
   createdAt: string;
+  templateId: string | null;
+  templateName: string | null;
 }
 
 interface ItemData {
@@ -145,7 +147,16 @@ export function ItemDetailView({ item, portalId, sessionId }: ItemDetailViewProp
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base">Comparison Result</CardTitle>
-                  <Badge variant="secondary">{comparison.provider}</Badge>
+                  <div className="flex items-center gap-2">
+                    {comparison.templateName ? (
+                      <Badge variant="outline">{comparison.templateName}</Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-muted-foreground text-xs">
+                        Full comparison
+                      </Badge>
+                    )}
+                    <Badge variant="secondary">{comparison.provider}</Badge>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">

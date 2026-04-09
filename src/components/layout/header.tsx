@@ -9,12 +9,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "./theme-toggle";
 
 export async function Header() {
   const session = await auth();
 
   return (
-    <header className="flex h-14 items-center justify-end border-b border-border bg-card px-6">
+    <header className="flex h-14 shrink-0 items-center justify-end gap-1 border-b border-border bg-card px-4">
+      <ThemeToggle />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon" className="rounded-full">

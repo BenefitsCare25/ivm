@@ -17,7 +17,7 @@ import {
 } from "@/lib/queue/item-detail-queue";
 import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-queue";
 import { runStorageCleanup } from "@/lib/storage/cleanup";
-import type { DetailSelectors } from "@/types/portal";
+import type { DetailSelectors, TemplateField } from "@/types/portal";
 import type { BrowserContext, Page } from "playwright";
 
 // Hard cap per job — prevents hung Playwright or AI calls from blocking a slot indefinitely
@@ -186,7 +186,7 @@ async function processItemDetailCore(
 
         let comparePageFields = detailData;
         let comparePdfFields = pdfFields;
-        let templateFields: import("@/types/portal").TemplateField[] | undefined;
+        let templateFields: TemplateField[] | undefined;
 
         if (template) {
           templateId = template.id;

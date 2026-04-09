@@ -40,6 +40,7 @@ export default async function ItemDetailPage({
         select: {
           id: true,
           provider: true,
+          templateId: true,
           matchCount: true,
           mismatchCount: true,
           summary: true,
@@ -52,6 +53,17 @@ export default async function ItemDetailPage({
   if (!item) notFound();
 
   const comparison = item.comparisonResult;
+
+  // Fetch template name if comparison used a template
+  let templateName: string | null = null;
+  if (comparison?.templateId) {
+    const template = await db.comparisonTemplate.findUnique({
+      where: { id: comparison.templateId },
+      select: { name: true },
+    });
+    templateName = template?.name ?? null;
+  }
+
   const fields = (comparison?.fieldComparisons ?? []) as Array<{
     fieldName: string;
     pageValue: string | null;
@@ -105,6 +117,8 @@ export default async function ItemDetailPage({
                 summary: comparison.summary,
                 fields,
                 createdAt: comparison.completedAt?.toISOString() ?? "",
+                templateId: comparison.templateId ?? null,
+                templateName,
               }
             : null,
         }}

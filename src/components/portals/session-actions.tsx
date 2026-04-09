@@ -6,6 +6,15 @@ import { RefreshCw, RotateCcw, Play, CheckCircle2, Square, Trash2, Loader2, Skip
 import { Button } from "@/components/ui/button";
 import { ComparisonTemplateModal } from "./comparison-template-modal";
 
+function mergeFieldOptions(pageFields: string[], pdfFields: string[]) {
+  const pageSet = new Set(pageFields);
+  const pdfSet = new Set(pdfFields);
+  return [...new Set([...pageFields, ...pdfFields])].map((name) => ({
+    name,
+    source: (pageSet.has(name) && pdfSet.has(name) ? "both" : pageSet.has(name) ? "page" : "pdf") as "page" | "pdf" | "both",
+  }));
+}
+
 interface SessionActionsProps {
   portalId: string;
   sessionId: string;
@@ -122,18 +131,6 @@ export function SessionActions({
     } finally {
       setLoading(null);
     }
-  }
-
-  function mergeFieldOptions(pageFields: string[], pdfFields: string[]) {
-    const pageSet = new Set(pageFields);
-    const pdfSet = new Set(pdfFields);
-    const allNames = new Set([...pageFields, ...pdfFields]);
-    return Array.from(allNames).map((name) => ({
-      name,
-      source: (
-        pageSet.has(name) && pdfSet.has(name) ? "both" : pageSet.has(name) ? "page" : "pdf"
-      ) as "page" | "pdf" | "both",
-    }));
   }
 
   if (total === 0) return null;

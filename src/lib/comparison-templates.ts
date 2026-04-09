@@ -8,6 +8,17 @@ interface MatchedTemplate {
   fields: TemplateField[];
 }
 
+/** Returns true if `itemData` matches the given template grouping key for all configured fields. */
+export function itemMatchesGroupingKey(
+  groupingFields: string[],
+  itemData: Record<string, string>,
+  templateKey: Record<string, string>
+): boolean {
+  return groupingFields.every(
+    (f) => itemData[f]?.toLowerCase().trim() === templateKey[f]?.toLowerCase().trim()
+  );
+}
+
 /**
  * Find a matching comparison template for an item based on its data and the portal's grouping fields.
  * Returns null if no grouping fields configured or no template matches.
@@ -24,28 +35,18 @@ export async function findMatchingTemplate(
   const groupingFields = (portal?.groupingFields ?? []) as string[];
   if (groupingFields.length === 0) return null;
 
-  // Build the grouping key from item data
-  const groupingKey: Record<string, string> = {};
+  // Verify all grouping fields exist in item data
   for (const field of groupingFields) {
-    const value = itemData[field];
-    if (!value) {
+    if (!itemData[field]) {
       logger.debug({ field, portalId }, "[templates] Grouping field not found in item data");
       return null;
     }
-    groupingKey[field] = value;
   }
 
-  // Find template with matching groupingKey
-  const templates = await db.comparisonTemplate.findMany({
-    where: { portalId },
-  });
+  const templates = await db.comparisonTemplate.findMany({ where: { portalId } });
 
   for (const template of templates) {
-    const tKey = template.groupingKey as Record<string, string>;
-    const matches = groupingFields.every(
-      (f) => tKey[f]?.toLowerCase().trim() === groupingKey[f]?.toLowerCase().trim()
-    );
-    if (matches) {
+    if (itemMatchesGroupingKey(groupingFields, itemData, template.groupingKey as Record<string, string>)) {
       return {
         id: template.id,
         name: template.name,

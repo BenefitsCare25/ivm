@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AutoRefresh } from "./auto-refresh";
+import { GroupingFieldConfig } from "./grouping-field-config";
+import { TemplateList } from "./template-list";
 import {
   ArrowLeft, Play, Loader2, Shield,
   Calendar, Settings, Trash2, AlertCircle,
@@ -44,6 +46,8 @@ interface PortalData {
   cookieExpiresAt: string | null;
   createdAt: string;
   updatedAt: string;
+  groupingFields: string[];
+  availableFields: string[];
   sessions: SessionData[];
 }
 
@@ -183,6 +187,15 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Comparison template config */}
+      <GroupingFieldConfig
+        portalId={portal.id}
+        currentGroupingFields={portal.groupingFields}
+        availableFields={portal.availableFields}
+        onSaved={() => router.refresh()}
+      />
+      <TemplateList portalId={portal.id} />
 
       {/* Session history */}
       <Card>
