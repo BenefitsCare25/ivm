@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ItemStatusBadge } from "./portal-status-badge";
-import type { TrackedItemStatus, FieldComparison } from "@/types/portal";
+import type { TrackedItemStatus, FieldComparison, ComparisonFieldStatus } from "@/types/portal";
 
 interface ItemFile {
   id: string;
@@ -50,16 +50,33 @@ interface TrackedItemsTableProps {
   sessionId: string;
 }
 
+const MATCH: ComparisonFieldStatus = "MATCH";
+
 function fileUrl(portalId: string, sessionId: string, itemId: string, fileId: string) {
   return `/api/portals/${portalId}/scrape/${sessionId}/items/${itemId}/files/${fileId}`;
 }
 
-// ── Comparison panel ────────────────────────────────────────────────────────
+function DataGridSection({ label, entries }: { label: string; entries: [string, string][] }) {
+  if (entries.length === 0) return null;
+  return (
+    <div>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+        {entries.map(([k, v]) => (
+          <Fragment key={k}>
+            <span className="text-xs text-muted-foreground truncate">{k}</span>
+            <span className="text-xs text-foreground truncate" title={v}>{v || "—"}</span>
+          </Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function ComparisonPanel({ result }: { result: ComparisonSummary }) {
-  const mismatches = result.fieldComparisons.filter(
-    (f) => f.status !== "MATCH"
-  );
+  const mismatches = result.fieldComparisons.filter((f) => f.status !== MATCH);
 
   return (
     <div className="space-y-2">
@@ -100,8 +117,6 @@ function ComparisonPanel({ result }: { result: ComparisonSummary }) {
   );
 }
 
-// ── Expanded detail panel ────────────────────────────────────────────────────
-
 function ExpandedPanel({
   item,
   portalId,
@@ -113,15 +128,11 @@ function ExpandedPanel({
   sessionId: string;
   columnCount: number;
 }) {
-  const listEntries = Object.entries(item.listData);
-  const detailEntries = item.detailData ? Object.entries(item.detailData) : [];
-
   return (
     <tr>
       <td colSpan={columnCount} className="p-0">
         <div className="border-t border-border bg-muted/20 px-5 py-4 space-y-4">
 
-          {/* Error message */}
           {item.errorMessage && (
             <div className="flex items-start gap-2 rounded-md border border-status-error/30 bg-status-error/10 px-3 py-2">
               <AlertCircle className="h-3.5 w-3.5 shrink-0 text-status-error mt-0.5" />
@@ -130,42 +141,10 @@ function ExpandedPanel({
           )}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {/* List data */}
-            {listEntries.length > 0 && (
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Portal Record
-                </p>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  {listEntries.map(([k, v]) => (
-                    <Fragment key={k}>
-                      <span className="text-xs text-muted-foreground truncate">{k}</span>
-                      <span className="text-xs text-foreground truncate" title={v}>{v || "—"}</span>
-                    </Fragment>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Detail data */}
-            {detailEntries.length > 0 && (
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Detail Page
-                </p>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  {detailEntries.map(([k, v]) => (
-                    <Fragment key={k}>
-                      <span className="text-xs text-muted-foreground truncate">{k}</span>
-                      <span className="text-xs text-foreground truncate" title={v}>{v || "—"}</span>
-                    </Fragment>
-                  ))}
-                </div>
-              </div>
-            )}
+            <DataGridSection label="Portal Record" entries={Object.entries(item.listData)} />
+            <DataGridSection label="Detail Page" entries={Object.entries(item.detailData ?? {})} />
           </div>
 
-          {/* Files */}
           {item.files.length > 0 && (
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -188,7 +167,6 @@ function ExpandedPanel({
             </div>
           )}
 
-          {/* Comparison */}
           {item.comparisonResult && (
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -203,7 +181,6 @@ function ExpandedPanel({
             </div>
           )}
 
-          {/* Actions */}
           <div className="flex items-center gap-2 pt-1">
             {item.detailUrl && (
               <a
@@ -228,8 +205,6 @@ function ExpandedPanel({
   );
 }
 
-// ── Main table ───────────────────────────────────────────────────────────────
-
 export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTableProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -241,9 +216,7 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
     );
   }
 
-  // Show up to 3 list-data columns in the main row; rest visible in expanded panel
-  const previewKeys = items.length > 0 ? Object.keys(items[0].listData).slice(0, 3) : [];
-  // Total visible columns: ID + Status + previewKeys + Files + Toggle = previewKeys.length + 4
+  const previewKeys = Object.keys(items[0].listData).slice(0, 3);
   const columnCount = previewKeys.length + 4;
 
   return (
@@ -280,25 +253,20 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
               <Fragment key={item.id}>
                 <tr
                   className={`border-t border-border cursor-pointer select-none transition-colors ${
-                    isExpanded
-                      ? "bg-muted/40"
-                      : "hover:bg-muted/30"
+                    isExpanded ? "bg-muted/40" : "hover:bg-muted/30"
                   }`}
                   onClick={toggle}
                 >
-                  {/* Expand toggle */}
                   <td className="px-3 py-2.5 text-muted-foreground">
                     {isExpanded
                       ? <ChevronDown className="h-4 w-4" />
                       : <ChevronRight className="h-4 w-4" />}
                   </td>
 
-                  {/* ID */}
                   <td className="whitespace-nowrap px-3 py-2.5 font-mono text-xs text-foreground">
                     {item.portalItemId || item.id.slice(0, 8)}
                   </td>
 
-                  {/* Status */}
                   <td className="whitespace-nowrap px-3 py-2.5">
                     <div className="flex items-center gap-1.5">
                       {item.status === "PROCESSING" && (
@@ -311,7 +279,6 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
                     </div>
                   </td>
 
-                  {/* Preview columns */}
                   {previewKeys.map((key) => (
                     <td
                       key={key}
@@ -321,7 +288,6 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
                     </td>
                   ))}
 
-                  {/* Files badge */}
                   <td className="whitespace-nowrap px-3 py-2.5">
                     {item.files.length > 0 ? (
                       <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
@@ -334,7 +300,6 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
                   </td>
                 </tr>
 
-                {/* Expanded panel */}
                 {isExpanded && (
                   <ExpandedPanel
                     item={item}

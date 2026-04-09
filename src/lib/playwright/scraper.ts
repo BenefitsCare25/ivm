@@ -1,4 +1,4 @@
-import { Page, Download } from "playwright";
+import { Page } from "playwright";
 import { logger } from "@/lib/logger";
 import { getStorageAdapter } from "@/lib/storage";
 import { sanitizeFileName } from "@/lib/utils";
@@ -250,102 +250,103 @@ export async function downloadFiles(
   if (links.length === 0) return [];
 
   const storage = getStorageAdapter();
-  const results: DownloadedFile[] = [];
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "ivm-download-"));
+  const pageUrl = page.url();
+
+  // Collect all hrefs first (fast sequential attribute reads)
+  const linkEntries: Array<{ href: string | null; el: (typeof links)[number] }> = [];
+  for (const el of links) {
+    linkEntries.push({ href: await el.getAttribute("href"), el });
+  }
+
+  // Separate into direct-fetch (href) and click-based (javascript:) groups
   const seenUrls = new Set<string>();
+  const directUrls: string[] = [];
+  const clickLinks: (typeof links) = [];
 
-  try {
-    for (const link of links) {
-      try {
-        const href = await link.getAttribute("href");
+  for (const { href, el } of linkEntries) {
+    if (href && !href.startsWith("javascript:")) {
+      const abs = href.startsWith("http") ? href : new URL(href, pageUrl).href;
+      if (!seenUrls.has(abs)) {
+        seenUrls.add(abs);
+        directUrls.push(abs);
+      }
+    } else {
+      clickLinks.push(el);
+    }
+  }
 
-        // --- Direct fetch path (preferred) ---
-        // Works for inline PDFs, new-tab links, and any navigable URL.
-        if (href && !href.startsWith("javascript:")) {
-          const absoluteUrl = href.startsWith("http")
-            ? href
-            : new URL(href, page.url()).href;
+  // Fetch all direct URLs in parallel
+  const directResults = await Promise.allSettled(
+    directUrls.map(async (absoluteUrl): Promise<DownloadedFile> => {
+      const response = await page.request.get(absoluteUrl, { timeout: 30_000 });
+      if (!response.ok()) {
+        throw new Error(`HTTP ${response.status()}`);
+      }
 
-          if (seenUrls.has(absoluteUrl)) continue;
-          seenUrls.add(absoluteUrl);
+      const contentType = response.headers()["content-type"] ?? "";
+      const contentDisposition = response.headers()["content-disposition"] ?? "";
 
-          const response = await page.request.get(absoluteUrl, { timeout: 30_000 });
+      let suggestedName =
+        extractFilenameFromDisposition(contentDisposition) ??
+        path.basename(new URL(absoluteUrl).pathname) ??
+        "download";
 
-          if (!response.ok()) {
-            logger.warn({ url: absoluteUrl, status: response.status() }, "[scraper] Download request failed");
-            continue;
-          }
+      if (!path.extname(suggestedName)) {
+        if (contentType.includes("pdf")) suggestedName += ".pdf";
+        else if (contentType.includes("msword") || contentType.includes("wordprocessingml")) suggestedName += ".docx";
+        else if (contentType.includes("spreadsheetml")) suggestedName += ".xlsx";
+      }
 
-          const contentType = response.headers()["content-type"] ?? "";
-          const contentDisposition = response.headers()["content-disposition"] ?? "";
+      const fileBuffer = await response.body();
+      const safeName = sanitizeFileName(suggestedName);
+      const mimeType = guessMimeType(suggestedName) || contentType.split(";")[0].trim();
+      const storagePath = `${storagePrefix}/${safeName}`;
 
-          let suggestedName =
-            extractFilenameFromDisposition(contentDisposition) ??
-            path.basename(new URL(absoluteUrl).pathname) ??
-            "download";
+      await storage.upload(storagePath, fileBuffer, mimeType);
+      logger.info({ fileName: safeName, size: fileBuffer.length }, "[scraper] File downloaded via direct fetch");
 
-          // Add extension from content-type if missing
-          if (!path.extname(suggestedName)) {
-            if (contentType.includes("pdf")) suggestedName += ".pdf";
-            else if (contentType.includes("msword") || contentType.includes("wordprocessingml")) suggestedName += ".docx";
-            else if (contentType.includes("spreadsheetml")) suggestedName += ".xlsx";
-          }
+      return { fileName: safeName, originalName: suggestedName, mimeType, sizeBytes: fileBuffer.length, storagePath };
+    })
+  );
 
-          const fileBuffer = await response.body();
+  const results: DownloadedFile[] = [];
+  for (const r of directResults) {
+    if (r.status === "fulfilled") results.push(r.value);
+    else logger.warn({ err: r.reason }, "[scraper] Direct fetch failed");
+  }
+
+  // Click-based fallback only when needed (javascript: / onclick links) — must be sequential
+  if (clickLinks.length > 0) {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "ivm-download-"));
+    try {
+      for (const link of clickLinks) {
+        try {
+          const [download] = await Promise.all([
+            page.waitForEvent("download", { timeout: 15_000 }),
+            link.click(),
+          ]);
+
+          const suggestedName = download.suggestedFilename();
+          const tmpPath = path.join(tmpDir, suggestedName);
+          await download.saveAs(tmpPath);
+
+          const stat = await fs.stat(tmpPath);
+          const fileBuffer = await fs.readFile(tmpPath);
           const safeName = sanitizeFileName(suggestedName);
-          const mimeType = guessMimeType(suggestedName) || contentType.split(";")[0].trim();
+          const mimeType = guessMimeType(suggestedName);
           const storagePath = `${storagePrefix}/${safeName}`;
 
           await storage.upload(storagePath, fileBuffer, mimeType);
+          logger.info({ fileName: safeName, size: stat.size }, "[scraper] File downloaded via click event");
 
-          results.push({
-            fileName: safeName,
-            originalName: suggestedName,
-            mimeType,
-            sizeBytes: fileBuffer.length,
-            storagePath,
-          });
-
-          logger.info({ fileName: safeName, size: fileBuffer.length }, "[scraper] File downloaded via direct fetch");
-          continue;
+          results.push({ fileName: safeName, originalName: suggestedName, mimeType, sizeBytes: stat.size, storagePath });
+        } catch (err) {
+          logger.warn({ err, linkText: await link.textContent().catch(() => "?") }, "[scraper] Click download failed");
         }
-
-        // --- Click+download fallback (onclick / javascript: links) ---
-        const [download] = await Promise.all([
-          page.waitForEvent("download", { timeout: 15_000 }),
-          link.click(),
-        ]);
-
-        const suggestedName = download.suggestedFilename();
-        const tmpPath = path.join(tmpDir, suggestedName);
-        await download.saveAs(tmpPath);
-
-        const stat = await fs.stat(tmpPath);
-        const fileBuffer = await fs.readFile(tmpPath);
-        const safeName = sanitizeFileName(suggestedName);
-        const mimeType = guessMimeType(suggestedName);
-        const storagePath = `${storagePrefix}/${safeName}`;
-
-        await storage.upload(storagePath, fileBuffer, mimeType);
-
-        results.push({
-          fileName: safeName,
-          originalName: suggestedName,
-          mimeType,
-          sizeBytes: stat.size,
-          storagePath,
-        });
-
-        logger.info({ fileName: safeName, size: stat.size }, "[scraper] File downloaded via click event");
-      } catch (err) {
-        logger.warn(
-          { err, linkText: await link.textContent().catch(() => "?") },
-          "[scraper] Failed to download file"
-        );
       }
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
     }
-  } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true });
   }
 
   return results;
