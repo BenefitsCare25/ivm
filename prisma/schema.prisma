@@ -291,6 +291,7 @@ enum TrackedItemStatus {
   VERIFIED
   ERROR
   SKIPPED
+  REQUIRE_DOC
 }
 
 enum ComparisonFieldStatus {
@@ -311,6 +312,7 @@ model Portal {
   listSelectors   Json             @default("{}")
   detailSelectors Json             @default("{}")
   groupingFields  Json             @default("[]")
+  scrapeLimit     Int?
   scheduleEnabled Boolean          @default(false)
   scheduleCron    String?
   createdAt       DateTime         @default(now())

@@ -9,7 +9,7 @@ export const SCRAPE_SESSION_STATUSES = [
 export type ScrapeSessionStatus = (typeof SCRAPE_SESSION_STATUSES)[number];
 
 export const TRACKED_ITEM_STATUSES = [
-  "DISCOVERED", "PROCESSING", "COMPARED", "FLAGGED", "VERIFIED", "ERROR", "SKIPPED",
+  "DISCOVERED", "PROCESSING", "COMPARED", "FLAGGED", "VERIFIED", "ERROR", "SKIPPED", "REQUIRE_DOC",
 ] as const;
 export type TrackedItemStatus = (typeof TRACKED_ITEM_STATUSES)[number];
 
@@ -190,6 +190,7 @@ export const TRACKED_ITEM_STATUS_LABELS: Record<TrackedItemStatus, string> = {
   VERIFIED: "Verified",
   ERROR: "Error",
   SKIPPED: "Skipped",
+  REQUIRE_DOC: "Require Doc",
 };
 
 export const COMPARISON_STATUS_LABELS: Record<ComparisonFieldStatus, string> = {

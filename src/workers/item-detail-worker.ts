@@ -241,8 +241,9 @@ async function processItemDetailCore(
         });
       }
 
+      const noDocuments = downloadedFiles.length === 0;
       const hasMismatch = (comparisonResult?.mismatchCount ?? 0) > 0;
-      const finalStatus = hasMismatch ? "FLAGGED" : "COMPARED";
+      const finalStatus = noDocuments ? "REQUIRE_DOC" : hasMismatch ? "FLAGGED" : "COMPARED";
 
       await db.trackedItem.update({
         where: { id: trackedItemId },
