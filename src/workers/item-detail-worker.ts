@@ -7,6 +7,7 @@ import { closeBrowser } from "@/lib/playwright/browser";
 import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { extractFieldsFromDocument } from "@/lib/ai";
 import { compareFields } from "@/lib/ai/comparison";
+import { emitItemEvent, emitFailureEvent, withEventTracking } from "@/lib/portal-events";
 import {
   startItemDetailWorker,
   enqueueItemDetailBatch,
@@ -16,6 +17,7 @@ import {
 import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-queue";
 import { runStorageCleanup } from "@/lib/storage/cleanup";
 import type { DetailSelectors } from "@/types/portal";
+import type { BrowserContext, Page } from "playwright";
 
 // Hard cap per job — prevents hung Playwright or AI calls from blocking a slot indefinitely
 const JOB_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
@@ -39,6 +41,10 @@ async function processItemDetailCore(
     data: { status: "PROCESSING" },
   });
 
+  // Declare outside try so they're accessible in catch for screenshot capture
+  let context: BrowserContext | undefined;
+  let page: Page | undefined;
+
   try {
     const item = await db.trackedItem.findUniqueOrThrow({
       where: { id: trackedItemId },
@@ -56,22 +62,59 @@ async function processItemDetailCore(
       throw new Error("No detail page URL available");
     }
 
-    const { context, page } = await resolveAuth({
-      credential: portal.credential,
+    // ── Auth ────────────────────────────────────────────────────
+    await emitItemEvent(trackedItemId, "AUTH_START", {
+      method: portal.credential?.cookieData ? "cookies" : "credentials",
       baseUrl: portal.baseUrl,
-      listPageUrl: portal.listPageUrl,
     });
 
     try {
-      const detailData = await scrapeDetailPage(page, item.detailPageUrl, detailSelectors);
+      ({ context, page } = await resolveAuth({
+        credential: portal.credential,
+        baseUrl: portal.baseUrl,
+        listPageUrl: portal.listPageUrl,
+      }));
+      await emitItemEvent(trackedItemId, "AUTH_SUCCESS", { landingUrl: page.url() });
+    } catch (authErr) {
+      await emitFailureEvent(trackedItemId, "AUTH_FAIL", authErr);
+      throw authErr;
+    }
+
+    try {
+      // ── Detail page scrape ──────────────────────────────────
+      const detailData = await withEventTracking(
+        trackedItemId,
+        "DETAIL_SCRAPE_START",
+        "DETAIL_SCRAPE_DONE",
+        "DETAIL_SCRAPE_FAIL",
+        {
+          url: item.detailPageUrl,
+          selectorCount: Object.keys(detailSelectors.fieldSelectors ?? {}).length,
+        },
+        () => scrapeDetailPage(page!, item.detailPageUrl!, detailSelectors),
+        () => page!.screenshot({ fullPage: true, type: "png" }).then((b) => Buffer.from(b))
+      );
+
+      await emitItemEvent(trackedItemId, "SELECTOR_MATCH", {
+        fieldCount: Object.keys(detailData).length,
+        fields: Object.keys(detailData),
+      });
 
       await db.trackedItem.update({
         where: { id: trackedItemId },
         data: { detailData: JSON.parse(JSON.stringify(detailData)) },
       });
 
+      // ── File downloads ──────────────────────────────────────
       const storagePrefix = `portal-files/${portalId}/${trackedItemId}`;
-      const downloadedFiles = await downloadFiles(page, detailSelectors, storagePrefix);
+      await emitItemEvent(trackedItemId, "DOWNLOAD_START", { storagePrefix });
+
+      const downloadedFiles = await downloadFiles(page!, detailSelectors, storagePrefix);
+
+      await emitItemEvent(trackedItemId, "DOWNLOAD_DONE", {
+        fileCount: downloadedFiles.length,
+        files: downloadedFiles.map((f) => ({ name: f.originalName, size: f.sizeBytes })),
+      });
 
       if (downloadedFiles.length > 0) {
         await db.trackedItemFile.createMany({
@@ -86,12 +129,19 @@ async function processItemDetailCore(
         });
       }
 
+      // ── AI extraction from downloaded files ─────────────────
       const { provider, apiKey } = await resolveProviderAndKey(userId);
       const pdfFields: Record<string, string> = {};
 
       for (const file of downloadedFiles) {
         if (file.mimeType === "application/pdf" || file.mimeType.startsWith("image/")) {
           try {
+            await emitItemEvent(trackedItemId, "AI_EXTRACT_START", {
+              fileName: file.originalName,
+              provider,
+            });
+            const t0 = Date.now();
+
             const { getStorageAdapter } = await import("@/lib/storage");
             const storage = getStorageAdapter();
             const fileBuffer = await storage.download(file.storagePath);
@@ -108,20 +158,35 @@ async function processItemDetailCore(
             for (const field of extraction.fields) {
               pdfFields[field.label] = field.value;
             }
+
+            await emitItemEvent(
+              trackedItemId,
+              "AI_EXTRACT_DONE",
+              { fileName: file.originalName, fieldCount: extraction.fields.length },
+              { durationMs: Date.now() - t0 }
+            );
           } catch (err) {
             logger.warn({ err, fileName: file.originalName }, "[worker] Failed to extract from file");
+            await emitFailureEvent(trackedItemId, "AI_EXTRACT_FAIL", err);
           }
         }
       }
 
+      // ── AI field comparison ─────────────────────────────────
       let comparisonResult;
       if (Object.keys(detailData).length > 0 && Object.keys(pdfFields).length > 0) {
-        comparisonResult = await compareFields({
-          pageFields: detailData,
-          pdfFields,
-          provider,
-          apiKey,
-        });
+        comparisonResult = await withEventTracking(
+          trackedItemId,
+          "AI_COMPARE_START",
+          "AI_COMPARE_DONE",
+          "AI_COMPARE_FAIL",
+          {
+            provider,
+            pageFieldCount: Object.keys(detailData).length,
+            pdfFieldCount: Object.keys(pdfFields).length,
+          },
+          () => compareFields({ pageFields: detailData, pdfFields, provider, apiKey })
+        );
       }
 
       if (comparisonResult) {
@@ -139,9 +204,18 @@ async function processItemDetailCore(
       }
 
       const hasMismatch = (comparisonResult?.mismatchCount ?? 0) > 0;
+      const finalStatus = hasMismatch ? "FLAGGED" : "COMPARED";
+
       await db.trackedItem.update({
         where: { id: trackedItemId },
-        data: { status: hasMismatch ? "FLAGGED" : "COMPARED" },
+        data: { status: finalStatus },
+      });
+
+      await emitItemEvent(trackedItemId, "ITEM_COMPLETE", {
+        status: finalStatus,
+        mismatchCount: comparisonResult?.mismatchCount ?? 0,
+        fileCount: downloadedFiles.length,
+        fieldCount: Object.keys(detailData).length,
       });
 
       await db.scrapeSession.update({
@@ -151,11 +225,23 @@ async function processItemDetailCore(
 
       return { status: "COMPLETED", mismatchCount: comparisonResult?.mismatchCount ?? 0 };
     } finally {
-      await context.close();
+      await context?.close();
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     logger.error({ err, trackedItemId }, "[worker] Item detail processing failed");
+
+    // Capture screenshot of current page state if browser is still open
+    let screenshot: Buffer | undefined;
+    try {
+      if (page && !page.isClosed()) {
+        screenshot = Buffer.from(await page.screenshot({ fullPage: true, type: "png" }));
+      }
+    } catch {
+      // page already closed or crashed — ignore
+    }
+
+    await emitFailureEvent(trackedItemId, "ITEM_ERROR", err, screenshot);
 
     await db.trackedItem.update({
       where: { id: trackedItemId },
