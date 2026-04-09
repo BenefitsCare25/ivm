@@ -8,12 +8,15 @@ interface MatchedTemplate {
   fields: TemplateField[];
 }
 
-const templateCache = new Map<string, {
+interface CachedPortalTemplates {
   groupingFields: string[];
-  templates: Array<{ id: string; name: string; groupingKey: unknown; fields: unknown }>;
+  templates: Array<{ id: string; name: string; groupingKey: Record<string, string>; fields: TemplateField[] }>;
   expiresAt: number;
-}>();
+}
+
+const templateCache = new Map<string, CachedPortalTemplates>();
 const CACHE_TTL_MS = 60_000;
+const CACHE_MAX_SIZE = 500;
 
 export function clearTemplateCache(portalId: string): void {
   templateCache.delete(portalId);
@@ -46,9 +49,14 @@ export async function findMatchingTemplate(
       db.portal.findUnique({ where: { id: portalId }, select: { groupingFields: true } }),
       db.comparisonTemplate.findMany({ where: { portalId }, select: { id: true, name: true, groupingKey: true, fields: true } }),
     ]);
+    if (templateCache.size >= CACHE_MAX_SIZE) {
+      for (const [key, entry] of templateCache) {
+        if (entry.expiresAt < now) templateCache.delete(key);
+      }
+    }
     cached = {
       groupingFields: (portal?.groupingFields ?? []) as string[],
-      templates,
+      templates: templates as unknown as CachedPortalTemplates["templates"],
       expiresAt: now + CACHE_TTL_MS,
     };
     templateCache.set(portalId, cached);
@@ -66,11 +74,11 @@ export async function findMatchingTemplate(
   }
 
   for (const template of templates) {
-    if (itemMatchesGroupingKey(groupingFields, itemData, template.groupingKey as Record<string, string>)) {
+    if (itemMatchesGroupingKey(groupingFields, itemData, template.groupingKey)) {
       return {
         id: template.id,
         name: template.name,
-        fields: template.fields as unknown as TemplateField[],
+        fields: template.fields,
       };
     }
   }
@@ -96,12 +104,9 @@ export function filterFieldsByTemplate(
     }
   }
 
-  const filteredPdfFields: Record<string, string> = {};
-  for (const [key, value] of Object.entries(pdfFields)) {
-    if (fieldNames.has(key.toLowerCase().trim())) {
-      filteredPdfFields[key] = value;
-    }
-  }
-
-  return { filteredPageFields, filteredPdfFields };
+  // PDF fields are NOT filtered by template field names.
+  // Template field names are portal field names — PDF fields use document-native labels
+  // (e.g. "Inv. No.", "Patient Name") that the AI must semantically match. Filtering here
+  // would discard all PDF data before the AI can find the match.
+  return { filteredPageFields, filteredPdfFields: pdfFields };
 }

@@ -277,8 +277,8 @@ export function SessionActions({
           </Button>
         )}
 
-        {/* Stop — whenever items are still in flight, regardless of list-scrape session status */}
-        {inFlight > 0 && (
+        {/* Stop — only when actively running (RUNNING session or items currently being processed) */}
+        {(sessionStatus === "RUNNING" || (counts.PROCESSING ?? 0) > 0) && (
           <Button
             variant="outline"
             size="sm"
