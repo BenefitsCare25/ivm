@@ -1,15 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Clock, ChevronDown, ChevronRight, Camera, AlertCircle, CheckCircle2, Info, Loader2 } from "lucide-react";
-import type { ItemEventSummary, ItemEventType } from "@/types/portal";
+import { ChevronDown, ChevronRight, Camera, AlertCircle, CheckCircle2, Info, Loader2 } from "lucide-react";
+import type { ItemEventSummary, ItemEventType, TrackedItemStatus } from "@/types/portal";
 import { EVENT_TYPE_LABELS, EVENT_SEVERITY } from "@/types/portal";
 
 interface ItemEventTimelineProps {
   portalId: string;
   sessionId: string;
   itemId: string;
-  itemStatus: string;
+  itemStatus: TrackedItemStatus;
 }
 
 function formatDuration(ms: number): string {
@@ -68,7 +68,14 @@ export function ItemEventTimeline({
         );
         if (!res.ok) return;
         const data = (await res.json()) as { events: ItemEventSummary[] };
-        if (!cancelled) setEvents(data.events ?? []);
+        if (!cancelled) {
+          const next = data.events ?? [];
+          setEvents((prev) =>
+            prev.length === next.length && prev[prev.length - 1]?.id === next[next.length - 1]?.id
+              ? prev
+              : next
+          );
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -117,12 +124,11 @@ export function ItemEventTimeline({
 
   return (
     <>
-      <div className="space-y-0">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Processing Timeline
-        </p>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Processing Timeline
+      </p>
 
-        <div className="relative pl-4">
+      <div className="relative pl-4">
           {/* Vertical connector line */}
           <div className="absolute left-[7px] top-1 bottom-1 w-px bg-border" />
 
@@ -205,7 +211,6 @@ export function ItemEventTimeline({
               </div>
             );
           })}
-        </div>
       </div>
 
       {/* Screenshot lightbox */}

@@ -1,12 +1,10 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { getStorageAdapter } from "@/lib/storage";
 import type { ItemEventType } from "@/types/portal";
 
-/**
- * Records a structured event for a tracked item.
- * Fire-and-forget — never throws (errors are logged, not propagated).
- * Workers call this at each processing stage for observability.
- */
+// Fire-and-forget: always resolves, logs but never throws.
+// Callers don't need error handling — events are auxiliary to job execution.
 export async function emitItemEvent(
   trackedItemId: string,
   eventType: ItemEventType,
@@ -28,10 +26,6 @@ export async function emitItemEvent(
   }
 }
 
-/**
- * Captures a screenshot on failure and emits an error event.
- * Stores screenshot via StorageAdapter and records the path in the event payload.
- */
 export async function emitFailureEvent(
   trackedItemId: string,
   eventType: ItemEventType,
@@ -42,7 +36,6 @@ export async function emitFailureEvent(
 
   if (screenshot) {
     try {
-      const { getStorageAdapter } = await import("@/lib/storage");
       const storage = getStorageAdapter();
       const timestamp = Date.now();
       screenshotPath = `portal-events/${trackedItemId}/${eventType}-${timestamp}.png`;
@@ -65,10 +58,8 @@ export async function emitFailureEvent(
   );
 }
 
-/**
- * Times an async operation and emits start/done/fail events automatically.
- * On failure, optionally captures a screenshot before re-throwing.
- */
+// Wraps an async fn with start/done/fail event emission and timing.
+// On failure, optionally captures a screenshot before re-throwing.
 export async function withEventTracking<T>(
   trackedItemId: string,
   startType: ItemEventType,

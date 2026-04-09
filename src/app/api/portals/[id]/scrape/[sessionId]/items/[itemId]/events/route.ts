@@ -19,6 +19,12 @@ export async function GET(
     });
     if (!portal) throw new NotFoundError("Portal");
 
+    const item = await db.trackedItem.findFirst({
+      where: { id: itemId, scrapeSession: { portalId: id } },
+      select: { id: true },
+    });
+    if (!item) throw new NotFoundError("Item");
+
     const events = await db.trackedItemEvent.findMany({
       where: { trackedItemId: itemId },
       orderBy: { createdAt: "asc" },
