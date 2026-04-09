@@ -95,20 +95,20 @@ function ComparisonPanel({ result }: { result: ComparisonSummary }) {
       </div>
 
       {mismatches.length > 0 && (
-        <div className="rounded-md border border-amber-200 bg-amber-50/50 divide-y divide-amber-100">
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 divide-y divide-amber-500/20">
           {mismatches.slice(0, 5).map((f) => (
             <div key={f.fieldName} className="grid grid-cols-3 gap-2 px-3 py-1.5 text-xs">
               <span className="font-medium text-foreground truncate">{f.fieldName}</span>
-              <span className="text-muted-foreground truncate" title={f.pageValue ?? ""}>
+              <span className="text-foreground/70 truncate" title={f.pageValue ?? ""}>
                 Portal: {f.pageValue || "—"}
               </span>
-              <span className="text-amber-700 truncate" title={f.pdfValue ?? ""}>
+              <span className="text-amber-400 truncate" title={f.pdfValue ?? ""}>
                 Doc: {f.pdfValue || "—"}
               </span>
             </div>
           ))}
           {mismatches.length > 5 && (
-            <div className="px-3 py-1 text-xs text-muted-foreground">
+            <div className="px-3 py-1 text-xs text-foreground/50">
               +{mismatches.length - 5} more mismatches
             </div>
           )}
