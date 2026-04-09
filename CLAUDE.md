@@ -101,7 +101,8 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **AI page analysis**: `analyzePageStructure()` — screenshot + HTML → CSS selectors. Uses `page.waitForFunction()` for SPA render (body text > 200 chars or rows present) + 2s settle before screenshot
 - **Scrape queue**: `portal-scrape-queue.ts` — concurrency 1, no retry
 - **Detail queue**: `item-detail-queue.ts` — concurrency 3, 2 attempts, 5min lock, startup recovery for PROCESSING items stuck from crashes
-- **Session actions**: Stop (CANCELLED + drains BullMQ jobs), Delete (cascade), Retry failed, Continue unprocessed
+- **Session actions**: Stop (CANCELLED + drains BullMQ jobs), Delete (cascade), Retry failed, Continue unprocessed. Stop button shows whenever `inFlight > 0` (PROCESSING or DISCOVERED items exist) — not gated on sessionStatus. Resume (reprocess) from CANCELLED resets session back to COMPLETED.
+- **Auto-retry on error**: `SessionActions` auto-calls `reprocess("failed")` once via `useEffect` when `counts.ERROR > 0` and `inFlight === 0`. Guards: `useRef` (per mount) + `sessionStorage` key per session (survives auto-refresh reloads).
 - **Session items page**: fetches `detailData` + `comparisonResult` (including `fieldComparisons`) for up to 50 items. `TrackedItemsTable` renders expandable rows — click to see all data, files, and comparison inline. No horizontal scroll.
 - **Prisma models**: `Portal`, `PortalCredential`, `ScrapeSession`, `TrackedItem`, `TrackedItemFile`, `ComparisonResult`
 - **Types/Validations**: `src/types/portal.ts`, `src/lib/validations/portal.ts` — all selector fields `.optional().nullable()`
@@ -112,6 +113,17 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Parallel**: All href-based links fetched concurrently via `Promise.allSettled()`; `javascript:` / onclick fallback runs sequentially after (clicking navigates the page)
 - **tmpDir**: Created lazily — only when there are `javascript:` links; skipped entirely for href-only pages
 - **Click+download fallback**: Only for links with no navigable `href`. Uses `page.waitForEvent("download")` — will silently fail if portal serves file inline
+
+### Scraper — Selector Timeout Debugging
+- `waitForSelector(tableSelector, { timeout: 30_000 })` — 30s timeout (increased from 15s)
+- On timeout, logs current page URL — check if redirected to login (cookies invalid) vs table just slow to render
+- If URL ≠ expected portal URL after navigation, cookies are not authenticating — re-capture via Chrome Extension
+
+### Deployment Guard (Stale Server Actions)
+- `src/components/deployment-guard.tsx` — client component in root layout
+- Listens for `"Failed to find Server Action"` errors (happen after redeploy when browser has old JS)
+- Auto-reloads once per 30s via `sessionStorage` guard to prevent reload loops
+- Without this, server action calls silently fail after deployment (e.g. file uploads appear to vanish)
 
 ### Scraper — SPA Gotchas
 - **SPA row wait**: After `waitForSelector(tableSelector)`, call `waitForFunction(() => document.querySelectorAll('tbody tr').length > 0)` — SPA tables render shell first, data loads async

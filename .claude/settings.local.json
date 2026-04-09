@@ -50,7 +50,30 @@
       "Bash(npx playwright:*)",
       "Bash(C:/Users/huien/IVM/node_modules/.bin/tsc --noEmit)",
       "Bash(echo \"EXIT CODE: $?\")",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(gh auth:*)",
+      "Bash(cmd:*)",
+      "Bash(xargs cat:*)",
+      "Bash(curl -sk -X POST https://72.62.75.247/api/auth/register -H 'Content-Type: application/json' -d '{\"name\":\"Test User\",\"email\":\"test@example.com\",\"password\":\"testpass123\"}')",
+      "Bash(curl -sk https://72.62.75.247/api/health)",
+      "Bash(curl:*)",
+      "Bash(C:/Users/huien/ivm/node_modules/.bin/tsc --noEmit)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(node_modules/.bin/tsc --noEmit --skipLibCheck)",
+      "Bash(tsc --version)",
+      "Bash(tsc --noEmit)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(findstr \"Download\\\\|extractFilename\\\\|response.body\\\\|seenUrls\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(bash:*)",
+      "Bash(echo \"Downloaded: $?\")",
+      "Bash(certutil:*)",
+      "Bash(openssl s_client -connect 72.62.75.247:443)",
+      "Bash(openssl x509:*)",
+      "Bash(taskkill /F /IM chrome.exe /T)",
+      "Bash(taskkill:*)",
+      "Bash(powershell:*)",
+      "Bash(echo \"exit:$?\")"
     ]
   }
 }

@@ -9,7 +9,7 @@ import { FormError } from "@/components/ui/form-error";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ArrowRight, ArrowLeft, Check, Sparkles, Cookie, KeyRound, AlertTriangle, ExternalLink, ChevronDown, CheckCircle2, RefreshCw } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
-import { detectExtension, captureCookiesFromExtension } from "@/lib/extension";
+import { detectExtension, captureCookiesFromExtension, syncExtensionConfig } from "@/lib/extension";
 import type { ExtensionCookie } from "@/lib/extension";
 import type { ListSelectors, DetailSelectors } from "@/types/portal";
 
@@ -54,8 +54,24 @@ const STEPS: { key: WizardStep; label: string }[] = [
   { key: "save", label: "Save" },
 ];
 
+const WIZARD_KEY = "ivm_portal_wizard";
+
+function loadWizard() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(WIZARD_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function PortalSetupWizard() {
   const router = useRouter();
+
+  // All state initializes to SSR-safe defaults. sessionStorage is restored in a
+  // useEffect after mount so server and client initial renders always match
+  // (fixes React hydration error #418 from accessing sessionStorage during SSR).
   const [step, setStep] = useState<WizardStep>("url");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -81,12 +97,60 @@ export function PortalSetupWizard() {
   const [detailSelectors, setDetailSelectors] = useState<DetailSelectors>({});
   const [pageType, setPageType] = useState<string>("");
 
+  // Restore persisted wizard state after mount (client-only, avoids SSR mismatch).
+  useEffect(() => {
+    const saved = loadWizard();
+    if (!saved) return;
+    if (saved.step) setStep(saved.step);
+    if (saved.name) setName(saved.name);
+    if (saved.baseUrl) setBaseUrl(saved.baseUrl);
+    if (saved.listPageUrl) setListPageUrl(saved.listPageUrl);
+    if (saved.authMethod) setAuthMethod(saved.authMethod);
+    if (saved.username) setUsername(saved.username);
+    if (saved.password) setPassword(saved.password);
+    if (saved.cookieJson) setCookieJson(saved.cookieJson);
+    if (saved.capturedCount != null) setCapturedCount(saved.capturedCount);
+    if (saved.portalId) setPortalId(saved.portalId);
+    if (saved.listSelectors) setListSelectors(saved.listSelectors);
+    if (saved.detailSelectors) setDetailSelectors(saved.detailSelectors);
+    if (saved.pageType) setPageType(saved.pageType);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount only
+
+  // Persist wizard state to sessionStorage on every meaningful change.
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(WIZARD_KEY, JSON.stringify({
+        step, name, baseUrl, listPageUrl,
+        authMethod, username, password, cookieJson, capturedCount,
+        portalId, listSelectors, detailSelectors, pageType,
+      }));
+    } catch { /* storage full or private mode */ }
+  }, [step, name, baseUrl, listPageUrl, authMethod, username, password, cookieJson, capturedCount, portalId, listSelectors, detailSelectors, pageType]);
+
   const currentIdx = STEPS.findIndex((s) => s.key === step);
 
   // Detect Chrome extension when entering auth step with cookies method
   useEffect(() => {
     if (step === "auth" && authMethod === "COOKIES") {
-      detectExtension().then(setExtensionDetected).catch(() => setExtensionDetected(false));
+      detectExtension()
+        .then(async (detected) => {
+          setExtensionDetected(detected);
+          if (detected) {
+            // Sync IVM config (base URL + userId) to extension storage for popup auth.
+            // Fetch session to get userId — lightweight call, cached by Next.js.
+            try {
+              const res = await fetch("/api/auth/session");
+              if (res.ok) {
+                const data = await res.json();
+                if (data?.user?.id) {
+                  await syncExtensionConfig(data.user.id);
+                }
+              }
+            } catch { /* non-critical */ }
+          }
+        })
+        .catch(() => setExtensionDetected(false));
     }
   }, [step, authMethod]);
 
@@ -236,6 +300,7 @@ export function PortalSetupWizard() {
         if (portalId) await saveSelectors(portalId);
         setStep("save");
       } else if (step === "save") {
+        sessionStorage.removeItem(WIZARD_KEY);
         router.push(`/portals/${portalId}`);
       }
     } catch (err) {

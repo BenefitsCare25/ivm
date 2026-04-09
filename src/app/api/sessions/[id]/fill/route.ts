@@ -29,7 +29,12 @@ export async function POST(
 
     const { id } = await params;
 
-    const body = await req.json().catch(() => ({}));
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      throw new ValidationError("Invalid JSON in request body");
+    }
     const parsed = executeFillSchema.safeParse(body);
     if (!parsed.success) {
       throw new ValidationError("Invalid fill request", {

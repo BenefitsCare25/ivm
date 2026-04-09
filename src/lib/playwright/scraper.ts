@@ -28,7 +28,14 @@ export async function scrapeListPage(
     detailLinkSelector,
   } = selectors;
 
-  await page.waitForSelector(tableSelector, { timeout: 15_000 });
+  // Log the current URL to help diagnose auth/redirect issues
+  logger.info({ url: page.url(), tableSelector }, "[scraper] Waiting for table selector");
+
+  await page.waitForSelector(tableSelector, { timeout: 30_000 }).catch((err) => {
+    const currentUrl = page.url();
+    logger.error({ currentUrl, tableSelector }, "[scraper] Table selector not found — page may have redirected to login or selector is wrong");
+    throw err;
+  });
 
   // Wait for rows to render (SPA portals load the table shell first, then fetch data)
   await page.waitForFunction(

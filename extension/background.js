@@ -1,4 +1,8 @@
 // IVM Auto-Fill Extension — Background Service Worker
+//
+// MV3 service workers are terminated after ~30s of inactivity. The web app
+// handles this with retry logic — sendMessage() wakes the worker, and the
+// retry succeeds once initialization is complete.
 
 let lastFillData = null;
 
@@ -12,26 +16,68 @@ function executeIVMFill(scriptText) {
   }
 }
 
+// Persistent connection handler for cookie capture.
+// chrome.runtime.connect() keeps the service worker alive for the full duration
+// of the connection, avoiding the MV3 "message port closed" termination bug.
+chrome.runtime.onConnectExternal.addListener((port) => {
+  if (port.name !== "ivm-cookies") return;
+
+  port.onMessage.addListener((message) => {
+    if (message.type !== "IVM_CAPTURE_COOKIES") return;
+
+    const { targetUrl } = message;
+    if (!targetUrl) {
+      port.postMessage({ success: false, error: "targetUrl is required" });
+      port.disconnect();
+      return;
+    }
+
+    chrome.cookies.getAll({ url: targetUrl })
+      .then((cookies) => {
+        port.postMessage({ success: true, cookies: cookies || [] });
+        port.disconnect();
+      })
+      .catch((err) => {
+        port.postMessage({ success: false, error: err.message || "Failed to get cookies" });
+        port.disconnect();
+      });
+  });
+});
+
+// Message handler for ping, cookie capture fallback, and form fill.
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
   if (message.type === "IVM_PING") {
-    sendResponse({ installed: true, version: "1.0.0" });
-    return;
+    sendResponse({ installed: true, version: "1.4.0" });
+    return false;
   }
 
+  // Store IVM config (base URL + userId) for popup auth
+  if (message.type === "IVM_SYNC_CONFIG") {
+    const items = {};
+    if (message.ivmBaseUrl) items.ivmBaseUrl = message.ivmBaseUrl;
+    if (message.ivmUserId) items.ivmUserId = message.ivmUserId;
+    chrome.storage.local.set(items, () => {
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  // Fallback handler for cookie capture when connect() port fails.
+  // Primary path is onConnectExternal above; this catches the sendMessage fallback.
   if (message.type === "IVM_CAPTURE_COOKIES") {
     const { targetUrl } = message;
     if (!targetUrl) {
       sendResponse({ success: false, error: "targetUrl is required" });
-      return;
+      return false;
     }
-    chrome.cookies.getAll({ url: targetUrl }, (cookies) => {
-      if (chrome.runtime.lastError) {
-        sendResponse({ success: false, error: chrome.runtime.lastError.message });
-        return;
-      }
-      sendResponse({ success: true, cookies: cookies || [] });
-    });
-    return true;
+    chrome.cookies.getAll({ url: targetUrl })
+      .then((cookies) => {
+        sendResponse({ success: true, cookies: cookies || [] });
+      })
+      .catch((err) => {
+        sendResponse({ success: false, error: err.message || "Failed to get cookies" });
+      });
+    return true; // keep channel open for async response
   }
 
   if (message.type === "IVM_FILL") {
@@ -63,7 +109,42 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
   }
 });
 
+// Internal message handler — serves content script (reliable) + popup.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Content script forwards IVM_PING from page
+  if (message.type === "IVM_PING") {
+    sendResponse({ installed: true, version: "1.5.0" });
+    return false;
+  }
+
+  // Content script forwards IVM_CAPTURE_COOKIES from page
+  if (message.type === "IVM_CAPTURE_COOKIES") {
+    const { targetUrl } = message;
+    if (!targetUrl) {
+      sendResponse({ success: false, error: "targetUrl is required" });
+      return false;
+    }
+    chrome.cookies.getAll({ url: targetUrl })
+      .then((cookies) => {
+        sendResponse({ success: true, cookies: cookies || [] });
+      })
+      .catch((err) => {
+        sendResponse({ success: false, error: err.message || "Failed to get cookies" });
+      });
+    return true;
+  }
+
+  // Content script forwards IVM_SYNC_CONFIG from page
+  if (message.type === "IVM_SYNC_CONFIG") {
+    const items = {};
+    if (message.ivmBaseUrl) items.ivmBaseUrl = message.ivmBaseUrl;
+    if (message.ivmUserId) items.ivmUserId = message.ivmUserId;
+    chrome.storage.local.set(items, () => {
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
   if (message.type === "REFILL") {
     chrome.storage.local.get("lastFillData", (result) => {
       const data = result.lastFillData;

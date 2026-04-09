@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { logger } from "@/lib/logger";
 import { AppError } from "@/lib/errors";
+import { env } from "@/lib/env";
 import { getExtractionSystemPrompt, getExtractionUserPrompt, getTextExtractionUserPrompt } from "./prompts";
 import { parseExtractionResponse } from "./parse";
 import type { AIExtractionRequest, AIExtractionResponse } from "./types";
@@ -50,7 +51,7 @@ export async function extractWithOpenAI(request: AIExtractionRequest): Promise<A
 
   const response = await client.chat.completions.create(
     {
-      model: "gpt-4o",
+      model: env.OPENAI_MODEL,
       max_tokens: 4096,
       messages: [
         { role: "system", content: getExtractionSystemPrompt() },

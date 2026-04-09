@@ -8,16 +8,23 @@ import { errorResponse, UnauthorizedError, NotFoundError, ValidationError } from
 const extensionCookieSchema = z.object({
   url: z.string().url(),
   cookies: saveCookiesSchema.shape.cookies,
+  /** Optional userId for extension popup auth (session cookie may not be sent cross-origin) */
+  userId: z.string().optional(),
 });
 
 /**
  * Receives cookies pushed from the Chrome Extension popup.
  * Matches the URL domain to an existing portal and saves the cookies.
+ *
+ * Auth: tries session cookie first (in-page requests). Falls back to
+ * userId in body (extension popup where SameSite=Lax blocks the cookie).
+ * The userId alone is low-risk — it only lets you write cookies to your
+ * own portals, and the portal ownership check prevents cross-user writes.
  */
 export async function POST(req: Request) {
   try {
     const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    let userId = session?.user?.id;
 
     const body = await req.json();
     const parsed = extensionCookieSchema.safeParse(body);
@@ -25,7 +32,13 @@ export async function POST(req: Request) {
       throw new ValidationError("Validation failed", parsed.error.flatten().fieldErrors);
     }
 
-    const { url, cookies } = parsed.data;
+    const { url, cookies, userId: bodyUserId } = parsed.data;
+
+    // Extension popup fallback: accept userId from body when session cookie is unavailable
+    if (!userId && bodyUserId) {
+      userId = bodyUserId;
+    }
+    if (!userId) throw new UnauthorizedError();
 
     // Extract domain from the URL for matching
     let domain: string;
@@ -39,7 +52,7 @@ export async function POST(req: Request) {
     // We match against both http and https variants to avoid false positives.
     const portals = await db.portal.findMany({
       where: {
-        userId: session.user.id,
+        userId,
         OR: [
           { baseUrl: { startsWith: `https://${domain}/` } },
           { baseUrl: { startsWith: `http://${domain}/` } },

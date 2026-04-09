@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { logger } from "@/lib/logger";
 import { AppError } from "@/lib/errors";
+import { env } from "@/lib/env";
 import { getExtractionSystemPrompt, getExtractionUserPrompt, getTextExtractionUserPrompt } from "./prompts";
 import { parseExtractionResponse } from "./parse";
 import type { AIExtractionRequest, AIExtractionResponse } from "./types";
@@ -67,7 +68,7 @@ export async function extractWithAnthropic(request: AIExtractionRequest): Promis
 
   const response = await client.messages.create(
     {
-      model: "claude-sonnet-4-20250514",
+      model: env.ANTHROPIC_MODEL,
       max_tokens: 4096,
       system: getExtractionSystemPrompt(),
       messages: [{ role: "user", content }],

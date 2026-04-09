@@ -1,17 +1,29 @@
 {
   "manifest_version": 3,
   "name": "IVM Auto-Fill",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "description": "Fill web forms with data extracted by IVM (Intelligent Value Mapper)",
   "permissions": ["activeTab", "scripting", "storage", "cookies", "tabs"],
   "host_permissions": [
     "http://localhost:3000/*",
     "http://localhost:3001/*",
-    "https://72.62.75.247/*"
+    "https://72.62.75.247/*",
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost:3000/*",
+        "http://localhost:3001/*",
+        "https://72.62.75.247/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "externally_connectable": {
     "matches": [
       "http://localhost:3000/*",

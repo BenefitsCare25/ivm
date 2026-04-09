@@ -14,6 +14,9 @@ const envSchema = z.object({
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   S3_ENDPOINT: z.string().optional(),
   AI_PROVIDER: z.enum(["anthropic", "openai", "gemini"]).default("anthropic"),
+  ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-20250514"),
+  OPENAI_MODEL: z.string().default("gpt-4o"),
+  GEMINI_MODEL: z.string().default("gemini-2.0-flash"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 

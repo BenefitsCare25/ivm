@@ -46,7 +46,14 @@ export async function analyzePageStructure(
   const parsed = parsePageAnalysisResponse(rawText);
 
   logger.info(
-    { pageType: parsed.pageType, columnCount: parsed.listSelectors.columns?.length ?? 0 },
+    {
+      pageType: parsed.pageType,
+      columnCount: parsed.listSelectors.columns?.length ?? 0,
+      tableSelector: parsed.listSelectors.tableSelector ?? null,
+      rowSelector: parsed.listSelectors.rowSelector ?? null,
+      detailLinkSelector: parsed.listSelectors.detailLinkSelector ?? null,
+      description: parsed.description,
+    },
     "[ai] Page analysis completed"
   );
 

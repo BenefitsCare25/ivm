@@ -43,6 +43,21 @@ export default async function PortalDetailPage({
 
   if (!portal) notFound();
 
+  // Item status counts per session
+  const sessionItemCounts = await db.trackedItem.groupBy({
+    by: ["scrapeSessionId", "status"],
+    where: { scrapeSession: { portalId: id } },
+    _count: { id: true },
+  });
+
+  const itemCountsMap = sessionItemCounts.reduce<
+    Record<string, Record<string, number>>
+  >((acc, row) => {
+    if (!acc[row.scrapeSessionId]) acc[row.scrapeSessionId] = {};
+    acc[row.scrapeSessionId][row.status] = row._count.id;
+    return acc;
+  }, {});
+
   const serialized = {
     id: portal.id,
     name: portal.name,
@@ -63,6 +78,7 @@ export default async function PortalDetailPage({
       startedAt: s.startedAt?.toISOString() ?? null,
       completedAt: s.completedAt?.toISOString() ?? null,
       createdAt: s.createdAt.toISOString(),
+      itemStatusCounts: itemCountsMap[s.id] ?? {},
     })),
   };
 

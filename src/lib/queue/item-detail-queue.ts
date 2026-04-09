@@ -4,6 +4,10 @@ import { logger } from "@/lib/logger";
 
 const QUEUE_NAME = "item-detail";
 
+// Max time a single item job may run before being timed out by BullMQ stall detection.
+// Must be longer than the slowest possible job (Playwright + AI extraction + AI comparison).
+const LOCK_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+
 export interface ItemDetailJobData {
   trackedItemId: string;
   portalId: string;
@@ -27,7 +31,7 @@ export function getItemDetailQueue(): Queue<ItemDetailJobData, ItemDetailJobResu
       connection: conn,
       defaultJobOptions: {
         attempts: 2,
-        backoff: { type: "exponential", delay: 3000 },
+        backoff: { type: "exponential", delay: 5000 },
         removeOnComplete: { count: 200 },
         removeOnFail: { count: 100 },
       },
@@ -43,8 +47,9 @@ export async function enqueueItemDetail(
   const queue = getItemDetailQueue();
   if (!queue) return null;
 
+  // Stable jobId (no timestamp) — deduplicates if same item is enqueued twice
   const job = await queue.add("process-item", data, {
-    jobId: `item:${data.trackedItemId}:${Date.now()}`,
+    jobId: `item_${data.trackedItemId}`,
   });
 
   return job.id ?? null;
@@ -59,7 +64,10 @@ export async function enqueueItemDetailBatch(
   const jobs = items.map((data) => ({
     name: "process-item",
     data,
-    opts: { jobId: `item:${data.trackedItemId}:${Date.now()}` },
+    opts: {
+      // Stable jobId — BullMQ ignores duplicate IDs, so safe to re-enqueue
+      jobId: `item_${data.trackedItemId}`,
+    },
   }));
 
   await queue.addBulk(jobs);
@@ -68,7 +76,8 @@ export async function enqueueItemDetailBatch(
 }
 
 export function startItemDetailWorker(
-  processor: (job: Job<ItemDetailJobData>) => Promise<ItemDetailJobResult>
+  processor: (job: Job<ItemDetailJobData>) => Promise<ItemDetailJobResult>,
+  onFinalFailure?: (job: Job<ItemDetailJobData>, err: Error) => Promise<void>
 ): Worker<ItemDetailJobData, ItemDetailJobResult> | null {
   const conn = getQueueConnection();
   if (!conn) return null;
@@ -76,15 +85,35 @@ export function startItemDetailWorker(
   const worker = new Worker<ItemDetailJobData, ItemDetailJobResult>(
     QUEUE_NAME,
     processor,
-    { connection: conn, concurrency: 2 }
+    {
+      connection: conn,
+      concurrency: 3,
+      // Long lock so BullMQ doesn't stall-detect jobs mid-AI-call
+      lockDuration: LOCK_DURATION_MS,
+      // Check for stalled jobs every 30 seconds
+      stalledInterval: 30_000,
+      // Allow each job to stall at most once before marking failed
+      maxStalledCount: 1,
+    }
   );
 
   worker.on("completed", (job) => {
-    logger.info({ jobId: job.id, trackedItemId: job.data.trackedItemId }, "[queue] Item detail job completed");
+    logger.info(
+      { jobId: job.id, trackedItemId: job.data.trackedItemId },
+      "[queue] Item detail job completed"
+    );
   });
 
-  worker.on("failed", (job, err) => {
+  worker.on("failed", async (job, err) => {
     logger.error({ jobId: job?.id, err }, "[queue] Item detail job failed");
+    // On final retry exhaustion, ensure DB reflects ERROR state
+    if (job && job.attemptsMade >= (job.opts.attempts ?? 1)) {
+      await onFinalFailure?.(job, err);
+    }
+  });
+
+  worker.on("stalled", (jobId) => {
+    logger.warn({ jobId }, "[queue] Item detail job stalled — will be re-queued");
   });
 
   return worker;

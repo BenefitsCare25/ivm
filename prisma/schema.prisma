@@ -171,6 +171,7 @@ model ExtractionResult {
   mappingSets MappingSet[]
 
   @@index([fillSessionId])
+  @@index([status])
   @@map("extraction_results")
 }
 
@@ -263,6 +264,7 @@ model AuditEvent {
 
   @@index([fillSessionId])
   @@index([timestamp])
+  @@index([eventType])
   @@map("audit_events")
 }
 
@@ -288,6 +290,7 @@ enum TrackedItemStatus {
   FLAGGED
   VERIFIED
   ERROR
+  SKIPPED
 }
 
 enum ComparisonFieldStatus {
@@ -373,6 +376,8 @@ model TrackedItem {
 
   @@index([scrapeSessionId])
   @@index([portalItemId])
+  @@index([status])
+  @@index([createdAt])
   @@map("tracked_items")
 }
 

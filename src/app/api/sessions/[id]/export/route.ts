@@ -70,6 +70,7 @@ export async function GET(
         },
         auditEvents: {
           orderBy: { timestamp: "asc" },
+          take: 1000,
           select: {
             id: true,
             eventType: true,

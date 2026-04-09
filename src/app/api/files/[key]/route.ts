@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { getStorageAdapter } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import { errorResponse, UnauthorizedError, NotFoundError } from "@/lib/errors";
+import { globalLimiter } from "@/lib/rate-limit";
 import { EXTENSION_TO_MIME } from "@/lib/validations/upload";
 
 function getMimeType(key: string): string {
@@ -10,10 +11,16 @@ function getMimeType(key: string): string {
 }
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ key: string }> }
 ) {
   try {
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    const rl = await globalLimiter(ip);
+    if (!rl.allowed) {
+      return new Response("Too Many Requests", { status: 429 });
+    }
+
     const session = await auth();
     if (!session?.user?.id) throw new UnauthorizedError();
 

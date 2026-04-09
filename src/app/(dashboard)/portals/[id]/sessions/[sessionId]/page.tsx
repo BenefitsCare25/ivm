@@ -80,7 +80,7 @@ export default async function SessionItemsPage({
     (breakdown["DISCOVERED"] ?? 0) > 0 ||
     (breakdown["PROCESSING"] ?? 0) > 0;
 
-  const statusOrder = ["COMPARED", "FLAGGED", "ERROR", "PROCESSING", "DISCOVERED"];
+  const statusOrder = ["COMPARED", "FLAGGED", "SKIPPED", "ERROR", "PROCESSING", "DISCOVERED"];
 
   return (
     <div className="space-y-6">
@@ -101,7 +101,7 @@ export default async function SessionItemsPage({
             </div>
             <p className="text-sm text-muted-foreground">
               {scrapeSession._count.trackedItems} items found &middot;{" "}
-              {scrapeSession.itemsProcessed} processed
+              {(breakdown["COMPARED"] ?? 0) + (breakdown["FLAGGED"] ?? 0) + (breakdown["VERIFIED"] ?? 0) + (breakdown["ERROR"] ?? 0) + (breakdown["SKIPPED"] ?? 0)} processed
             </p>
           </div>
         </div>
@@ -129,6 +129,7 @@ export default async function SessionItemsPage({
           ERROR:      breakdown["ERROR"]       ?? 0,
           PROCESSING: breakdown["PROCESSING"]  ?? 0,
           DISCOVERED: breakdown["DISCOVERED"]  ?? 0,
+          SKIPPED:    breakdown["SKIPPED"]     ?? 0,
         }}
         sessionStatus={scrapeSession.status}
       />

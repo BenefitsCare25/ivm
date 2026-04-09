@@ -23,6 +23,7 @@ const ITEM_VARIANTS: Record<TrackedItemStatus, "success" | "warning" | "error" |
   FLAGGED: "warning",
   VERIFIED: "success",
   ERROR: "error",
+  SKIPPED: "secondary",
 };
 
 const COMPARISON_VARIANTS: Record<ComparisonFieldStatus, "success" | "warning" | "error" | "info" | "secondary"> = {
@@ -44,3 +45,12 @@ export function ItemStatusBadge({ status }: { status: TrackedItemStatus }) {
 export function ComparisonStatusBadge({ status }: { status: ComparisonFieldStatus }) {
   return <Badge variant={COMPARISON_VARIANTS[status]}>{COMPARISON_STATUS_LABELS[status]}</Badge>;
 }
+
+export const ITEM_STATUS_COLORS: Record<string, string> = {
+  COMPARED:   "bg-status-success/15 text-status-success",
+  FLAGGED:    "bg-status-warning/15 text-status-warning",
+  ERROR:      "bg-status-error/15 text-status-error",
+  PROCESSING: "bg-blue-500/15 text-blue-500",
+  DISCOVERED: "bg-muted text-muted-foreground",
+  SKIPPED:    "bg-muted/60 text-muted-foreground/60",
+};

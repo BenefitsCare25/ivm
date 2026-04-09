@@ -9,13 +9,27 @@ import { extractFieldsFromDocument } from "@/lib/ai";
 import { compareFields } from "@/lib/ai/comparison";
 import {
   startItemDetailWorker,
+  enqueueItemDetailBatch,
   type ItemDetailJobData,
   type ItemDetailJobResult,
 } from "@/lib/queue/item-detail-queue";
+import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-queue";
+import { runStorageCleanup } from "@/lib/storage/cleanup";
 import type { DetailSelectors } from "@/types/portal";
-import type { FieldComparison } from "@/types/portal";
 
-async function processItemDetail(
+// Hard cap per job — prevents hung Playwright or AI calls from blocking a slot indefinitely
+const JOB_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timed out after ${ms / 1000}s: ${label}`)), ms)
+    ),
+  ]);
+}
+
+async function processItemDetailCore(
   job: Job<ItemDetailJobData>
 ): Promise<ItemDetailJobResult> {
   const { trackedItemId, portalId, userId } = job.data;
@@ -42,7 +56,6 @@ async function processItemDetail(
       throw new Error("No detail page URL available");
     }
 
-    // Authenticate and navigate
     const { context, page } = await resolveAuth({
       credential: portal.credential,
       baseUrl: portal.baseUrl,
@@ -50,7 +63,6 @@ async function processItemDetail(
     });
 
     try {
-      // Scrape detail page fields
       const detailData = await scrapeDetailPage(page, item.detailPageUrl, detailSelectors);
 
       await db.trackedItem.update({
@@ -58,11 +70,9 @@ async function processItemDetail(
         data: { detailData: JSON.parse(JSON.stringify(detailData)) },
       });
 
-      // Download attached files
       const storagePrefix = `portal-files/${portalId}/${trackedItemId}`;
       const downloadedFiles = await downloadFiles(page, detailSelectors, storagePrefix);
 
-      // Save file records in bulk
       if (downloadedFiles.length > 0) {
         await db.trackedItemFile.createMany({
           data: downloadedFiles.map((file) => ({
@@ -76,7 +86,6 @@ async function processItemDetail(
         });
       }
 
-      // Extract fields from downloaded PDFs using AI
       const { provider, apiKey } = await resolveProviderAndKey(userId);
       const pdfFields: Record<string, string> = {};
 
@@ -105,7 +114,6 @@ async function processItemDetail(
         }
       }
 
-      // Run AI comparison if we have both page data and PDF data
       let comparisonResult;
       if (Object.keys(detailData).length > 0 && Object.keys(pdfFields).length > 0) {
         comparisonResult = await compareFields({
@@ -116,7 +124,6 @@ async function processItemDetail(
         });
       }
 
-      // Save comparison result
       if (comparisonResult) {
         await db.comparisonResult.create({
           data: {
@@ -131,23 +138,18 @@ async function processItemDetail(
         });
       }
 
-      // Update item status
       const hasMismatch = (comparisonResult?.mismatchCount ?? 0) > 0;
       await db.trackedItem.update({
         where: { id: trackedItemId },
         data: { status: hasMismatch ? "FLAGGED" : "COMPARED" },
       });
 
-      // Update scrape session progress
       await db.scrapeSession.update({
         where: { id: item.scrapeSessionId },
         data: { itemsProcessed: { increment: 1 } },
       });
 
-      return {
-        status: "COMPLETED",
-        mismatchCount: comparisonResult?.mismatchCount ?? 0,
-      };
+      return { status: "COMPLETED", mismatchCount: comparisonResult?.mismatchCount ?? 0 };
     } finally {
       await context.close();
     }
@@ -161,9 +163,7 @@ async function processItemDetail(
     });
 
     await db.scrapeSession.updateMany({
-      where: {
-        trackedItems: { some: { id: trackedItemId } },
-      },
+      where: { trackedItems: { some: { id: trackedItemId } } },
       data: { itemsProcessed: { increment: 1 } },
     });
 
@@ -171,8 +171,68 @@ async function processItemDetail(
   }
 }
 
-// Start the worker
-const worker = startItemDetailWorker(processItemDetail);
+async function processItemDetail(
+  job: Job<ItemDetailJobData>
+): Promise<ItemDetailJobResult> {
+  return withTimeout(
+    processItemDetailCore(job),
+    JOB_TIMEOUT_MS,
+    `item:${job.data.trackedItemId}`
+  );
+}
+
+async function recoverStuckItems(): Promise<void> {
+  const stuck = await db.trackedItem.findMany({
+    where: { status: "PROCESSING" },
+    select: {
+      id: true,
+      scrapeSession: {
+        select: {
+          portalId: true,
+          portal: { select: { userId: true } },
+        },
+      },
+    },
+  });
+
+  if (stuck.length === 0) return;
+
+  logger.warn({ count: stuck.length }, "[worker] Recovering stuck PROCESSING items");
+
+  await db.trackedItem.updateMany({
+    where: { status: "PROCESSING" },
+    data: { status: "DISCOVERED", errorMessage: null },
+  });
+
+  await enqueueItemDetailBatch(
+    stuck.map((item) => ({
+      trackedItemId: item.id,
+      portalId: item.scrapeSession.portalId,
+      userId: item.scrapeSession.portal.userId,
+    }))
+  );
+}
+
+async function handleFinalFailure(
+  job: Job<ItemDetailJobData>,
+  err: Error
+): Promise<void> {
+  try {
+    await db.trackedItem.updateMany({
+      where: { id: job.data.trackedItemId, status: "PROCESSING" },
+      data: { status: "ERROR", errorMessage: err.message },
+    });
+  } catch (dbErr) {
+    logger.error({ dbErr, trackedItemId: job.data.trackedItemId }, "[worker] Failed to update ERROR status on final failure");
+  }
+}
+
+// Startup recovery then start the worker
+recoverStuckItems().catch((err) =>
+  logger.error({ err }, "[worker] Startup recovery failed")
+);
+
+const worker = startItemDetailWorker(processItemDetail, handleFinalFailure);
 
 if (worker) {
   logger.info("[worker] Item detail worker started");
@@ -180,14 +240,26 @@ if (worker) {
   logger.warn("[worker] Redis not available, item detail worker not started");
 }
 
+// Schedule 24h storage cleanup + start cleanup worker
+scheduleStorageCleanup().catch((err) =>
+  logger.error({ err }, "[worker] Failed to schedule storage cleanup")
+);
+
+const cleanupWorker = startCleanupWorker(runStorageCleanup);
+if (cleanupWorker) {
+  logger.info("[worker] Storage cleanup worker started");
+}
+
 process.on("SIGTERM", async () => {
   if (worker) await worker.close();
+  if (cleanupWorker) await cleanupWorker.close();
   await closeBrowser();
   process.exit(0);
 });
 
 process.on("SIGINT", async () => {
   if (worker) await worker.close();
+  if (cleanupWorker) await cleanupWorker.close();
   await closeBrowser();
   process.exit(0);
 });

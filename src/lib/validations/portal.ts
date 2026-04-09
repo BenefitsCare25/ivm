@@ -29,21 +29,23 @@ export const updatePortalSchema = z.object({
 
 export type UpdatePortalInput = z.infer<typeof updatePortalSchema>;
 
+const selectorField = z.string().max(500).optional().nullable();
+
 export const updateSelectorsSchema = z.object({
   listSelectors: z.object({
-    tableSelector: z.string().optional(),
-    rowSelector: z.string().optional(),
+    tableSelector: selectorField,
+    rowSelector: selectorField,
     columns: z.array(z.object({
-      name: z.string(),
-      selector: z.string(),
-    })).optional(),
-    detailLinkSelector: z.string().optional(),
-    paginationSelector: z.string().optional(),
+      name: z.string().max(200),
+      selector: z.string().max(500),
+    })).max(50).optional().nullable(),
+    detailLinkSelector: selectorField,
+    paginationSelector: selectorField,
   }).optional(),
   detailSelectors: z.object({
-    fieldSelectors: z.record(z.string(), z.string()).optional(),
-    downloadLinkSelector: z.string().optional(),
-    fileNameSelector: z.string().optional(),
+    fieldSelectors: z.record(z.string().max(200), z.string().max(500)).optional().nullable(),
+    downloadLinkSelector: selectorField,
+    fileNameSelector: selectorField,
   }).optional(),
 });
 

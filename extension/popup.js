@@ -134,15 +134,15 @@ sendCookiesBtn.addEventListener("click", () => {
       sameSite: mapSameSite(c.sameSite),
     }));
 
-    // Read stored IVM URL at click time to avoid race with storage load
-    chrome.storage.local.get("ivmBaseUrl", (result) => {
+    // Read stored IVM URL and userId at click time to avoid race with storage load
+    chrome.storage.local.get(["ivmBaseUrl", "ivmUserId"], (result) => {
       const ivmBaseUrl = result.ivmBaseUrl || IVM_DEFAULT_URL;
 
       fetch(ivmBaseUrl + "/api/extension/cookies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ url: activeTabUrl, cookies: mapped }),
+        body: JSON.stringify({ url: activeTabUrl, cookies: mapped, userId: result.ivmUserId }),
       })
         .then((res) => {
           if (!res.ok) return res.json().then((d) => Promise.reject(d));

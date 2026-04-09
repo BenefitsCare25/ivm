@@ -3,17 +3,18 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { AutoRefresh } from "./auto-refresh";
 import {
-  ArrowLeft, Play, Loader2, Globe, Clock, Shield,
-  Calendar, Settings, Trash2,
+  ArrowLeft, Play, Loader2, Shield,
+  Calendar, Settings, Trash2, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { ScrapeStatusBadge, ITEM_STATUS_COLORS } from "./portal-status-badge";
 import { FormError } from "@/components/ui/form-error";
-import { ScrapeStatusBadge } from "./portal-status-badge";
 import { formatDate } from "@/lib/utils";
 import type { ScrapeSessionStatus } from "@/types/portal";
+
 
 interface SessionData {
   id: string;
@@ -25,6 +26,7 @@ interface SessionData {
   completedAt: string | null;
   errorMessage: string | null;
   createdAt: string;
+  itemStatusCounts: Record<string, number>;
 }
 
 interface PortalData {
@@ -45,11 +47,22 @@ interface PortalData {
   sessions: SessionData[];
 }
 
+const STATUS_ORDER = ["COMPARED", "FLAGGED", "SKIPPED", "ERROR", "PROCESSING", "DISCOVERED"];
+
 export function PortalDetailView({ portal }: { portal: PortalData }) {
   const router = useRouter();
   const [scraping, setScraping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Auto-refresh when any session is active
+  const hasActiveSessions = portal.sessions.some(
+    (s) => s.status === "RUNNING" || s.status === "PENDING"
+  );
+  const hasProcessingItems = portal.sessions.some(
+    (s) => (s.itemStatusCounts["PROCESSING"] ?? 0) > 0 || (s.itemStatusCounts["DISCOVERED"] ?? 0) > 0
+  );
+  const shouldRefresh = hasActiveSessions || hasProcessingItems;
 
   async function triggerScrape() {
     setScraping(true);
@@ -102,6 +115,7 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {shouldRefresh && <AutoRefresh />}
           <Button onClick={triggerScrape} disabled={scraping}>
             {scraping ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -181,53 +195,98 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
               No scrape sessions yet. Click &quot;Scrape Now&quot; to start.
             </p>
           ) : (
-            <div className="overflow-hidden rounded-lg border border-border">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-muted">
-                    <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Status</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Trigger</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Items</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Started</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Duration</th>
-                    <th className="px-4 py-2.5" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {portal.sessions.map((s) => {
-                    const duration =
-                      s.startedAt && s.completedAt
-                        ? Math.round(
-                            (new Date(s.completedAt).getTime() - new Date(s.startedAt).getTime()) / 1000
-                          )
-                        : null;
-                    return (
-                      <tr key={s.id} className="border-t border-border">
-                        <td className="px-4 py-2.5">
-                          <ScrapeStatusBadge status={s.status} />
-                        </td>
-                        <td className="px-4 py-2.5 text-muted-foreground">{s.triggeredBy}</td>
-                        <td className="px-4 py-2.5">
-                          {s.itemsProcessed}/{s.itemsFound}
-                        </td>
-                        <td className="px-4 py-2.5 text-muted-foreground">
-                          {s.startedAt ? formatDate(s.startedAt) : "—"}
-                        </td>
-                        <td className="px-4 py-2.5 text-muted-foreground">
-                          {duration !== null ? `${duration}s` : "—"}
-                        </td>
-                        <td className="px-4 py-2.5 text-right">
-                          <Button variant="outline" size="sm" asChild>
-                            <Link href={`/portals/${portal.id}/sessions/${s.id}`}>
-                              View Items
-                            </Link>
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="space-y-3">
+              {portal.sessions.map((s) => {
+                const duration =
+                  s.startedAt && s.completedAt
+                    ? Math.round(
+                        (new Date(s.completedAt).getTime() - new Date(s.startedAt).getTime()) / 1000
+                      )
+                    : null;
+
+                const total = s.itemsFound || 0;
+                // Compute from actual status counts — itemsProcessed double-counts retries
+                const TERMINAL_STATUSES = ["COMPARED", "FLAGGED", "VERIFIED", "ERROR", "SKIPPED"] as const;
+                const processed = TERMINAL_STATUSES.reduce((sum, st) => sum + (s.itemStatusCounts[st] ?? 0), 0);
+                const progressPct = total > 0 ? Math.round((processed / total) * 100) : 0;
+                const isRunning = s.status === "RUNNING" || s.status === "PENDING";
+
+                const statusEntries = STATUS_ORDER
+                  .filter((st) => (s.itemStatusCounts[st] ?? 0) > 0)
+                  .map((st) => ({ status: st, count: s.itemStatusCounts[st] }));
+
+                return (
+                  <div
+                    key={s.id}
+                    className="rounded-lg border border-border p-4 space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <ScrapeStatusBadge status={s.status} />
+                        <span className="text-xs text-muted-foreground">{s.triggeredBy}</span>
+                        {s.startedAt && (
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(s.startedAt)}
+                          </span>
+                        )}
+                        {duration !== null && (
+                          <span className="text-xs text-muted-foreground">{duration}s</span>
+                        )}
+                      </div>
+                      <Button variant="outline" size="sm" asChild className="shrink-0">
+                        <Link href={`/portals/${portal.id}/sessions/${s.id}`}>
+                          View Items
+                        </Link>
+                      </Button>
+                    </div>
+
+                    {isRunning && total > 0 ? (
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Processing {processed} of {total} items</span>
+                          <span>{progressPct}%</span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                            style={{ width: `${progressPct}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : isRunning ? (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Scraping list page…
+                      </p>
+                    ) : statusEntries.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {statusEntries.map(({ status, count }) => (
+                          <span
+                            key={status}
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${ITEM_STATUS_COLORS[status] ?? "bg-muted text-muted-foreground"}`}
+                          >
+                            {count} {status.toLowerCase()}
+                          </span>
+                        ))}
+                        {total > 0 && (
+                          <span className="text-xs text-muted-foreground self-center">
+                            ({processed}/{total} processed)
+                          </span>
+                        )}
+                      </div>
+                    ) : total > 0 ? (
+                      <p className="text-xs text-muted-foreground">{total} items found</p>
+                    ) : null}
+
+                    {s.errorMessage && (
+                      <div className="flex items-start gap-2 rounded-md bg-status-error/10 px-3 py-2">
+                        <AlertCircle className="h-3.5 w-3.5 shrink-0 text-status-error mt-0.5" />
+                        <p className="text-xs text-status-error">{s.errorMessage}</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>

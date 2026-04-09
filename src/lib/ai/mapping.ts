@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { logger } from "@/lib/logger";
 import { AppError } from "@/lib/errors";
+import { env } from "@/lib/env";
 import { withRetry } from "@/lib/retry";
 import { getMappingSystemPrompt, getMappingUserPrompt } from "./prompts";
 import { parseMappingResponse } from "./parse-mapping";
@@ -21,7 +22,7 @@ async function callAnthropic(
   const client = new Anthropic({ apiKey });
   const response = await client.messages.create(
     {
-      model: "claude-sonnet-4-20250514",
+      model: env.ANTHROPIC_MODEL,
       max_tokens: 4096,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
@@ -47,7 +48,7 @@ async function callOpenAI(
   const client = new OpenAI({ apiKey });
   const response = await client.chat.completions.create(
     {
-      model: "gpt-4o",
+      model: env.OPENAI_MODEL,
       max_tokens: 4096,
       messages: [
         { role: "system", content: systemPrompt },
@@ -73,7 +74,7 @@ async function callGemini(
 ): Promise<TextCallResult> {
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash",
+    model: env.GEMINI_MODEL,
     systemInstruction: systemPrompt,
   });
 

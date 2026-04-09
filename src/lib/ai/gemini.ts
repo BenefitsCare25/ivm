@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { logger } from "@/lib/logger";
 import { AppError } from "@/lib/errors";
+import { env } from "@/lib/env";
 import { getExtractionSystemPrompt, getExtractionUserPrompt, getTextExtractionUserPrompt } from "./prompts";
 import { parseExtractionResponse } from "./parse";
 import type { AIExtractionRequest, AIExtractionResponse } from "./types";
@@ -21,7 +22,7 @@ export async function extractWithGemini(request: AIExtractionRequest): Promise<A
 
     const genAI = new GoogleGenerativeAI(request.apiKey);
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
+      model: env.GEMINI_MODEL,
       systemInstruction: getExtractionSystemPrompt(),
     });
 
@@ -64,7 +65,7 @@ export async function extractWithGemini(request: AIExtractionRequest): Promise<A
 
   const genAI = new GoogleGenerativeAI(request.apiKey);
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash",
+    model: env.GEMINI_MODEL,
     systemInstruction: getExtractionSystemPrompt(),
   });
 

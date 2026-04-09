@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { headers } from "next/headers";
 import "@/styles/globals.css";
+import { DeploymentGuard } from "@/components/deployment-guard";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -20,6 +21,7 @@ export default async function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.className} antialiased`} {...(nonce ? { "data-nonce": nonce } : {})}>
+        <DeploymentGuard />
         {children}
       </body>
     </html>

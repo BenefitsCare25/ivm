@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { AppError, ValidationError } from "@/lib/errors";
+import { env } from "@/lib/env";
 import type { AIProvider } from "@/lib/validations/api-key";
 
 async function validateAnthropicKey(apiKey: string): Promise<boolean> {
@@ -9,7 +10,7 @@ async function validateAnthropicKey(apiKey: string): Promise<boolean> {
     const client = new Anthropic({ apiKey });
     await client.messages.create(
       {
-        model: "claude-sonnet-4-20250514",
+        model: env.ANTHROPIC_MODEL,
         max_tokens: 1,
         messages: [{ role: "user", content: "Hi" }],
       },
@@ -36,7 +37,7 @@ async function validateOpenAIKey(apiKey: string): Promise<boolean> {
     const client = new OpenAI({ apiKey });
     await client.chat.completions.create(
       {
-        model: "gpt-4o-mini",
+        model: env.OPENAI_MODEL,
         max_tokens: 1,
         messages: [{ role: "user", content: "Hi" }],
       },
@@ -61,7 +62,7 @@ async function validateOpenAIKey(apiKey: string): Promise<boolean> {
 async function validateGeminiKey(apiKey: string): Promise<boolean> {
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: env.GEMINI_MODEL });
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => reject(new AppError("Key validation timed out", 504, "AI_TIMEOUT")), 15_000);
