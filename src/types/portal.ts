@@ -121,6 +121,33 @@ export interface TrackedItemFileSummary {
   downloadedAt: string;
 }
 
+// ─── Comparison Template ───────────────────────────────────────
+
+export const MATCH_MODES = ["fuzzy", "exact", "numeric"] as const;
+export type MatchMode = (typeof MATCH_MODES)[number];
+
+export const MATCH_MODE_LABELS: Record<MatchMode, string> = {
+  fuzzy: "Fuzzy (names, dates, text)",
+  exact: "Exact match",
+  numeric: "Numeric (with tolerance)",
+};
+
+export interface TemplateField {
+  fieldName: string;
+  mode: MatchMode;
+  tolerance?: number;
+}
+
+export interface ComparisonTemplateSummary {
+  id: string;
+  portalId: string;
+  name: string;
+  groupingKey: Record<string, string>;
+  fields: TemplateField[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ─── Comparison Result ──────────────────────────────────────────
 
 export interface FieldComparison {
@@ -141,6 +168,8 @@ export interface ComparisonResultSummary {
   summary: string | null;
   completedAt: string | null;
   errorMessage: string | null;
+  templateId: string | null;
+  templateName: string | null;
 }
 
 // ─── Status helpers ─────────────────────────────────────────────

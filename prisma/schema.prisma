@@ -310,14 +310,16 @@ model Portal {
   listPageUrl     String?
   listSelectors   Json             @default("{}")
   detailSelectors Json             @default("{}")
+  groupingFields  Json             @default("[]")
   scheduleEnabled Boolean          @default(false)
   scheduleCron    String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  credential     PortalCredential?
-  scrapeSessions ScrapeSession[]
+  user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credential          PortalCredential?
+  scrapeSessions      ScrapeSession[]
+  comparisonTemplates ComparisonTemplate[]
 
   @@index([userId])
   @@map("portals")
@@ -418,6 +420,7 @@ model ComparisonResult {
   id               String   @id @default(cuid())
   trackedItemId    String   @unique
   provider         String   @default("anthropic")
+  templateId       String?
   fieldComparisons Json     @default("[]")
   matchCount       Int      @default(0)
   mismatchCount    Int      @default(0)
@@ -428,4 +431,20 @@ model ComparisonResult {
   trackedItem TrackedItem @relation(fields: [trackedItemId], references: [id], onDelete: Cascade)
 
   @@map("comparison_results")
+}
+
+model ComparisonTemplate {
+  id          String   @id @default(cuid())
+  portalId    String
+  name        String
+  groupingKey Json     @default("{}")
+  fields      Json     @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  portal Portal @relation(fields: [portalId], references: [id], onDelete: Cascade)
+
+  @@unique([portalId, name])
+  @@index([portalId])
+  @@map("comparison_templates")
 }
