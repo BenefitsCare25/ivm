@@ -178,20 +178,45 @@ Never pass Lucide icon components as props from Server → Client Components (fu
   ```
   DATABASE_URL="postgresql://ivm:ivm_dev_password@localhost:5433/ivm?schema=public"
   ```
-- **🔴 Before every deploy**: verify VPS `.env` has the correct DATABASE_URL — `grep DATABASE_URL /var/www/ivm/.env`
-- **Deploy**: `tar czf` locally → `scp` → `tar xzf` on VPS (bracket filenames break plain `scp`) → `npm run build && pm2 restart ivm`
-- **Full deploy**: add `npm ci && npx prisma generate && npx prisma migrate deploy` before build
+
+### Environment Source of Truth: `/etc/ivm/.env`
+
+All production env vars live in **`/etc/ivm/.env`** — outside the deploy directory, never overwritten by deploys.
+
+- `/var/www/ivm/.env` is a **symlink** → `/etc/ivm/.env`. The deploy script recreates this symlink after every extraction.
+- To edit production env: `nano /etc/ivm/.env` then `pm2 restart ivm --update-env`
+- **Never** edit `/var/www/ivm/.env` directly — it's just a symlink.
+
+### Deploy
+
+Use `scripts/deploy.sh` — it handles tar (excluding `.env`), upload, extraction, symlink restore, build, and restart:
+
+```bash
+bash scripts/deploy.sh
+```
+
+The script:
+1. Tars source (excludes `.env`, `node_modules`, `.next`, `uploads`)
+2. SCPs to VPS → extracts
+3. Re-creates `.env` symlink → `/etc/ivm/.env`
+4. Validates DATABASE_URL has correct port/db before proceeding
+5. `npm ci` → `prisma generate` → `prisma migrate deploy` → `npm run build`
+6. `pm2 restart ivm ivm-worker ivm-detail-worker`
+7. Hits health check to confirm
+
+**Never manually tar + deploy without `--exclude=.env`** — that was the historical cause of port 5432/ivm_dev overwrite bugs.
+
 - **Schema migrations**: `prisma migrate deploy` requires `DATABASE_URL` pointing to port 5433. If the `ivm` user lacks DDL privileges, run migration SQL directly: `docker exec supabase-db psql -U postgres -d ivm -f migration.sql`, then insert into `_prisma_migrations` manually
 
 ### PM2 Processes
 
-| PM2 Name | Purpose |
-|----------|---------|
-| `ivm` | Next.js web server (port 3001) |
-| `ivm-worker` | BullMQ portal list scraper |
-| `ivm-detail-worker` | BullMQ item detail processor |
+| PM2 Name | Purpose | Start script |
+|----------|---------|--------------|
+| `ivm` | Next.js web server (port 3001) | `/etc/ivm/start-app.sh` |
+| `ivm-worker` | BullMQ portal list scraper | `scripts/start-worker.sh` |
+| `ivm-detail-worker` | BullMQ item detail processor | `scripts/start-detail-worker.sh` |
 
-Workers source `.env` before running tsx — required because tsx doesn't auto-load `.env`.
+All start scripts source `/etc/ivm/.env` (or `/var/www/ivm/.env` symlink) before running — required because tsx/node don't auto-load `.env`.
 
 ```bash
 pm2 list
@@ -200,8 +225,9 @@ pm2 logs ivm-detail-worker --lines 50
 pm2 save  # persist across reboots
 ```
 
-If workers missing after reboot:
+If processes missing after reboot:
 ```bash
+pm2 start /etc/ivm/start-app.sh --name ivm
 pm2 start scripts/start-worker.sh --name ivm-worker
 pm2 start scripts/start-detail-worker.sh --name ivm-detail-worker
 pm2 save

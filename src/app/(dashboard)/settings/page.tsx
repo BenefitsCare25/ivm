@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiKeysForm } from "@/components/settings/api-keys-form";
+import { ChangePasswordForm } from "@/components/settings/change-password-form";
 
 export default function SettingsPage() {
   return (
@@ -20,6 +21,16 @@ export default function SettingsPage() {
           </p>
         </div>
         <ApiKeysForm />
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-medium text-foreground">Account</h2>
+          <p className="text-sm text-muted-foreground">
+            Manage your account security settings.
+          </p>
+        </div>
+        <ChangePasswordForm />
       </section>
     </div>
   );
