@@ -77,7 +77,7 @@ Wrap typed arrays/objects with `JSON.parse(JSON.stringify(...))` to satisfy `Inp
 - `src/types/fill.ts` — `FillActionSummary`, `FillReport`, helpers
 - `src/types/audit.ts` — `AuditEventSummary`, display helpers
 - `src/types/session.ts` — `SessionSummary`, `SessionDetailSummary`
-- `src/types/portal.ts` — `TrackedItemStatus`, `ComparisonFieldStatus`, `COMPARISON_FIELD_STATUSES`, `FieldComparison`, `ComparisonResultSummary`, selector types
+- `src/types/portal.ts` — `TrackedItemStatus`, `ComparisonFieldStatus`, `COMPARISON_FIELD_STATUSES`, `FieldComparison`, `ComparisonResultSummary`, selector types, `ITEM_EVENT_TYPES`, `ItemEventType`, `ItemEventSummary`, `EVENT_TYPE_LABELS`, `EVENT_SEVERITY`
 
 ### Shared Utilities (`src/lib/utils.ts`)
 - `cn()` — className merging; `formatDate()` — en-SG locale; `sanitizeFileName()`, `formatFieldLabel()`, `confidenceVariant()`
@@ -103,10 +103,23 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Detail queue**: `item-detail-queue.ts` — concurrency 3, 2 attempts, 5min lock, startup recovery for PROCESSING items stuck from crashes
 - **Session actions**: Stop (CANCELLED + drains BullMQ jobs), Delete (cascade), Retry failed, Continue unprocessed. Stop button shows whenever `inFlight > 0` (PROCESSING or DISCOVERED items exist) — not gated on sessionStatus. Resume (reprocess) from CANCELLED resets session back to COMPLETED.
 - **Auto-retry on error**: `SessionActions` auto-calls `reprocess("failed")` once via `useEffect` when `counts.ERROR > 0` and `inFlight === 0`. Guards: `useRef` (per mount) + `sessionStorage` key per session (survives auto-refresh reloads).
-- **Session items page**: fetches `detailData` + `comparisonResult` (including `fieldComparisons`) for up to 50 items. `TrackedItemsTable` renders expandable rows — click to see all data, files, and comparison inline. No horizontal scroll.
-- **Prisma models**: `Portal`, `PortalCredential`, `ScrapeSession`, `TrackedItem`, `TrackedItemFile`, `ComparisonResult`
+- **Session items page**: fetches `detailData` + `comparisonResult` (including `fieldComparisons`) for up to 50 items. `TrackedItemsTable` renders expandable rows — click to see all data, files, comparison, and processing timeline inline. No horizontal scroll.
+- **Prisma models**: `Portal`, `PortalCredential`, `ScrapeSession`, `TrackedItem`, `TrackedItemFile`, `ComparisonResult`, `TrackedItemEvent`
 - **Types/Validations**: `src/types/portal.ts`, `src/lib/validations/portal.ts` — all selector fields `.optional().nullable()`
 - **Status colors**: `ITEM_STATUS_COLORS` exported from `src/components/portals/portal-status-badge.tsx`
+
+### Portal Tracker — Item Event Observability
+- **Purpose**: Per-item structured event log for self-diagnosing scrape failures from the UI (no SSH needed)
+- **Model**: `TrackedItemEvent` — `id`, `trackedItemId`, `eventType`, `payload` (JSONB), `screenshotPath`, `durationMs`, `createdAt`; indexed on `(trackedItemId, createdAt)`
+- **Event types**: defined in `src/types/portal.ts` as `ITEM_EVENT_TYPES` const — 21 typed events covering AUTH_START/SUCCESS/FAIL, DETAIL_SCRAPE_START/DONE/FAIL, SELECTOR_MATCH, DOWNLOAD_START/DONE, AI_EXTRACT_START/DONE/FAIL, AI_COMPARE_START/DONE/FAIL, ITEM_COMPLETE, ITEM_ERROR
+- **Emission helpers** (`src/lib/portal-events.ts`):
+  - `emitItemEvent(trackedItemId, eventType, payload?, options?)` — fire-and-forget, never throws
+  - `emitFailureEvent(trackedItemId, eventType, error, screenshot?)` — uploads screenshot buffer to StorageAdapter at `portal-events/{itemId}/{timestamp}.png`, stores path
+  - `withEventTracking(trackedItemId, startType, doneType, failType, payload, fn, captureScreenshot?)` — wraps async fn, emits start/done/fail + timing automatically
+- **Worker instrumentation**: `item-detail-worker.ts` emits events at every stage; outer catch captures page screenshot if browser still open
+- **API routes**: `GET .../items/:id/events` (list), `GET .../items/:id/events/screenshot?path=...` (serve PNG, path must start with `portal-events/{itemId}/` to prevent traversal)
+- **Timeline UI**: `src/components/portals/item-event-timeline.tsx` — auto-refreshes every 3s while PROCESSING/DISCOVERED; colored dots (red/green/grey), expandable payload, screenshot lightbox; rendered inside expanded rows of `TrackedItemsTable`
+- **Screenshot path validation**: `screenshotPath` must start with `portal-events/{itemId}/` — validated in screenshot API route before storage download
 
 ### Scraper — File Downloads
 - **Primary method**: `page.request.get(href)` — inherits session cookies, works for inline PDFs and new-tab links that never trigger a browser download event
@@ -136,8 +149,10 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **SSH**: `ssh -i /c/Users/huien/.ssh/id_ed25519 root@72.62.75.247`
 - **Database**: Supabase PostgreSQL in Docker on port 5433
 - **Login**: `dev@ivm.local / password123`
+- **Database name**: `ivm` (not `ivm_dev`) — `DATABASE_URL` must use `localhost:5433/ivm`
 - **Deploy**: `tar czf` locally → `scp` → `tar xzf` on VPS (bracket filenames break plain `scp`) → `npm run build && pm2 restart ivm`
-- **Full deploy**: add `npm ci && npx prisma generate` before build
+- **Full deploy**: add `npm ci && npx prisma generate && npx prisma migrate deploy` before build
+- **Schema migrations**: `prisma migrate deploy` requires `DATABASE_URL` pointing to port 5433. If the `ivm` user lacks DDL privileges, run migration SQL directly: `docker exec supabase-db psql -U postgres -d ivm -f migration.sql`, then insert into `_prisma_migrations` manually
 
 ### PM2 Processes
 
