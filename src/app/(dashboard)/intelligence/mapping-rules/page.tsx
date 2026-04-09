@@ -6,6 +6,7 @@ import { requireAuth } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CodeMappingRuleList } from "@/components/intelligence/code-mapping-rule-list";
+import { InfoGuide } from "@/components/intelligence/info-guide";
 import type { CodeMappingRuleData } from "@/types/intelligence";
 
 export default async function MappingRulesPage() {
@@ -59,6 +60,41 @@ export default async function MappingRulesPage() {
           </p>
         </div>
       </div>
+
+      <InfoGuide title="How Mapping Rules work">
+        <p>
+          Mapping Rules automatically translate raw extracted field values into standardized codes using your
+          Reference Datasets. They run after AI extraction, before the review step — so the normalized value
+          is what you see in the output.
+        </p>
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">Where this runs:</p>
+          <ul className="list-disc pl-4 space-y-0.5">
+            <li>
+              <span className="font-medium text-foreground">Auto Form</span> — after AI extracts fields, any field
+              whose label matches the Source Field Label is looked up in the dataset and the output column value
+              is appended to the extracted data.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Portal Tracker</span> — same pipeline applies to files
+              downloaded during a scrape session.
+            </li>
+          </ul>
+        </div>
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">Match strategies:</p>
+          <ul className="list-disc pl-4 space-y-0.5">
+            <li><span className="font-medium text-foreground">Exact</span> — value must match the lookup column character-for-character.</li>
+            <li><span className="font-medium text-foreground">Fuzzy</span> — tolerates minor spelling differences and extra whitespace.</li>
+            <li><span className="font-medium text-foreground">Contains</span> — matches if the lookup column value appears anywhere in the extracted value.</li>
+            <li><span className="font-medium text-foreground">AI</span> — uses LLM semantic matching for complex or ambiguous values (slower, most flexible).</li>
+          </ul>
+        </div>
+        <p>
+          <span className="font-medium text-foreground">Prerequisite:</span> Create a Reference Dataset and import
+          CSV data first — you cannot select lookup/output columns without a dataset.
+        </p>
+      </InfoGuide>
 
       {serializedRules.length === 0 ? (
         <EmptyState

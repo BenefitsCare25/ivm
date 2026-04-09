@@ -8,6 +8,7 @@ import {
   ScanSearch,
   BarChart3,
   History,
+  ArrowRight,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
@@ -56,10 +57,19 @@ const sections = [
   },
   {
     title: "Audit Log",
-    description: "Configuration change history and versioning",
+    description: "Validation history from document processing runs",
     href: "/intelligence/audit",
     icon: History,
   },
+];
+
+const setupSteps = [
+  "1. Document Types",
+  "2. Document Sets",
+  "3. Reference Data",
+  "4. Mapping Rules",
+  "5. Business Rules",
+  "6. Extraction Config",
 ];
 
 export default function IntelligencePage() {
@@ -69,6 +79,27 @@ export default function IntelligencePage() {
         <h1 className="text-2xl font-bold text-foreground">Intelligence Hub</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Configure rules, datasets, and validation logic that run automatically during document processing.
+        </p>
+      </div>
+
+      {/* Setup order guide */}
+      <div className="rounded-lg border border-border bg-muted/30 p-4">
+        <p className="mb-2.5 text-sm font-medium text-foreground">Recommended setup order</p>
+        <div className="flex flex-wrap items-center gap-2">
+          {setupSteps.map((step, i) => (
+            <span key={step} className="flex items-center gap-2">
+              <span className="rounded bg-background px-2 py-0.5 text-xs font-medium text-foreground border border-border">
+                {step}
+              </span>
+              {i < setupSteps.length - 1 && (
+                <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+              )}
+            </span>
+          ))}
+        </div>
+        <p className="mt-2.5 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Dashboard</span> and{" "}
+          <span className="font-medium text-foreground">Audit Log</span> are monitoring pages — visit them after processing documents to review validation results.
         </p>
       </div>
 

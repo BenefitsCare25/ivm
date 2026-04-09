@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { DocumentTypeList } from "@/components/intelligence/document-type-list";
+import { InfoGuide } from "@/components/intelligence/info-guide";
 import type { DocumentTypeData } from "@/types/intelligence";
 
 export default async function DocumentTypesPage() {
@@ -47,6 +48,40 @@ export default async function DocumentTypesPage() {
           </p>
         </div>
       </div>
+
+      <InfoGuide title="How Document Types work">
+        <p>
+          Document Types define the categories of documents your system processes — e.g. &quot;Medical Invoice&quot;,
+          &quot;Claim Form&quot;, &quot;Discharge Summary&quot;. The AI compares each uploaded document&apos;s detected
+          type against your defined types and aliases using fuzzy matching to classify it automatically.
+        </p>
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">Where this runs:</p>
+          <ul className="list-disc pl-4 space-y-0.5">
+            <li>
+              <span className="font-medium text-foreground">Auto Form</span> — when a document is uploaded, the AI
+              classifies it against your document types, then checks that all required fields are present. Results
+              appear in the Validations panel on the review step.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Portal Tracker</span> — when files are downloaded during
+              a scrape session, each file is classified and required fields are validated. Results show in the item
+              detail expanded row.
+            </li>
+          </ul>
+        </div>
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">Tips:</p>
+          <ul className="list-disc pl-4 space-y-0.5">
+            <li>Add common aliases (e.g. &quot;med inv&quot;, &quot;hospital bill&quot;) so fuzzy matching catches real-world variations.</li>
+            <li>Required Fields must be found in the extracted data — missing fields generate FAIL validations.</li>
+            <li>
+              <span className="font-medium text-foreground">Start here first</span> — Document Types must exist
+              before Document Sets, Extraction Templates, or Business Rule scopes can reference them.
+            </li>
+          </ul>
+        </div>
+      </InfoGuide>
 
       {serialized.length === 0 ? (
         <EmptyState

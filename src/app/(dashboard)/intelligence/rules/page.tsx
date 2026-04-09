@@ -6,6 +6,7 @@ import { requireAuth } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { EmptyState } from "@/components/ui/empty-state";
 import { BusinessRuleList } from "@/components/intelligence/business-rule-list";
+import { InfoGuide } from "@/components/intelligence/info-guide";
 import type { BusinessRuleData } from "@/types/intelligence";
 
 export default async function BusinessRulesPage() {
@@ -53,6 +54,46 @@ export default async function BusinessRulesPage() {
           Define if/then processing rules that run automatically during extraction, mapping, or comparison.
         </p>
       </div>
+
+      <InfoGuide title="How Business Rules work">
+        <p>
+          Business Rules are if/then conditions that run automatically at defined trigger points during document
+          processing. Use them to auto-flag anomalies, override statuses, add review notes, or escalate items
+          based on extracted field values.
+        </p>
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">Trigger points:</p>
+          <ul className="list-disc pl-4 space-y-0.5">
+            <li>
+              <span className="font-medium text-foreground">POST_EXTRACTION</span> — runs right after AI extracts
+              fields. Available in both Auto Form and Portal Tracker.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">POST_MAPPING</span> — runs after Mapping Rules are
+              applied to the extracted fields. Available in both Auto Form and Portal Tracker.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">POST_COMPARISON</span> — runs after Portal Tracker
+              compares portal data vs downloaded PDF data. Portal Tracker only.
+            </li>
+          </ul>
+        </div>
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">Action params reference:</p>
+          <ul className="list-disc pl-4 space-y-0.5 font-mono text-xs">
+            <li><span className="text-foreground">FLAG</span> {`{"reason": "Amount exceeds threshold"}`}</li>
+            <li><span className="text-foreground">SET_STATUS</span> {`{"status": "REVIEW"}`}</li>
+            <li><span className="text-foreground">ADD_NOTE</span> {`{"note": "Requires manual verification"}`}</li>
+            <li><span className="text-foreground">SET_FIELD</span> {`{"field": "fieldName", "value": "newValue"}`}</li>
+            <li><span className="text-foreground">ESCALATE</span> {`{"to": "supervisor", "reason": "High value claim"}`}</li>
+            <li><span className="text-foreground">SKIP</span> {`{}`} — stops further rule processing for this item.</li>
+          </ul>
+        </div>
+        <p className="text-xs">
+          Higher priority numbers run first. Rules with the same trigger point execute in priority order.
+          Results appear in the Validation History (Audit Log) and the item&apos;s Validations panel.
+        </p>
+      </InfoGuide>
 
       {serialized.length === 0 && (
         <EmptyState

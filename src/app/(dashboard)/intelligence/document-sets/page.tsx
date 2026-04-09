@@ -6,6 +6,7 @@ import { requireAuth } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DocumentSetList } from "@/components/intelligence/document-set-list";
+import { InfoGuide } from "@/components/intelligence/info-guide";
 import type { DocumentSetData } from "@/types/intelligence";
 
 export default async function DocumentSetsPage() {
@@ -61,6 +62,37 @@ export default async function DocumentSetsPage() {
           </p>
         </div>
       </div>
+
+      <InfoGuide title="How Document Sets work">
+        <p>
+          A Document Set defines a complete package of document types expected together for a single case or claim.
+          After each file is classified, the system checks whether all required types in the set are present and
+          generates MISSING_DOC validations for anything absent.
+        </p>
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">Where this runs:</p>
+          <ul className="list-disc pl-4 space-y-0.5">
+            <li>
+              <span className="font-medium text-foreground">Portal Tracker</span> — after scraping an item and
+              downloading its files, the system classifies each file and checks against active document sets.
+              Missing required types appear as FAIL validations in the item detail row.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Auto Form</span> — document set validation is not
+              triggered for single-document uploads. This feature is designed for Portal Tracker, where multiple
+              files per item are collected.
+            </li>
+          </ul>
+        </div>
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">Field reference:</p>
+          <ul className="list-disc pl-4 space-y-0.5">
+            <li><span className="font-medium text-foreground">Required</span> — document must be present; absence = FAIL validation.</li>
+            <li><span className="font-medium text-foreground">Min / Max count</span> — how many copies are expected (e.g. min 1 / max 1 for a single invoice per claim).</li>
+            <li>Prerequisite: create Document Types first — sets reference types by name.</li>
+          </ul>
+        </div>
+      </InfoGuide>
 
       {serialized.length === 0 ? (
         <EmptyState

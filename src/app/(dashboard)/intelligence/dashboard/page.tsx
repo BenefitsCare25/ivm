@@ -141,6 +141,16 @@ export default async function IntelligenceDashboardPage() {
         </p>
       </div>
 
+      <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+        <p className="font-medium text-foreground mb-1">Reading this dashboard</p>
+        <ul className="list-disc pl-4 space-y-0.5">
+          <li>Metric cards show total and active counts — inactive items do not run during processing.</li>
+          <li><span className="font-medium text-foreground">Validations (7d)</span> counts all PASS / FAIL / WARNING results from both Auto Form and Portal Tracker in the last 7 days.</li>
+          <li><span className="font-medium text-foreground">Rules Executed</span> is the cumulative total run count across all business rules since they were created.</li>
+          <li>Click any metric card to navigate directly to that configuration section.</li>
+        </ul>
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {stats.map((s) => {
           const Icon = s.icon;

@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import { ArrowLeft, History, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
+import { ArrowLeft, History, CheckCircle2, XCircle, AlertTriangle, Info } from "lucide-react";
 import { requireAuth } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { Card, CardContent } from "@/components/ui/card";
@@ -52,6 +52,33 @@ export default async function IntelligenceAuditPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           Results from document validation rules run during Auto Form and Portal Tracker processing.
         </p>
+      </div>
+
+      <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 mb-2">
+          <Info className="h-4 w-4 shrink-0 text-blue-500" />
+          <p className="font-medium text-foreground">Reading validation results</p>
+        </div>
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /><span>PASS — check completed successfully</span></span>
+            <span className="flex items-center gap-1.5"><XCircle className="h-3.5 w-3.5 text-red-500" /><span>FAIL — a required check failed</span></span>
+            <span className="flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5 text-amber-500" /><span>WARNING — flagged for review</span></span>
+          </div>
+          <p className="font-medium text-foreground mt-1">Rule types:</p>
+          <ul className="list-disc pl-4 space-y-0.5 font-mono text-xs">
+            <li><span className="text-foreground">DOC_TYPE_MATCH</span> — document classification result</li>
+            <li><span className="text-foreground">MISSING_DOC</span> — required document absent from a document set (Portal Tracker)</li>
+            <li><span className="text-foreground">DUPLICATE</span> — document matches a previously processed document (within 90 days)</li>
+            <li><span className="text-foreground">REQUIRED_FIELD</span> — a required field from the document type was not extracted</li>
+            <li><span className="text-foreground">BUSINESS_RULE</span> — a custom business rule condition was triggered</li>
+          </ul>
+          <p className="font-mono text-xs mt-1">
+            Validations come from <span className="font-medium not-italic text-foreground">Auto Form</span> (review step Validations panel)
+            and <span className="font-medium not-italic text-foreground">Portal Tracker</span> (item detail expanded row). Use this log to
+            debug rules that are not triggering as expected.
+          </p>
+        </div>
       </div>
 
       {validations.length === 0 ? (
