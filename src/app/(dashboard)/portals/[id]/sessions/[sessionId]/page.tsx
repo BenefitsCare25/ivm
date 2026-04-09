@@ -2,13 +2,16 @@ export const dynamic = "force-dynamic";
 
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, AlertCircle } from "lucide-react";
 import { requireAuth } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import { TrackedItemsTable } from "@/components/portals/tracked-items-table";
-import { ScrapeStatusBadge } from "@/components/portals/portal-status-badge";
-import type { ScrapeSessionStatus } from "@/types/portal";
+import { ScrapeStatusBadge, ITEM_STATUS_COLORS } from "@/components/portals/portal-status-badge";
+import { AutoRefresh } from "@/components/portals/auto-refresh";
+import { SessionActions } from "@/components/portals/session-actions";
+import type { ScrapeSessionStatus, FieldComparison } from "@/types/portal";
+
 
 export default async function SessionItemsPage({
   params,
@@ -35,11 +38,22 @@ export default async function SessionItemsPage({
           portalItemId: true,
           status: true,
           listData: true,
+          detailData: true,
           detailPageUrl: true,
+          errorMessage: true,
           createdAt: true,
           updatedAt: true,
-          _count: {
-            select: { files: true },
+          files: {
+            select: { id: true, fileName: true, mimeType: true },
+            take: 10,
+          },
+          comparisonResult: {
+            select: {
+              matchCount: true,
+              mismatchCount: true,
+              summary: true,
+              fieldComparisons: true,
+            },
           },
         },
       },
@@ -59,6 +73,14 @@ export default async function SessionItemsPage({
   const breakdown = Object.fromEntries(
     statusCounts.map((s) => [s.status, s._count.id])
   );
+
+  const isActive =
+    scrapeSession.status === "RUNNING" ||
+    scrapeSession.status === "PENDING" ||
+    (breakdown["DISCOVERED"] ?? 0) > 0 ||
+    (breakdown["PROCESSING"] ?? 0) > 0;
+
+  const statusOrder = ["COMPARED", "FLAGGED", "ERROR", "PROCESSING", "DISCOVERED"];
 
   return (
     <div className="space-y-6">
@@ -83,19 +105,47 @@ export default async function SessionItemsPage({
             </p>
           </div>
         </div>
+        {isActive && <AutoRefresh />}
       </div>
 
-      {/* Status breakdown */}
-      <div className="flex flex-wrap gap-2">
-        {Object.entries(breakdown).map(([status, count]) => (
-          <div
-            key={status}
-            className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs"
-          >
-            <span className="font-medium text-foreground">{count}</span>
-            <span className="text-muted-foreground">{status}</span>
+      {/* Session error */}
+      {scrapeSession.errorMessage && (
+        <div className="flex items-start gap-2 rounded-lg border border-status-error/30 bg-status-error/10 px-4 py-3">
+          <AlertCircle className="h-4 w-4 shrink-0 text-status-error mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-status-error">Session error</p>
+            <p className="text-xs text-status-error/80 mt-0.5">{scrapeSession.errorMessage}</p>
           </div>
-        ))}
+        </div>
+      )}
+
+      {/* Progress + actions */}
+      <SessionActions
+        portalId={id}
+        sessionId={sessionId}
+        counts={{
+          COMPARED:   breakdown["COMPARED"]   ?? 0,
+          FLAGGED:    breakdown["FLAGGED"]     ?? 0,
+          ERROR:      breakdown["ERROR"]       ?? 0,
+          PROCESSING: breakdown["PROCESSING"]  ?? 0,
+          DISCOVERED: breakdown["DISCOVERED"]  ?? 0,
+        }}
+        sessionStatus={scrapeSession.status}
+      />
+
+      {/* Status breakdown pills */}
+      <div className="flex flex-wrap gap-2">
+        {statusOrder
+          .filter((st) => (breakdown[st] ?? 0) > 0)
+          .map((status) => (
+            <div
+              key={status}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${ITEM_STATUS_COLORS[status] ?? "bg-muted text-muted-foreground"}`}
+            >
+              <span>{breakdown[status]}</span>
+              <span className="opacity-70">{status}</span>
+            </div>
+          ))}
       </div>
 
       <TrackedItemsTable
@@ -104,9 +154,18 @@ export default async function SessionItemsPage({
           portalItemId: item.portalItemId,
           status: item.status,
           listData: (item.listData as Record<string, string>) ?? {},
+          detailData: (item.detailData as Record<string, string>) ?? null,
           detailUrl: item.detailPageUrl,
-          fileCount: item._count.files,
-          comparisonCount: 0,
+          errorMessage: item.errorMessage,
+          files: item.files,
+          comparisonResult: item.comparisonResult
+            ? {
+                matchCount: item.comparisonResult.matchCount,
+                mismatchCount: item.comparisonResult.mismatchCount,
+                summary: item.comparisonResult.summary,
+                fieldComparisons: item.comparisonResult.fieldComparisons as unknown as FieldComparison[],
+              }
+            : null,
           createdAt: item.createdAt.toISOString(),
           updatedAt: item.updatedAt.toISOString(),
         }))}
