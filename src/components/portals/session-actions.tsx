@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { RefreshCw, RotateCcw, Play, CheckCircle2, Square, Trash2, Loader2, SkipForward } from "lucide-react";
+import { RefreshCw, RotateCcw, Play, CheckCircle2, Square, Trash2, Loader2, SkipForward, FileSliders } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ComparisonTemplateModal } from "./comparison-template-modal";
 
 interface SessionActionsProps {
   portalId: string;
@@ -28,6 +29,15 @@ export function SessionActions({
   const router = useRouter();
   const [loading, setLoading] = useState<"failed" | "unprocessed" | "skip" | "stop" | "delete" | null>(null);
   const autoRetriedRef = useRef(false);
+  const [unconfiguredTypes, setUnconfiguredTypes] = useState<Array<{
+    groupingKey: Record<string, string>;
+    itemId: string;
+    pageFields: string[];
+    pdfFields: string[];
+  }>>([]);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [currentTypeIndex, setCurrentTypeIndex] = useState(0);
+  const checkedUnconfiguredRef = useRef(false);
 
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const done = (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) + (counts.ERROR ?? 0) + (counts.SKIPPED ?? 0);
@@ -49,6 +59,23 @@ export function SessionActions({
     reprocess("failed");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [counts.ERROR, inFlight, sessionId]);
+
+  // Check for unconfigured claim types once processing is complete
+  useEffect(() => {
+    const compared = (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0);
+    if (!isComplete || compared === 0 || checkedUnconfiguredRef.current) return;
+    checkedUnconfiguredRef.current = true;
+
+    fetch(`/api/portals/${portalId}/scrape/${sessionId}/unconfigured-types`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.unconfiguredTypes) && data.unconfiguredTypes.length > 0) {
+          setUnconfiguredTypes(data.unconfiguredTypes);
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isComplete, counts.COMPARED, counts.FLAGGED]);
 
   async function skipFailed() {
     setLoading("skip");
@@ -97,6 +124,18 @@ export function SessionActions({
     }
   }
 
+  function mergeFieldOptions(pageFields: string[], pdfFields: string[]) {
+    const pageSet = new Set(pageFields);
+    const pdfSet = new Set(pdfFields);
+    const allNames = new Set([...pageFields, ...pdfFields]);
+    return Array.from(allNames).map((name) => ({
+      name,
+      source: (
+        pageSet.has(name) && pdfSet.has(name) ? "both" : pageSet.has(name) ? "page" : "pdf"
+      ) as "page" | "pdf" | "both",
+    }));
+  }
+
   if (total === 0) return null;
 
   return (
@@ -140,6 +179,27 @@ export function SessionActions({
             {(counts.SKIPPED ?? 0) > 0 && ` · ${counts.SKIPPED} skipped`}
             {(counts.ERROR ?? 0) > 0 && ` · ${counts.ERROR} failed`}
           </div>
+        </div>
+      )}
+
+      {/* Unconfigured claim types banner */}
+      {unconfiguredTypes.length > 0 && !showTemplateModal && (
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 p-3">
+          <FileSliders className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <p className="flex-1 text-sm text-muted-foreground">
+            {unconfiguredTypes.length} claim type{unconfiguredTypes.length > 1 ? "s" : ""} used
+            full comparison. Configure templates for focused field matching.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setCurrentTypeIndex(0);
+              setShowTemplateModal(true);
+            }}
+          >
+            Configure
+          </Button>
         </div>
       )}
 
@@ -240,6 +300,47 @@ export function SessionActions({
           </Button>
         </div>
       </div>
+
+      {/* Inline template configuration modal */}
+      {showTemplateModal && unconfiguredTypes[currentTypeIndex] && (
+        <ComparisonTemplateModal
+          portalId={portalId}
+          groupingKey={unconfiguredTypes[currentTypeIndex].groupingKey}
+          suggestedName={Object.values(unconfiguredTypes[currentTypeIndex].groupingKey).join(" / ")}
+          availableFields={mergeFieldOptions(
+            unconfiguredTypes[currentTypeIndex].pageFields,
+            unconfiguredTypes[currentTypeIndex].pdfFields
+          )}
+          onSaved={async (templateId) => {
+            setShowTemplateModal(false);
+            // Re-compare items with new template
+            await fetch(`/api/portals/${portalId}/scrape/${sessionId}/recompare`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ templateId }),
+            }).catch(() => {});
+            // Move to next unconfigured type or finish
+            const nextIndex = currentTypeIndex + 1;
+            if (nextIndex < unconfiguredTypes.length) {
+              setCurrentTypeIndex(nextIndex);
+              setShowTemplateModal(true);
+            } else {
+              setUnconfiguredTypes([]);
+              router.refresh();
+            }
+          }}
+          onSkip={() => {
+            setShowTemplateModal(false);
+            const nextIndex = currentTypeIndex + 1;
+            if (nextIndex < unconfiguredTypes.length) {
+              setCurrentTypeIndex(nextIndex);
+              setShowTemplateModal(true);
+            } else {
+              setUnconfiguredTypes([]);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

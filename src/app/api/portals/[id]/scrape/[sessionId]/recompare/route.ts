@@ -61,7 +61,7 @@ export async function POST(
     }
 
     const { provider, apiKey } = await resolveProviderAndKey(session.user.id);
-    const templateFields = template.fields as TemplateField[];
+    const templateFields = template.fields as unknown as TemplateField[];
     let recompared = 0;
 
     for (const item of matchingItems) {

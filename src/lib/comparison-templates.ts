@@ -49,7 +49,7 @@ export async function findMatchingTemplate(
       return {
         id: template.id,
         name: template.name,
-        fields: template.fields as TemplateField[],
+        fields: template.fields as unknown as TemplateField[],
       };
     }
   }
