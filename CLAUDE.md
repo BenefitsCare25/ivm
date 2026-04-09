@@ -168,20 +168,51 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Click-discovery**: When no `detailLinkSelector` and no `href` links, detect `cursor:pointer` rows → Phase 1: extract data; Phase 2 (post-loop): click first row, wait for URL change via `waitForFunction((orig) => location.href !== orig)`, extract URL pattern, apply to all rows, `goBack()`
 - **SPA navigation**: Use `waitForFunction((orig) => location.href !== orig, currentUrl)` — NOT `waitForNavigation()` (SPA routing doesn't fire navigation events)
 
-### Intelligence Hub (Phase 1 — Document Types & Validation)
-- **Purpose**: User-configurable document classification, document set validation, required field checking, and duplicate detection. Zero hardcoded business logic.
-- **Sidebar**: Brain icon → `/intelligence` hub page with card links to all sub-sections
-- **Prisma models**: `DocumentType` (name, aliases JSON, category, requiredFields JSON, isActive), `DocumentSet` + `DocumentSetItem` join table (isRequired, minCount, maxCount), `ValidationResult` (fillSessionId?, trackedItemId?, ruleType, status PASS/FAIL/WARNING, message, metadata JSON)
+### Intelligence Hub (All Phases — Fully Implemented)
+- **Purpose**: User-configurable document classification, validation, business rules, extraction templates, reference data, and analytics. Zero hardcoded business logic.
+- **Sidebar**: Brain icon → `/intelligence` hub page with 8 clickable cards (all live)
+- **Migration**: `20260410200000_add_intelligence_hub` — creates all tables in one migration
+
+#### Phase 1 — Document Types & Validation
+- **Prisma models**: `DocumentType`, `DocumentSet` + `DocumentSetItem`, `ValidationResult` (fillSessionId?, trackedItemId?, ruleType, status PASS/FAIL/WARNING, message, metadata JSON)
 - **API routes**: `GET/POST /api/intelligence/document-types`, `PATCH/DELETE /api/intelligence/document-types/[id]`, same pattern for document-sets
 - **Validation API**: `GET /api/sessions/[id]/validations` (Auto Form), `GET /api/portals/[id]/scrape/[sessionId]/items/[itemId]/validations` (Portal Tracker)
 - **Runtime lib** (`src/lib/intelligence/`):
-  - `classifier.ts` — `fetchDocTypes(userId)` pre-fetches once; `classifyDocumentTypeFromCache(aiDocType, docTypes)` pure Jaro-Winkler fuzzy match; `classifyDocumentType()` accepts optional cached array
-  - `validator.ts` — `validateDocumentSet(userId, classifiedDocs, options)` checks items against user's active DocumentSets; `validateRequiredFields(docType, extractedFields, options)` checks requiredFields array; `validateRequiredFieldsSync()` pure version
-  - `deduplicator.ts` — `checkDuplicate(userId, documentTypeId, keyFields, extractedFields, options)` SHA-256 hashes key field values, 90-day lookback, scoped by documentTypeId in metadata
-- **Worker integration** (`item-detail-worker.ts`): Non-fatal pipeline after extraction — `fetchDocTypes()` once, then per file: classify → `Promise.all([validateRequiredFields, checkDuplicate])`. Then `validateDocumentSet()` for the full item. Any error is logged as warn and never blocks the comparison pipeline.
-- **UI components**: `ValidationSummary` (pass/fail/warning badge + message list, shown on both Auto Form extract page and Portal Tracker item detail), `document-type-list.tsx`, `document-set-list.tsx`
-- **Types/Validations**: `src/types/intelligence.ts`, `src/lib/validations/intelligence.ts`
-- **Key constraint**: `ValidationResult` has no `userId` column — cross-user isolation is enforced by scoping dedup queries to `metadata.documentTypeId`. Do not query ValidationResult without a documentTypeId or session/item scope.
+  - `classifier.ts` — `fetchDocTypes(userId)` pre-fetches once; `classifyDocumentTypeFromCache(aiDocType, docTypes)` pure Jaro-Winkler fuzzy match
+  - `validator.ts` — `validateDocumentSet(userId, classifiedDocs, options)`, `validateRequiredFields(docType, extractedFields, options)`
+  - `deduplicator.ts` — `checkDuplicate(userId, documentTypeId, keyFields, extractedFields, options)` SHA-256 hashes key field values, 90-day lookback
+- **Worker integration** (`item-detail-worker.ts`): Non-fatal pipeline — classify → validate required fields → check duplicate → validateDocumentSet. Never blocks comparison pipeline.
+- **Key constraint**: `ValidationResult` has no `userId` — always scope queries via fillSessionId→FillSession.userId or trackedItemId→TrackedItem→ScrapeSession→Portal.userId
+
+#### Phase 2 — Reference Data & Mapping Rules
+- **Prisma models**: `ReferenceDataset` (columns JSON, rowCount, sourceType, version), `ReferenceEntry` (data JSON, searchText), `CodeMappingRule` (sourceFieldLabel, lookupColumn, outputColumn, matchStrategy: exact/fuzzy/contains/ai)
+- **API routes**: `GET/POST /api/intelligence/datasets`, `PATCH/DELETE /api/intelligence/datasets/[id]`, `GET/POST/DELETE /api/intelligence/datasets/[id]/entries` (bulk CSV import), `GET/POST /api/intelligence/mapping-rules`, `PATCH/DELETE /api/intelligence/mapping-rules/[id]`
+- **UI**: `reference-dataset-list.tsx` (CSV paste import per dataset), `code-mapping-rule-list.tsx` (lookup/output columns auto-populate from selected dataset)
+- **Pages**: `/intelligence/datasets`, `/intelligence/mapping-rules`
+- **Validations**: `src/lib/validations/intelligence-phase2.ts`
+
+#### Phase 3 — Business Rules Engine
+- **Prisma models**: `BusinessRule` (triggerPoint: POST_EXTRACTION/POST_COMPARISON/POST_MAPPING, conditions JSON, actions JSON, scope JSON, runCount), `RuleExecution` (triggered, actionsRun, inputSnapshot)
+- **API routes**: `GET/POST /api/intelligence/rules`, `GET/PATCH/DELETE /api/intelligence/rules/[id]`
+- **UI**: `business-rule-list.tsx` — inline condition builder (AND/OR logic, field/operator/value per condition) and action builder (FLAG/SET_STATUS/ADD_NOTE/SET_FIELD/ESCALATE/SKIP)
+- **Page**: `/intelligence/rules`
+- **Validations**: `src/lib/validations/intelligence-phase3.ts`
+
+#### Phase 4 — Extraction Config
+- **Prisma models**: `ExtractionTemplate` (documentTypeId?, expectedFields JSON array of {label,fieldType,required,aliases}), `NormalizationRule` (fieldType, pattern?, outputFormat), `EscalationConfig` (confidenceThreshold, autoFlagLowConfidence, escalationMessage) — one per user via `@@unique([userId])`
+- **API routes**: `GET/POST /api/intelligence/extraction-templates`, `PATCH/DELETE /api/intelligence/extraction-templates/[id]`, same for normalization-rules, `GET/PUT /api/intelligence/escalation-config` (upsert)
+- **UI**: `extraction-config.tsx` — three-tab component (Templates | Normalization | Escalation) all on one page
+- **Page**: `/intelligence/extraction`
+- **Validations**: `src/lib/validations/intelligence-phase4.ts`
+
+#### Phase 5 — Dashboard
+- **Page**: `/intelligence/dashboard` — 6 stat cards (Doc Types, Doc Sets, Business Rules, Extraction Templates, Validations 7d, Rules Executed), recent validation list, getting-started empty state
+- **API**: `GET /api/intelligence/metrics` — parallel aggregation of all counts + 7-day validation groupBy
+
+#### Phase 6 — Validation History (Audit)
+- **Page**: `/intelligence/audit` — shows recent `ValidationResult` records scoped to user's fill sessions and tracked items, ordered newest first
+- **API**: `GET /api/intelligence/audit` — same scoping logic with pagination (?page, ?limit)
+- **Note**: Uses `ValidationResult` (not `AuditEvent` — that model is scoped to `FillSession` fill events only)
 
 ## Deployment
 
