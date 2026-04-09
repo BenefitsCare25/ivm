@@ -11,6 +11,7 @@ export interface AIExtractionRequest {
   fileName: string;
   provider: AIProvider;
   apiKey: string;
+  model?: string;
   textContent?: string; // Pre-extracted text for DOCX files
 }
 
@@ -25,6 +26,7 @@ export interface AIMappingRequest {
   targetFields: TargetField[];
   provider: AIProvider;
   apiKey: string;
+  model?: string;
 }
 
 export interface AIMappingResponse {

@@ -80,7 +80,7 @@ export function SessionCard({ session }: SessionCardProps) {
           {session.extractedFieldCount > 0 && (
             <span>{session.extractedFieldCount} fields</span>
           )}
-          <span>Updated {formatDate(session.updatedAt)}</span>
+          <span suppressHydrationWarning>Updated {formatDate(session.updatedAt)}</span>
         </div>
       </CardContent>
       <CardFooter className="justify-between">

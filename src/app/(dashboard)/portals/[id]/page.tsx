@@ -88,6 +88,23 @@ export default async function PortalDetailPage({
     ? [...scrapedFields].sort()
     : [...new Set(selectorFields)];
 
+  // Detect distinct claim type values from scraped items
+  const groupingField = ((portal.groupingFields ?? []) as string[])[0] ?? null;
+  const detectedClaimTypes: string[] = [];
+  if (groupingField) {
+    const seen = new Set<string>();
+    for (const item of recentItems) {
+      const val =
+        (item.listData as Record<string, unknown>)?.[groupingField] ??
+        (item.detailData as Record<string, unknown>)?.[groupingField];
+      if (val && typeof val === "string" && !seen.has(val)) {
+        seen.add(val);
+        detectedClaimTypes.push(val);
+      }
+    }
+    detectedClaimTypes.sort();
+  }
+
   const serialized = {
     id: portal.id,
     name: portal.name,
@@ -104,7 +121,9 @@ export default async function PortalDetailPage({
     createdAt: portal.createdAt.toISOString(),
     updatedAt: portal.updatedAt.toISOString(),
     groupingFields: (portal.groupingFields ?? []) as string[],
+    scrapeLimit: portal.scrapeLimit,
     availableFields,
+    detectedClaimTypes,
     sessions: portal.scrapeSessions.map((s) => ({
       ...s,
       startedAt: s.startedAt?.toISOString() ?? null,

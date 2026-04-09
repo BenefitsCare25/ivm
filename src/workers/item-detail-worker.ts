@@ -131,7 +131,7 @@ async function processItemDetailCore(
       }
 
       // ── AI extraction from downloaded files ─────────────────
-      const { provider, apiKey } = await resolveProviderAndKey(userId);
+      const { provider, apiKey, visionModel, textModel } = await resolveProviderAndKey(userId);
       const pdfFields: Record<string, string> = {};
 
       for (const file of downloadedFiles) {
@@ -154,6 +154,7 @@ async function processItemDetailCore(
               fileName: file.originalName,
               provider,
               apiKey,
+              model: visionModel,
             });
 
             for (const field of extraction.fields) {
@@ -220,6 +221,7 @@ async function processItemDetailCore(
               pdfFields: comparePdfFields,
               provider,
               apiKey,
+              model: textModel,
               templateFields,
             })
           );

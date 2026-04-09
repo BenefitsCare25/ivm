@@ -61,16 +61,16 @@ export async function POST(
       return NextResponse.json({ recompared: 0 });
     }
 
-    const { provider, apiKey } = await resolveProviderAndKey(session.user.id);
-    const templateId_ = template.id;
+    const { provider, apiKey, textModel } = await resolveProviderAndKey(session.user.id);
     const templateFields = template.fields as unknown as TemplateField[];
+    const resolvedTemplateId = template.id;
 
     const CONCURRENCY = 5;
     let recompared = 0;
 
-    async function processOne(item: typeof matchingItems[0]): Promise<void> {
+    async function processOne(item: typeof matchingItems[0]): Promise<boolean> {
       const detailData = (item.detailData as Record<string, string>) ?? {};
-      if (Object.keys(detailData).length === 0) return;
+      if (Object.keys(detailData).length === 0) return false;
 
       // Reconstruct pdf fields from existing comparison result
       const existingComparisons = (item.comparisonResult?.fieldComparisons ?? []) as Array<{
@@ -92,34 +92,30 @@ export async function POST(
         Object.keys(filteredPageFields).length === 0 &&
         Object.keys(filteredPdfFields).length === 0
       )
-        return;
+        return false;
 
       const result = await compareFields({
         pageFields: filteredPageFields,
         pdfFields: filteredPdfFields,
         provider,
         apiKey,
+        model: textModel,
         templateFields,
       });
 
-      // Delete old comparison result and create new one with template
-      if (item.comparisonResult) {
-        await db.comparisonResult.delete({
-          where: { id: item.comparisonResult.id },
-        });
-      }
-
-      await db.comparisonResult.create({
-        data: {
-          trackedItemId: item.id,
-          provider,
-          templateId: templateId_,
-          fieldComparisons: JSON.parse(JSON.stringify(result.fieldComparisons)),
-          matchCount: result.matchCount,
-          mismatchCount: result.mismatchCount,
-          summary: result.summary,
-          completedAt: new Date(),
-        },
+      const comparisonData = {
+        provider,
+        templateId: resolvedTemplateId,
+        fieldComparisons: JSON.parse(JSON.stringify(result.fieldComparisons)),
+        matchCount: result.matchCount,
+        mismatchCount: result.mismatchCount,
+        summary: result.summary,
+        completedAt: new Date(),
+      };
+      await db.comparisonResult.upsert({
+        where: { trackedItemId: item.id },
+        create: { trackedItemId: item.id, ...comparisonData },
+        update: comparisonData,
       });
 
       const hasMismatch = result.mismatchCount > 0;
@@ -127,12 +123,13 @@ export async function POST(
         where: { id: item.id },
         data: { status: hasMismatch ? "FLAGGED" : "COMPARED" },
       });
+      return true;
     }
 
     for (let i = 0; i < matchingItems.length; i += CONCURRENCY) {
       const batch = matchingItems.slice(i, i + CONCURRENCY);
       const results = await Promise.allSettled(batch.map(processOne));
-      recompared += results.filter((r) => r.status === "fulfilled").length;
+      recompared += results.filter((r) => r.status === "fulfilled" && r.value === true).length;
       results
         .filter((r): r is PromiseRejectedResult => r.status === "rejected")
         .forEach((r, idx) => {

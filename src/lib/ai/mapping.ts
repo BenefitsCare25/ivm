@@ -17,12 +17,13 @@ interface TextCallResult {
 async function callAnthropic(
   apiKey: string,
   systemPrompt: string,
-  userPrompt: string
+  userPrompt: string,
+  model?: string
 ): Promise<TextCallResult> {
   const client = new Anthropic({ apiKey });
   const response = await client.messages.create(
     {
-      model: env.ANTHROPIC_MODEL,
+      model: model ?? env.ANTHROPIC_MODEL,
       max_tokens: 4096,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
@@ -43,12 +44,13 @@ async function callAnthropic(
 async function callOpenAI(
   apiKey: string,
   systemPrompt: string,
-  userPrompt: string
+  userPrompt: string,
+  model?: string
 ): Promise<TextCallResult> {
   const client = new OpenAI({ apiKey });
   const response = await client.chat.completions.create(
     {
-      model: env.OPENAI_MODEL,
+      model: model ?? env.OPENAI_MODEL,
       max_tokens: 4096,
       messages: [
         { role: "system", content: systemPrompt },
@@ -70,11 +72,12 @@ async function callOpenAI(
 async function callGemini(
   apiKey: string,
   systemPrompt: string,
-  userPrompt: string
+  userPrompt: string,
+  modelId?: string
 ): Promise<TextCallResult> {
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
-    model: env.GEMINI_MODEL,
+    model: modelId ?? env.GEMINI_MODEL,
     systemInstruction: systemPrompt,
   });
 
@@ -124,7 +127,7 @@ export async function proposeFieldMappings(
   switch (provider) {
     case "anthropic": {
       const result = await withRetry(
-        () => callAnthropic(apiKey, systemPrompt, userPrompt),
+        () => callAnthropic(apiKey, systemPrompt, userPrompt, request.model),
         { maxRetries: 2, operation: "mapping:anthropic" }
       );
       rawText = result.rawText;
@@ -133,7 +136,7 @@ export async function proposeFieldMappings(
     }
     case "openai": {
       const result = await withRetry(
-        () => callOpenAI(apiKey, systemPrompt, userPrompt),
+        () => callOpenAI(apiKey, systemPrompt, userPrompt, request.model),
         { maxRetries: 2, operation: "mapping:openai" }
       );
       rawText = result.rawText;
@@ -142,7 +145,7 @@ export async function proposeFieldMappings(
     }
     case "gemini": {
       const result = await withRetry(
-        () => callGemini(apiKey, systemPrompt, userPrompt),
+        () => callGemini(apiKey, systemPrompt, userPrompt, request.model),
         { maxRetries: 2, operation: "mapping:gemini" }
       );
       rawText = result.rawText;

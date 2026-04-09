@@ -14,6 +14,7 @@ export interface PageAnalysisRequest {
   htmlSnippet: string;
   provider: AIProvider;
   apiKey: string;
+  model?: string;
 }
 
 export interface PageAnalysisResponse {
@@ -66,7 +67,7 @@ async function analyzeWithAnthropic(request: PageAnalysisRequest): Promise<strin
 
   const response = await client.messages.create(
     {
-      model: "claude-sonnet-4-20250514",
+      model: request.model ?? "claude-sonnet-4-6",
       max_tokens: 4096,
       system: getPageAnalysisSystemPrompt(),
       messages: [{
@@ -99,7 +100,7 @@ async function analyzeWithOpenAI(request: PageAnalysisRequest): Promise<string> 
 
   const response = await client.chat.completions.create(
     {
-      model: "gpt-4o",
+      model: request.model ?? "gpt-4.1",
       max_tokens: 4096,
       messages: [
         { role: "system", content: getPageAnalysisSystemPrompt() },
@@ -126,7 +127,7 @@ async function analyzeWithOpenAI(request: PageAnalysisRequest): Promise<string> 
 
 async function analyzeWithGemini(request: PageAnalysisRequest): Promise<string> {
   const genAI = new GoogleGenerativeAI(request.apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const model = genAI.getGenerativeModel({ model: request.model ?? "gemini-2.5-flash" });
   const base64 = request.screenshot.toString("base64");
 
   let timer: ReturnType<typeof setTimeout>;

@@ -18,6 +18,7 @@ model User {
   updatedAt     DateTime  @updatedAt
 
   preferredProvider String?
+  modelPreferences  Json?
 
   accounts     Account[]
   authSessions AuthSession[]

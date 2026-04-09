@@ -1,15 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Settings2 } from "lucide-react";
+import { Loader2, Pencil, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 interface GroupingFieldConfigProps {
   portalId: string;
   currentGroupingFields: string[];
   availableFields: string[];
+  detectedClaimTypes: string[];
   onSaved: () => void;
 }
 
@@ -17,14 +17,16 @@ export function GroupingFieldConfig({
   portalId,
   currentGroupingFields,
   availableFields,
+  detectedClaimTypes,
   onSaved,
 }: GroupingFieldConfigProps) {
-  const [selected, setSelected] = useState<string[]>(currentGroupingFields);
+  // Single field — we store as array internally for API compatibility
+  const currentField = currentGroupingFields[0] ?? "";
+  const [selected, setSelected] = useState<string>(currentField);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [affectedTemplateCount, setAffectedTemplateCount] = useState(0);
-  const [showAffectedWarning, setShowAffectedWarning] = useState(false);
 
   async function handleSave() {
     setSaving(true);
@@ -33,130 +35,154 @@ export function GroupingFieldConfig({
       const res = await fetch(`/api/portals/${portalId}/grouping-fields`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groupingFields: selected }),
+        body: JSON.stringify({ groupingFields: selected ? [selected] : [] }),
       });
       if (!res.ok) throw new Error("Failed to save");
       const data = await res.json();
       setEditing(false);
       if (data.affectedTemplateCount > 0) {
         setAffectedTemplateCount(data.affectedTemplateCount);
-        setShowAffectedWarning(true);
       }
       onSaved();
     } catch {
-      setError("Failed to save grouping fields");
+      setError("Failed to save");
     } finally {
       setSaving(false);
     }
   }
 
-  function toggleField(field: string) {
-    if (selected.length >= 5 && !selected.includes(field)) return;
-    setSelected((prev) =>
-      prev.includes(field) ? prev.filter((f) => f !== field) : [...prev, field]
-    );
-  }
-
-  if (!editing) {
-    return (
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Claim Type Detection</CardTitle>
-            <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-              <Settings2 className="mr-2 h-4 w-4" />
-              Configure
-            </Button>
+  return (
+    <div className="space-y-3">
+      {/* Step header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white">
+            1
+          </span>
+          <div>
+            <p className="text-sm font-medium text-foreground">Claim type field</p>
+            <p className="text-xs text-muted-foreground">
+              Which scraped field identifies what type of claim each item is?
+            </p>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {currentGroupingFields.length === 0 ? (
+        </div>
+        {!editing && (
+          <Button variant="ghost" size="sm" onClick={() => setEditing(true)} className="shrink-0">
+            <Pencil className="mr-1.5 h-3.5 w-3.5" />
+            {currentField ? "Change" : "Configure"}
+          </Button>
+        )}
+      </div>
+
+      {editing ? (
+        <div className="space-y-3 pl-7">
+          {availableFields.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Select which scraped fields identify the type of each item (e.g. &ldquo;Claim Type&rdquo;). After
-              scraping, you&apos;ll set comparison rules per detected type.
+              No fields found yet. Run a scrape first — field names are discovered automatically.
             </p>
           ) : (
             <>
-              <div className="flex flex-wrap gap-2">
-                {currentGroupingFields.map((f) => (
-                  <Badge key={f} variant="secondary">
-                    {f}
-                  </Badge>
-                ))}
-              </div>
               <p className="text-xs text-muted-foreground">
-                Items will be grouped by these fields. Run a scrape to detect claim types and
-                configure comparison rules.
+                Pick the field whose value names the claim type — e.g. select{" "}
+                <span className="font-mono text-foreground">Claim Type</span> if your portal shows
+                values like <span className="italic">&ldquo;Group Outpatient Specialist&rdquo;</span>{" "}
+                or <span className="italic">&ldquo;Inpatient&rdquo;</span>. Avoid unique fields like
+                Claim ID.
               </p>
+              <div className="relative">
+                <select
+                  value={selected}
+                  onChange={(e) => setSelected(e.target.value)}
+                  className="w-full appearance-none rounded-md border border-border bg-background px-3 py-2 pr-8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                >
+                  <option value="">— Select a field —</option>
+                  {availableFields.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
             </>
           )}
-          {showAffectedWarning && (
-            <div className="flex items-start gap-2 rounded-md bg-status-warning/10 px-3 py-2 text-xs text-status-warning">
-              <span className="flex-1">
-                ⚠ {affectedTemplateCount} existing template{affectedTemplateCount > 1 ? "s" : ""} may
-                no longer match items. Consider reviewing or deleting them.
-              </span>
-              <button onClick={() => setShowAffectedWarning(false)} className="hover:opacity-70">✕</button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    );
-  }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Claim Type Detection</CardTitle>
-        <p className="text-sm text-muted-foreground">
-          Pick 1–5 fields whose values distinguish item types. Each unique combination becomes a
-          comparison template.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {availableFields.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No fields available. Run a scrape first to discover field names.
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {availableFields.map((f) => (
-              <button
-                key={f}
-                onClick={() => toggleField(f)}
-                disabled={selected.length >= 5 && !selected.includes(f)}
-                className={`rounded-md border px-2.5 py-1 text-xs transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${
-                  selected.includes(f)
-                    ? "border-accent bg-accent/10 text-foreground font-medium"
-                    : "border-border text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                {f}
-              </button>
-            ))}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleSave} disabled={saving || !selected}>
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setEditing(false);
+                setSelected(currentField);
+                setError(null);
+              }}
+            >
+              Cancel
+            </Button>
           </div>
-        )}
-
-        {error && <p className="text-sm text-destructive">{error}</p>}
-
-        <div className="flex gap-2">
-          <Button size="sm" onClick={handleSave} disabled={saving}>
-            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setEditing(false);
-              setSelected(currentGroupingFields);
-              setError(null);
-            }}
-          >
-            Cancel
-          </Button>
         </div>
-      </CardContent>
-    </Card>
+      ) : (
+        <div className="pl-7 space-y-2">
+          {!currentField ? (
+            <p className="text-sm text-muted-foreground italic">
+              Not configured — run a scrape first, then pick which field identifies the claim type.
+            </p>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-muted-foreground">Field:</p>
+                <Badge variant="secondary" className="font-mono text-xs">
+                  {currentField}
+                </Badge>
+              </div>
+
+              {detectedClaimTypes.length > 0 ? (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">
+                    Values found in scraped data:
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {detectedClaimTypes.map((v) => (
+                      <span
+                        key={v}
+                        className="rounded-md bg-muted px-2 py-0.5 text-xs text-foreground"
+                      >
+                        {v}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground pt-0.5">
+                    Each value gets its own comparison rules in Step 2 below.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">
+                  No values detected yet — run a scrape to discover claim types.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {affectedTemplateCount > 0 && (
+        <div className="flex items-start gap-2 rounded-md bg-status-warning/10 px-3 py-2 text-xs text-status-warning">
+          <span className="flex-1">
+            ⚠ {affectedTemplateCount} existing template
+            {affectedTemplateCount > 1 ? "s" : ""} in Step 2 may no longer match. Review or delete
+            them below.
+          </span>
+          <button onClick={() => setAffectedTemplateCount(0)} className="hover:opacity-70">
+            ✕
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

@@ -51,7 +51,7 @@ export async function extractWithOpenAI(request: AIExtractionRequest): Promise<A
 
   const response = await client.chat.completions.create(
     {
-      model: env.OPENAI_MODEL,
+      model: request.model ?? env.OPENAI_MODEL,
       max_tokens: 4096,
       messages: [
         { role: "system", content: getExtractionSystemPrompt() },

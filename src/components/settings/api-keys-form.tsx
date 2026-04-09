@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { FormError } from "@/components/ui/form-error";
-import { PROVIDER_INFO, AI_PROVIDERS, type AIProvider } from "@/lib/validations/api-key";
+import { PROVIDER_INFO, AI_PROVIDERS, PROVIDER_MODELS, type AIProvider } from "@/lib/validations/api-key";
+import type { ModelPreferences } from "@/lib/validations/api-key";
 
 interface SavedKey {
   provider: string;
@@ -18,10 +19,70 @@ interface SavedKey {
 interface ApiKeysState {
   keys: SavedKey[];
   preferredProvider: string | null;
+  modelPreferences: ModelPreferences | null;
+}
+
+function ModelSelectors({
+  provider,
+  preferences,
+  onChange,
+}: {
+  provider: AIProvider;
+  preferences: ModelPreferences | null;
+  onChange: (provider: AIProvider, tier: "visionModel" | "textModel", modelId: string) => void;
+}) {
+  const config = PROVIDER_MODELS[provider];
+  const defaults = config.defaults;
+  const prefs = preferences?.[provider];
+  const visionModels = config.models.filter((m) => m.tier.includes("vision"));
+  const textModels = config.models.filter((m) => m.tier.includes("text"));
+
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">
+          Vision Model
+        </label>
+        <select
+          value={prefs?.visionModel ?? defaults.vision}
+          onChange={(e) => onChange(provider, "visionModel", e.target.value)}
+          className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        >
+          {visionModels.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label} — {m.costLabel}
+            </option>
+          ))}
+        </select>
+        <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+          Document extraction, page analysis
+        </p>
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">
+          Text Model
+        </label>
+        <select
+          value={prefs?.textModel ?? defaults.text}
+          onChange={(e) => onChange(provider, "textModel", e.target.value)}
+          className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        >
+          {textModels.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label} — {m.costLabel}
+            </option>
+          ))}
+        </select>
+        <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+          Field mapping, comparison
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export function ApiKeysForm() {
-  const [state, setState] = useState<ApiKeysState>({ keys: [], preferredProvider: null });
+  const [state, setState] = useState<ApiKeysState>({ keys: [], preferredProvider: null, modelPreferences: null });
   const [loading, setLoading] = useState(true);
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
   const [removingProvider, setRemovingProvider] = useState<string | null>(null);
@@ -114,6 +175,31 @@ export function ApiKeysForm() {
     }
   };
 
+  const handleModelChange = async (provider: AIProvider, tier: "visionModel" | "textModel", modelId: string) => {
+    const current = state.modelPreferences ?? {};
+    const defaults = PROVIDER_MODELS[provider].defaults;
+    const updated: ModelPreferences = {
+      ...current,
+      [provider]: {
+        visionModel: current[provider]?.visionModel ?? defaults.vision,
+        textModel: current[provider]?.textModel ?? defaults.text,
+        [tier]: modelId,
+      },
+    };
+
+    setState((prev) => ({ ...prev, modelPreferences: updated }));
+
+    try {
+      await fetch("/api/settings/model-preferences", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
+      });
+    } catch {
+      // silently fail for model preference toggle
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -156,27 +242,34 @@ export function ApiKeysForm() {
 
             <CardContent className="pb-3">
               {savedKey ? (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Key className="h-4 w-4 text-muted-foreground" />
-                    <code className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
-                      {savedKey.keyPrefix}
-                    </code>
-                    <CheckCircle className="h-4 w-4 text-emerald-500" />
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Key className="h-4 w-4 text-muted-foreground" />
+                      <code className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
+                        {savedKey.keyPrefix}
+                      </code>
+                      <CheckCircle className="h-4 w-4 text-emerald-500" />
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemove(provider)}
+                      disabled={isRemoving}
+                      className="text-muted-foreground hover:text-red-500"
+                    >
+                      {isRemoving ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleRemove(provider)}
-                    disabled={isRemoving}
-                    className="text-muted-foreground hover:text-red-500"
-                  >
-                    {isRemoving ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
-                  </Button>
+                  <ModelSelectors
+                    provider={provider}
+                    preferences={state.modelPreferences}
+                    onChange={handleModelChange}
+                  />
                 </div>
               ) : (
                 <div className="flex gap-2">

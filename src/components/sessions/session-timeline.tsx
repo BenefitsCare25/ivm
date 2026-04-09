@@ -101,7 +101,7 @@ export function SessionTimeline({ events }: SessionTimelineProps) {
               {summary && (
                 <p className="text-xs text-muted-foreground">{summary}</p>
               )}
-              <p className="mt-0.5 text-xs text-muted-foreground/60">
+              <p className="mt-0.5 text-xs text-muted-foreground/60" suppressHydrationWarning>
                 {formatDate(event.timestamp)}
               </p>
             </div>

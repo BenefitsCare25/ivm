@@ -27,12 +27,15 @@ ssh -i "$KEY" "$VPS" "
 
   # Verify DATABASE_URL points to correct port/db
   DB_URL=\$(grep DATABASE_URL .env | cut -d= -f2- | tr -d '\"')
-  if echo \"\$DB_URL\" | grep -qE '5432[^3]|ivm_dev'; then
+  if echo \"\$DB_URL\" | grep -qE ':5432[^3]|/ivm_dev[?/]'; then
     echo 'ERROR: DATABASE_URL appears wrong (port 5432 or db ivm_dev detected)'
     echo \"Current: \$DB_URL\"
     echo 'Fix .env on VPS before deploying'
     exit 1
   fi
+
+  # Overwrite the standalone .env that got baked in during local build
+  cp .env .next/standalone/.env
 
   npm ci --omit=dev 2>&1 | tail -1
   npx prisma generate 2>&1 | tail -1

@@ -64,11 +64,12 @@ async function processPortalScrape(
         pageNum++;
       } while (await goToNextPage(page, listSelectors.paginationSelector));
 
-      logger.info({ portalId, totalRows: allRows.length }, "[worker] List scrape complete");
+      const limitedRows = portal.scrapeLimit ? allRows.slice(0, portal.scrapeLimit) : allRows;
+      logger.info({ portalId, totalRows: allRows.length, limited: limitedRows.length }, "[worker] List scrape complete");
 
       // Create TrackedItem records in bulk
       await db.trackedItem.createMany({
-        data: allRows.map((row) => ({
+        data: limitedRows.map((row) => ({
           scrapeSessionId: sessionId,
           portalItemId: row.portalItemId,
           listData: JSON.parse(JSON.stringify(row.fields)),
@@ -107,7 +108,7 @@ async function processPortalScrape(
         data: { status: "COMPLETED", completedAt: new Date() },
       });
 
-      return { status: "COMPLETED", itemsFound: allRows.length };
+      return { status: "COMPLETED", itemsFound: limitedRows.length };
     } finally {
       await context.close();
     }

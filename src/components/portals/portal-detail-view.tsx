@@ -9,7 +9,7 @@ import { TemplateList } from "./template-list";
 import {
   ArrowLeft, Play, Loader2, Shield,
   Calendar, Settings, Trash2, AlertCircle, Hash,
-  RefreshCw, Copy, Check,
+  RefreshCw, Copy, Check, ExternalLink,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrapeStatusBadge, ITEM_STATUS_COLORS } from "./portal-status-badge";
 import { FormError } from "@/components/ui/form-error";
 import { formatDate } from "@/lib/utils";
+import { detectExtension, captureCookiesFromExtension, syncExtensionConfig, type ExtensionCookie } from "@/lib/extension";
 import type { ScrapeSessionStatus } from "@/types/portal";
 
 
@@ -80,6 +81,12 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
   const [credSaving, setCredSaving] = useState(false);
   const [credError, setCredError] = useState<string | null>(null);
 
+  // Chrome extension capture state (for COOKIES auth)
+  const [extensionDetected, setExtensionDetected] = useState(false);
+  const [capturingCookies, setCapturingCookies] = useState(false);
+  const [capturedCount, setCapturedCount] = useState(0);
+  const [showManualPaste, setShowManualPaste] = useState(false);
+
   // Auth status — computed client-side to avoid SSR hydration mismatch with dates
   const [authStatus, setAuthStatus] = useState<AuthStatus>("ok");
 
@@ -109,6 +116,57 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
       setAuthStatus("ok");
     }
   }, [portal.hasCookies, portal.hasCredentials, portal.cookieExpiresAt, portal.authMethod]);
+
+  // Detect Chrome Extension when re-auth panel opens for COOKIES portals
+  useEffect(() => {
+    if (!showReAuth || portal.authMethod !== "COOKIES") return;
+    detectExtension().then((detected) => {
+      setExtensionDetected(detected);
+      if (detected) {
+        // Reset manual paste when extension is available
+        setShowManualPaste(false);
+        setCapturedCount(0);
+      }
+    });
+  }, [showReAuth, portal.authMethod]);
+
+  function mapSameSite(val?: string): "None" | "Lax" | "Strict" | undefined {
+    if (!val) return undefined;
+    const v = val.toLowerCase();
+    if (v === "none") return "None";
+    if (v === "strict") return "Strict";
+    return "Lax";
+  }
+
+  function mapChromeCookies(cookies: ExtensionCookie[]) {
+    return cookies.map((c) => ({
+      name: c.name,
+      value: c.value,
+      domain: c.domain,
+      path: c.path || "/",
+      expires: c.expires ?? c.expirationDate,
+      httpOnly: c.httpOnly,
+      secure: c.secure,
+      sameSite: mapSameSite(c.sameSite),
+    }));
+  }
+
+  async function handleCaptureCookies() {
+    setCapturingCookies(true);
+    setCookieError(null);
+    try {
+      const userId = (document.cookie.match(/next-auth\.session-token/) ? "" : "");
+      void syncExtensionConfig(userId);
+      const cookies = await captureCookiesFromExtension(portal.baseUrl);
+      const mapped = mapChromeCookies(cookies);
+      setCookieJson(JSON.stringify(mapped, null, 2));
+      setCapturedCount(mapped.length);
+    } catch (err) {
+      setCookieError(err instanceof Error ? err.message : "Failed to capture cookies");
+    } finally {
+      setCapturingCookies(false);
+    }
+  }
 
   async function saveScrapeLimit() {
     const value = limitInput.trim() === "" ? null : parseInt(limitInput, 10);
@@ -482,6 +540,8 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
                   setShowReAuth(false);
                   setCookieJson("");
                   setCookieError(null);
+                  setCapturedCount(0);
+                  setShowManualPaste(false);
                   setCredUsername("");
                   setCredPassword("");
                   setCredError(null);
@@ -495,40 +555,132 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
           <CardContent className="space-y-3">
             {portal.authMethod === "COOKIES" ? (
               <>
-                <p className="text-xs text-muted-foreground">
-                  Export cookies from your browser&apos;s DevTools (Application → Cookies → right-click
-                  → Copy All) or use a cookie export extension, then paste the JSON array below.
-                  Alternatively, use the Chrome Extension popup on the portal page to capture cookies
-                  automatically.
-                </p>
-                <Textarea
-                  value={cookieJson}
-                  onChange={(e) => setCookieJson(e.target.value)}
-                  placeholder={`[{"name":"session_id","value":"abc123","domain":".portal.com","path":"/","httpOnly":true,"secure":true}]`}
-                  className="h-32 resize-none font-mono text-xs"
-                />
-                {cookieError && <p className="text-xs text-destructive">{cookieError}</p>}
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={saveCookies}
-                    disabled={cookieSaving || !cookieJson.trim()}
-                  >
-                    {cookieSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                    Save Cookies
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setShowReAuth(false);
-                      setCookieJson("");
-                      setCookieError(null);
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
+                {extensionDetected ? (
+                  /* Extension available — show capture button flow */
+                  <div className="space-y-3">
+                    <p className="text-xs text-muted-foreground">
+                      Use the Chrome Extension to capture cookies from your active browser session.
+                      Navigate to the portal first, then click &quot;Capture Cookies&quot;.
+                    </p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => window.open(portal.baseUrl, "_blank")}
+                      >
+                        <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                        Open Portal
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleCaptureCookies}
+                        disabled={capturingCookies}
+                      >
+                        {capturingCookies ? (
+                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                        )}
+                        Capture Cookies from Browser
+                      </Button>
+                      {capturedCount > 0 && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2.5 py-1 text-xs font-medium text-green-600">
+                          <Check className="h-3 w-3" />
+                          {capturedCount} cookies captured
+                        </span>
+                      )}
+                    </div>
+                    {cookieError && <p className="text-xs text-destructive">{cookieError}</p>}
+                    {capturedCount > 0 && (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={saveCookies}
+                          disabled={cookieSaving}
+                        >
+                          {cookieSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                          Save Cookies
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setShowReAuth(false);
+                            setCookieJson("");
+                            setCapturedCount(0);
+                            setCookieError(null);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => setShowManualPaste(!showManualPaste)}
+                      className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                    >
+                      {showManualPaste ? "Hide manual paste" : "Paste manually instead"}
+                    </button>
+                    {showManualPaste && (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={cookieJson}
+                          onChange={(e) => setCookieJson(e.target.value)}
+                          placeholder={`[{"name":"session_id","value":"abc123","domain":".portal.com","path":"/"}]`}
+                          className="h-28 resize-none font-mono text-xs"
+                        />
+                        {capturedCount === 0 && (
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              onClick={saveCookies}
+                              disabled={cookieSaving || !cookieJson.trim()}
+                            >
+                              {cookieSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                              Save Cookies
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* No extension — show paste flow directly */
+                  <div className="space-y-3">
+                    <p className="text-xs text-muted-foreground">
+                      Paste your cookie JSON below. Export from browser DevTools (Application →
+                      Cookies) or use a cookie export extension.
+                    </p>
+                    <Textarea
+                      value={cookieJson}
+                      onChange={(e) => setCookieJson(e.target.value)}
+                      placeholder={`[{"name":"session_id","value":"abc123","domain":".portal.com","path":"/","httpOnly":true,"secure":true}]`}
+                      className="h-32 resize-none font-mono text-xs"
+                    />
+                    {cookieError && <p className="text-xs text-destructive">{cookieError}</p>}
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={saveCookies}
+                        disabled={cookieSaving || !cookieJson.trim()}
+                      >
+                        {cookieSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                        Save Cookies
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setShowReAuth(false);
+                          setCookieJson("");
+                          setCookieError(null);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </>
             ) : (
               <>

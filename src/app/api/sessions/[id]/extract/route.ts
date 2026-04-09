@@ -16,7 +16,8 @@ async function runExtractionInline(
   sourceAsset: { id: string; storagePath: string; mimeType: string; originalName: string },
   provider: AIProvider,
   apiKey: string,
-  userId: string
+  userId: string,
+  model?: string
 ) {
   const durationTimer = getExtractionDuration().startTimer({ provider });
   try {
@@ -30,6 +31,7 @@ async function runExtractionInline(
       fileName: sourceAsset.originalName,
       provider,
       apiKey,
+      model,
     });
 
     durationTimer();
@@ -121,7 +123,7 @@ export async function POST(
       throw new ValidationError("No source document uploaded. Upload a file first.");
     }
 
-    const { provider, apiKey } = await resolveProviderAndKey(session.user.id);
+    const { provider, apiKey, visionModel } = await resolveProviderAndKey(session.user.id);
 
     const extraction = await db.extractionResult.create({
       data: {
@@ -157,7 +159,8 @@ export async function POST(
       sourceAsset,
       provider,
       apiKey,
-      session.user.id
+      session.user.id,
+      visionModel
     );
 
     return NextResponse.json(updated);

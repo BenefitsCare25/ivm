@@ -68,7 +68,7 @@ export async function extractWithAnthropic(request: AIExtractionRequest): Promis
 
   const response = await client.messages.create(
     {
-      model: env.ANTHROPIC_MODEL,
+      model: request.model ?? env.ANTHROPIC_MODEL,
       max_tokens: 4096,
       system: getExtractionSystemPrompt(),
       messages: [{ role: "user", content }],

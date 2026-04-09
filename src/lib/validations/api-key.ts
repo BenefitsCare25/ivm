@@ -15,17 +15,69 @@ export const preferredProviderSchema = z.object({
 export const PROVIDER_INFO: Record<AIProvider, { name: string; description: string; placeholder: string }> = {
   anthropic: {
     name: "Claude (Anthropic)",
-    description: "Claude Sonnet for document extraction",
+    description: "Claude for document extraction and analysis",
     placeholder: "sk-ant-api03-...",
   },
   openai: {
     name: "OpenAI",
-    description: "GPT-4o for document extraction",
+    description: "GPT-4.1 for document extraction and analysis",
     placeholder: "sk-proj-...",
   },
   gemini: {
     name: "Google Gemini",
-    description: "Gemini 2.0 Flash for document extraction",
+    description: "Gemini 2.5 for document extraction and analysis",
     placeholder: "AIzaSy...",
   },
 };
+
+// ─── Model selection ───────────────────────────────────────
+
+export type ModelTier = "vision" | "text";
+
+export interface ModelOption {
+  id: string;
+  label: string;
+  tier: ModelTier[];
+  costLabel: string;
+}
+
+export interface ProviderModels {
+  models: ModelOption[];
+  defaults: { vision: string; text: string };
+}
+
+export const PROVIDER_MODELS: Record<AIProvider, ProviderModels> = {
+  anthropic: {
+    models: [
+      { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", tier: ["vision", "text"], costLabel: "$3 / $15" },
+      { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", tier: ["vision", "text"], costLabel: "$1 / $5" },
+    ],
+    defaults: { vision: "claude-sonnet-4-6", text: "claude-haiku-4-5" },
+  },
+  openai: {
+    models: [
+      { id: "gpt-4.1", label: "GPT-4.1", tier: ["vision", "text"], costLabel: "$2 / $8" },
+      { id: "gpt-4.1-mini", label: "GPT-4.1 Mini", tier: ["vision", "text"], costLabel: "$0.40 / $1.60" },
+      { id: "gpt-4.1-nano", label: "GPT-4.1 Nano", tier: ["vision", "text"], costLabel: "$0.10 / $0.40" },
+    ],
+    defaults: { vision: "gpt-4.1", text: "gpt-4.1-mini" },
+  },
+  gemini: {
+    models: [
+      { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", tier: ["vision", "text"], costLabel: "$2 / $12" },
+      { id: "gemini-3-flash-preview", label: "Gemini 3 Flash", tier: ["vision", "text"], costLabel: "$0.50 / $3" },
+      { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite", tier: ["vision", "text"], costLabel: "$0.25 / $1.50" },
+      { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", tier: ["vision", "text"], costLabel: "$1.25 / $10" },
+      { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", tier: ["vision", "text"], costLabel: "$0.30 / $2.50" },
+      { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", tier: ["text"], costLabel: "$0.10 / $0.40" },
+    ],
+    defaults: { vision: "gemini-2.5-flash", text: "gemini-2.5-flash" },
+  },
+};
+
+export const modelPreferencesSchema = z.object({
+  anthropic: z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
+  openai: z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
+  gemini: z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
+});
+export type ModelPreferences = z.infer<typeof modelPreferencesSchema>;

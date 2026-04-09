@@ -25,6 +25,7 @@ export const updatePortalSchema = z.object({
   baseUrl: z.string().url().max(2000).optional(),
   authMethod: z.enum(["COOKIES", "CREDENTIALS"]).optional(),
   listPageUrl: z.string().url().max(2000).optional().nullable(),
+  scrapeLimit: z.number().int().min(1).nullable().optional(),
 });
 
 export type UpdatePortalInput = z.infer<typeof updatePortalSchema>;

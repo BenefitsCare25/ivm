@@ -13,6 +13,7 @@ export interface ComparisonRequest {
   pdfFields: Record<string, string>;
   provider: AIProvider;
   apiKey: string;
+  model?: string;
   templateFields?: TemplateField[];
 }
 
@@ -65,7 +66,7 @@ async function compareWithAnthropic(request: ComparisonRequest, userPrompt: stri
 
   const response = await client.messages.create(
     {
-      model: "claude-sonnet-4-20250514",
+      model: request.model ?? "claude-sonnet-4-6",
       max_tokens: 4096,
       system: getComparisonSystemPrompt(),
       messages: [{ role: "user", content: userPrompt }],
@@ -85,7 +86,7 @@ async function compareWithOpenAI(request: ComparisonRequest, userPrompt: string)
 
   const response = await client.chat.completions.create(
     {
-      model: "gpt-4.1-mini",
+      model: request.model ?? "gpt-4.1-mini",
       max_tokens: 4096,
       messages: [
         { role: "system", content: getComparisonSystemPrompt() },
@@ -100,7 +101,7 @@ async function compareWithOpenAI(request: ComparisonRequest, userPrompt: string)
 
 async function compareWithGemini(request: ComparisonRequest, userPrompt: string): Promise<string> {
   const genAI = new GoogleGenerativeAI(request.apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const model = genAI.getGenerativeModel({ model: request.model ?? "gemini-2.5-flash" });
 
   let timer: ReturnType<typeof setTimeout>;
   const result = await Promise.race([

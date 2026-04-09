@@ -20,13 +20,14 @@ export async function GET() {
       }),
       db.user.findUnique({
         where: { id: session.user.id },
-        select: { preferredProvider: true },
+        select: { preferredProvider: true, modelPreferences: true },
       }),
     ]);
 
     return NextResponse.json({
       keys,
       preferredProvider: user?.preferredProvider ?? null,
+      modelPreferences: user?.modelPreferences ?? null,
     });
   } catch (err) {
     return errorResponse(err);
