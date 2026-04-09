@@ -7,6 +7,7 @@ import { closeBrowser } from "@/lib/playwright/browser";
 import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { extractFieldsFromDocument } from "@/lib/ai";
 import { compareFields } from "@/lib/ai/comparison";
+import { findMatchingTemplate, filterFieldsByTemplate } from "@/lib/comparison-templates";
 import { emitItemEvent, emitFailureEvent, withEventTracking } from "@/lib/portal-events";
 import {
   startItemDetailWorker,
@@ -172,21 +173,57 @@ async function processItemDetailCore(
         }
       }
 
-      // ── AI field comparison ─────────────────────────────────
+      // ── Template lookup + AI field comparison ──────────────
       let comparisonResult;
+      let templateId: string | null = null;
+
       if (Object.keys(detailData).length > 0 && Object.keys(pdfFields).length > 0) {
-        comparisonResult = await withEventTracking(
-          trackedItemId,
-          "AI_COMPARE_START",
-          "AI_COMPARE_DONE",
-          "AI_COMPARE_FAIL",
-          {
-            provider,
-            pageFieldCount: Object.keys(detailData).length,
-            pdfFieldCount: Object.keys(pdfFields).length,
-          },
-          () => compareFields({ pageFields: detailData, pdfFields, provider, apiKey })
-        );
+        const allPageData = {
+          ...(item.listData as Record<string, string>),
+          ...detailData,
+        };
+        const template = await findMatchingTemplate(portalId, allPageData);
+
+        let comparePageFields = detailData;
+        let comparePdfFields = pdfFields;
+        let templateFields: import("@/types/portal").TemplateField[] | undefined;
+
+        if (template) {
+          templateId = template.id;
+          templateFields = template.fields;
+          const filtered = filterFieldsByTemplate(detailData, pdfFields, template.fields);
+          comparePageFields = filtered.filteredPageFields;
+          comparePdfFields = filtered.filteredPdfFields;
+
+          logger.info(
+            { templateId, templateName: template.name, fieldCount: template.fields.length },
+            "[worker] Using comparison template"
+          );
+        } else {
+          logger.info("[worker] No matching template, using full comparison");
+        }
+
+        if (Object.keys(comparePageFields).length > 0 || Object.keys(comparePdfFields).length > 0) {
+          comparisonResult = await withEventTracking(
+            trackedItemId,
+            "AI_COMPARE_START",
+            "AI_COMPARE_DONE",
+            "AI_COMPARE_FAIL",
+            {
+              provider,
+              pageFieldCount: Object.keys(comparePageFields).length,
+              pdfFieldCount: Object.keys(comparePdfFields).length,
+              templateId: templateId ?? undefined,
+            },
+            () => compareFields({
+              pageFields: comparePageFields,
+              pdfFields: comparePdfFields,
+              provider,
+              apiKey,
+              templateFields,
+            })
+          );
+        }
       }
 
       if (comparisonResult) {
@@ -194,6 +231,7 @@ async function processItemDetailCore(
           data: {
             trackedItemId,
             provider,
+            templateId,
             fieldComparisons: JSON.parse(JSON.stringify(comparisonResult.fieldComparisons)),
             matchCount: comparisonResult.matchCount,
             mismatchCount: comparisonResult.mismatchCount,
