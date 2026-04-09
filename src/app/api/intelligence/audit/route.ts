@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
-import { errorResponse, UnauthorizedError } from "@/lib/errors";
+import { errorResponse } from "@/lib/errors";
 
 export async function GET(req: Request) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
     const userId = session.user.id;
 
     const { searchParams } = new URL(req.url);
@@ -14,28 +13,16 @@ export async function GET(req: Request) {
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "50", 10)));
     const skip = (page - 1) * limit;
 
-    const [fillSessions, portals] = await Promise.all([
+    const [fillSessions, trackedItemsRaw] = await Promise.all([
       db.fillSession.findMany({ where: { userId }, select: { id: true } }),
-      db.portal.findMany({ where: { userId }, select: { id: true } }),
+      db.trackedItem.findMany({
+        where: { scrapeSession: { portal: { userId } } },
+        select: { id: true },
+      }),
     ]);
 
     const fillSessionIds = fillSessions.map((s) => s.id);
-    let trackedItemIds: string[] = [];
-
-    if (portals.length > 0) {
-      const scrapeSessions = await db.scrapeSession.findMany({
-        where: { portalId: { in: portals.map((p) => p.id) } },
-        select: { id: true },
-      });
-      if (scrapeSessions.length > 0) {
-        const items = await db.trackedItem.findMany({
-          where: { scrapeSessionId: { in: scrapeSessions.map((s) => s.id) } },
-          select: { id: true },
-        });
-        trackedItemIds = items.map((i) => i.id);
-      }
-    }
-
+    const trackedItemIds = trackedItemsRaw.map((i) => i.id);
     const hasScope = fillSessionIds.length > 0 || trackedItemIds.length > 0;
     if (!hasScope) return NextResponse.json({ events: [], total: 0 });
 

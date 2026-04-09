@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { upsertEscalationConfigSchema } from "@/lib/validations/intelligence-phase4";
 import { logger } from "@/lib/logger";
-import { errorResponse, UnauthorizedError, ValidationError } from "@/lib/errors";
+import { errorResponse, ValidationError } from "@/lib/errors";
 
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const config = await db.escalationConfig.findUnique({
       where: { userId: session.user.id },
@@ -22,8 +21,7 @@ export async function GET() {
 
 export async function PUT(req: Request) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const body = await req.json();
     const parsed = upsertEscalationConfigSchema.safeParse(body);

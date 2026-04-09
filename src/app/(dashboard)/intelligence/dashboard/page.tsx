@@ -14,6 +14,26 @@ export default async function IntelligenceDashboardPage() {
   const userId = session.user.id;
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
+  const [fillSessions, trackedItemsRaw] = await Promise.all([
+    db.fillSession.findMany({ where: { userId }, select: { id: true } }),
+    db.trackedItem.findMany({
+      where: { scrapeSession: { portal: { userId } } },
+      select: { id: true },
+    }),
+  ]);
+  const fillSessionIds = fillSessions.map((s) => s.id);
+  const trackedItemIds = trackedItemsRaw.map((i) => i.id);
+  const validationWhere =
+    fillSessionIds.length > 0 || trackedItemIds.length > 0
+      ? {
+          createdAt: { gte: sevenDaysAgo },
+          OR: [
+            ...(fillSessionIds.length > 0 ? [{ fillSessionId: { in: fillSessionIds } }] : []),
+            ...(trackedItemIds.length > 0 ? [{ trackedItemId: { in: trackedItemIds } }] : []),
+          ],
+        }
+      : { createdAt: { gte: sevenDaysAgo }, id: "no-match" };
+
   const [
     docTypesAll,
     docTypesActive,
@@ -38,11 +58,11 @@ export default async function IntelligenceDashboardPage() {
     db.extractionTemplate.count({ where: { userId, isActive: true } }),
     db.validationResult.groupBy({
       by: ["status"],
-      where: { createdAt: { gte: sevenDaysAgo } },
+      where: validationWhere,
       _count: { _all: true },
     }),
     db.validationResult.findMany({
-      where: { createdAt: { gte: sevenDaysAgo } },
+      where: validationWhere,
       orderBy: { createdAt: "desc" },
       take: 5,
       select: { id: true, status: true, message: true, ruleType: true, createdAt: true },

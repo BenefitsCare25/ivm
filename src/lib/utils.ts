@@ -27,3 +27,8 @@ export function confidenceVariant(confidence: number): "success" | "warning" | "
   if (confidence >= 0.5) return "warning";
   return "error";
 }
+
+/** Cast a value to Prisma's InputJsonValue by stripping undefined via serialization. */
+export function toInputJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}

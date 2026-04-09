@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { updateNormalizationRuleSchema } from "@/lib/validations/intelligence-phase4";
 import { logger } from "@/lib/logger";
 import {
   errorResponse,
-  UnauthorizedError,
   NotFoundError,
   ValidationError,
 } from "@/lib/errors";
@@ -15,8 +14,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const { id } = await params;
     const body = await req.json();
@@ -57,8 +55,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const { id } = await params;
 

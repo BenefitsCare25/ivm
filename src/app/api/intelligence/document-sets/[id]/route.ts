@@ -1,30 +1,17 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { updateDocumentSetSchema } from "@/lib/validations/intelligence";
 import { logger } from "@/lib/logger";
-import {
-  errorResponse,
-  UnauthorizedError,
-  NotFoundError,
-  ValidationError,
-} from "@/lib/errors";
-
-const ITEMS_INCLUDE = {
-  items: {
-    include: {
-      documentType: { select: { id: true, name: true } },
-    },
-  },
-} as const;
+import { errorResponse, NotFoundError, ValidationError } from "@/lib/errors";
+import { ITEMS_INCLUDE } from "../_shared";
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const { id } = await params;
 
@@ -46,8 +33,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const { id } = await params;
     const body = await req.json();
@@ -111,8 +97,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const { id } = await params;
 

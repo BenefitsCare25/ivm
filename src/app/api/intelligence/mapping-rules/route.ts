@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { createCodeMappingRuleSchema } from "@/lib/validations/intelligence-phase2";
 import { logger } from "@/lib/logger";
-import { errorResponse, UnauthorizedError, ValidationError } from "@/lib/errors";
+import { errorResponse, ValidationError } from "@/lib/errors";
 
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const rules = await db.codeMappingRule.findMany({
       where: { userId: session.user.id },
@@ -26,8 +25,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const body = await req.json();
     const parsed = createCodeMappingRuleSchema.safeParse(body);

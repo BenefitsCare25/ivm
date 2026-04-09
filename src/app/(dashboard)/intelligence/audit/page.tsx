@@ -13,29 +13,16 @@ export default async function IntelligenceAuditPage() {
   const session = await requireAuth();
   const userId = session.user.id;
 
-  // Scope validation results to this user via fill sessions and tracked items
-  const [fillSessions, portals] = await Promise.all([
+  const [fillSessions, trackedItemsRaw] = await Promise.all([
     db.fillSession.findMany({ where: { userId }, select: { id: true } }),
-    db.portal.findMany({ where: { userId }, select: { id: true } }),
+    db.trackedItem.findMany({
+      where: { scrapeSession: { portal: { userId } } },
+      select: { id: true },
+    }),
   ]);
 
   const fillSessionIds = fillSessions.map((s) => s.id);
-
-  let trackedItemIds: string[] = [];
-  if (portals.length > 0) {
-    const scrapeSessions = await db.scrapeSession.findMany({
-      where: { portalId: { in: portals.map((p) => p.id) } },
-      select: { id: true },
-    });
-    if (scrapeSessions.length > 0) {
-      const items = await db.trackedItem.findMany({
-        where: { scrapeSessionId: { in: scrapeSessions.map((s) => s.id) } },
-        select: { id: true },
-      });
-      trackedItemIds = items.map((i) => i.id);
-    }
-  }
-
+  const trackedItemIds = trackedItemsRaw.map((i) => i.id);
   const hasScope = fillSessionIds.length > 0 || trackedItemIds.length > 0;
 
   const validations = hasScope

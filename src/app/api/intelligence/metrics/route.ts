@@ -1,15 +1,35 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
-import { errorResponse, UnauthorizedError } from "@/lib/errors";
+import { errorResponse } from "@/lib/errors";
 
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const userId = session.user.id;
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    // Scope: get user's fill session IDs and tracked item IDs in parallel
+    const [fillSessions, trackedItemsRaw] = await Promise.all([
+      db.fillSession.findMany({ where: { userId }, select: { id: true } }),
+      db.trackedItem.findMany({
+        where: { scrapeSession: { portal: { userId } } },
+        select: { id: true },
+      }),
+    ]);
+    const fillSessionIds = fillSessions.map((s) => s.id);
+    const trackedItemIds = trackedItemsRaw.map((i) => i.id);
+    const validationWhere =
+      fillSessionIds.length > 0 || trackedItemIds.length > 0
+        ? {
+            createdAt: { gte: sevenDaysAgo },
+            OR: [
+              ...(fillSessionIds.length > 0 ? [{ fillSessionId: { in: fillSessionIds } }] : []),
+              ...(trackedItemIds.length > 0 ? [{ trackedItemId: { in: trackedItemIds } }] : []),
+            ],
+          }
+        : { createdAt: { gte: sevenDaysAgo }, id: "no-match" };
 
     const [
       docTypesAll,
@@ -35,11 +55,11 @@ export async function GET() {
       db.extractionTemplate.count({ where: { userId, isActive: true } }),
       db.validationResult.groupBy({
         by: ["status"],
-        where: { createdAt: { gte: sevenDaysAgo } },
+        where: validationWhere,
         _count: { _all: true },
       }),
       db.validationResult.findMany({
-        where: { createdAt: { gte: sevenDaysAgo } },
+        where: validationWhere,
         select: { metadata: true },
         take: 200,
       }),

@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { addReferenceEntriesSchema } from "@/lib/validations/intelligence-phase2";
 import { logger } from "@/lib/logger";
 import {
   errorResponse,
-  UnauthorizedError,
   NotFoundError,
   ValidationError,
 } from "@/lib/errors";
@@ -15,8 +14,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const { id } = await params;
 
@@ -43,8 +41,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const { id } = await params;
 
@@ -72,25 +69,20 @@ export async function POST(
       return { datasetId: id, data: JSON.parse(JSON.stringify(data)), searchText };
     });
 
-    await db.referenceEntry.createMany({ data: entries });
-
-    const newCount = await db.referenceEntry.count({ where: { datasetId: id } });
+    const { count: inserted } = await db.referenceEntry.createMany({ data: entries });
 
     await db.referenceDataset.updateMany({
       where: { id, userId: session.user.id },
       data: {
         columns: JSON.parse(JSON.stringify(columns)),
-        rowCount: newCount,
+        rowCount: { increment: inserted },
         version: { increment: 1 },
       },
     });
 
-    logger.info(
-      { datasetId: id, inserted: entries.length, userId: session.user.id },
-      "Reference entries inserted"
-    );
+    logger.info({ datasetId: id, inserted, userId: session.user.id }, "Reference entries inserted");
 
-    return NextResponse.json({ inserted: entries.length }, { status: 201 });
+    return NextResponse.json({ inserted }, { status: 201 });
   } catch (err) {
     return errorResponse(err);
   }
@@ -101,8 +93,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const { id } = await params;
 

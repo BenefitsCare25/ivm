@@ -1,22 +1,14 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { createDocumentSetSchema } from "@/lib/validations/intelligence";
 import { logger } from "@/lib/logger";
-import { errorResponse, UnauthorizedError, ValidationError } from "@/lib/errors";
-
-const ITEMS_INCLUDE = {
-  items: {
-    include: {
-      documentType: { select: { id: true, name: true } },
-    },
-  },
-} as const;
+import { errorResponse, ValidationError } from "@/lib/errors";
+import { ITEMS_INCLUDE } from "./_shared";
 
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const documentSets = await db.documentSet.findMany({
       where: { userId: session.user.id },
@@ -32,8 +24,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) throw new UnauthorizedError();
+    const session = await requireAuthApi();
 
     const body = await req.json();
     const parsed = createDocumentSetSchema.safeParse(body);

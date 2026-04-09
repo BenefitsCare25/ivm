@@ -13,18 +13,19 @@ import {
   type BusinessRuleData,
   type RuleCondition,
   type RuleAction,
+  type TriggerPoint,
 } from "@/types/intelligence";
 
 interface BusinessRuleListProps {
   rules: BusinessRuleData[];
-  documentTypes: { id: string; name: string }[];
+  documentTypes?: { id: string; name: string }[];
 }
 
 interface FormState {
   name: string;
   description: string;
   priority: number;
-  triggerPoint: "POST_EXTRACTION" | "POST_COMPARISON" | "POST_MAPPING";
+  triggerPoint: TriggerPoint;
   isActive: boolean;
   logic: "AND" | "OR";
   conditions: RuleCondition[];
@@ -161,7 +162,7 @@ export function BusinessRuleList({ rules }: BusinessRuleListProps) {
     setForm((p) => ({
       ...p,
       conditions: p.conditions.map((c, idx) =>
-        idx === i ? { ...c, [key]: key === "value" ? val : val } : c
+        idx === i ? { ...c, [key]: val } : c
       ),
     }));
   }
