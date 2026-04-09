@@ -32,7 +32,7 @@ export async function GET(
     const storage = getStorageAdapter();
     const buffer = await storage.download(screenshotPath);
 
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       headers: {
         "Content-Type": "image/png",
         "Cache-Control": "private, max-age=3600",

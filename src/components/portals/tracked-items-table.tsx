@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ItemStatusBadge } from "./portal-status-badge";
+import { ItemEventTimeline } from "./item-event-timeline";
 import type { TrackedItemStatus, FieldComparison, ComparisonFieldStatus } from "@/types/portal";
 
 interface ItemFile {
@@ -180,6 +181,13 @@ function ExpandedPanel({
               )}
             </div>
           )}
+
+          <ItemEventTimeline
+            portalId={portalId}
+            sessionId={sessionId}
+            itemId={item.id}
+            itemStatus={item.status}
+          />
 
           <div className="flex items-center gap-2 pt-1">
             {item.detailUrl && (
