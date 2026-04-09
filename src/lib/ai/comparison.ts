@@ -4,15 +4,16 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { logger } from "@/lib/logger";
 import { AppError } from "@/lib/errors";
 import { stripMarkdownFences } from "./parse";
-import { getComparisonSystemPrompt, getComparisonUserPrompt } from "./prompts-comparison";
+import { getComparisonSystemPrompt, getComparisonUserPrompt, getTemplatedComparisonUserPrompt } from "./prompts-comparison";
 import type { AIProvider } from "./types";
-import type { FieldComparison, ComparisonFieldStatus } from "@/types/portal";
+import type { FieldComparison, ComparisonFieldStatus, TemplateField } from "@/types/portal";
 
 export interface ComparisonRequest {
   pageFields: Record<string, string>;
   pdfFields: Record<string, string>;
   provider: AIProvider;
   apiKey: string;
+  templateFields?: TemplateField[];
 }
 
 export interface ComparisonResponse {
@@ -65,7 +66,9 @@ async function compareWithAnthropic(request: ComparisonRequest): Promise<string>
       system: getComparisonSystemPrompt(),
       messages: [{
         role: "user",
-        content: getComparisonUserPrompt(request.pageFields, request.pdfFields),
+        content: request.templateFields
+          ? getTemplatedComparisonUserPrompt(request.pageFields, request.pdfFields, request.templateFields)
+          : getComparisonUserPrompt(request.pageFields, request.pdfFields),
       }],
     },
     { signal: AbortSignal.timeout(30_000) }
@@ -87,7 +90,12 @@ async function compareWithOpenAI(request: ComparisonRequest): Promise<string> {
       max_tokens: 4096,
       messages: [
         { role: "system", content: getComparisonSystemPrompt() },
-        { role: "user", content: getComparisonUserPrompt(request.pageFields, request.pdfFields) },
+        {
+          role: "user",
+          content: request.templateFields
+            ? getTemplatedComparisonUserPrompt(request.pageFields, request.pdfFields, request.templateFields)
+            : getComparisonUserPrompt(request.pageFields, request.pdfFields),
+        },
       ],
     },
     { signal: AbortSignal.timeout(30_000) }
@@ -104,7 +112,11 @@ async function compareWithGemini(request: ComparisonRequest): Promise<string> {
   const result = await Promise.race([
     model.generateContent([
       { text: getComparisonSystemPrompt() },
-      { text: getComparisonUserPrompt(request.pageFields, request.pdfFields) },
+      {
+        text: request.templateFields
+          ? getTemplatedComparisonUserPrompt(request.pageFields, request.pdfFields, request.templateFields)
+          : getComparisonUserPrompt(request.pageFields, request.pdfFields),
+      },
     ]).finally(() => clearTimeout(timer)),
     new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error("Gemini timeout")), 30_000);

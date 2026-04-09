@@ -35,6 +35,38 @@ COMPARISON RULES:
 Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.`;
 }
 
+import type { TemplateField } from "@/types/portal";
+
+export function getTemplatedComparisonUserPrompt(
+  pageFields: Record<string, string>,
+  pdfFields: Record<string, string>,
+  templateFields: TemplateField[]
+): string {
+  const rules = templateFields.map((f) => {
+    if (f.mode === "exact") return `- "${f.fieldName}": EXACT match required — any difference is MISMATCH`;
+    if (f.mode === "numeric") {
+      const tol = f.tolerance ?? 0;
+      return `- "${f.fieldName}": NUMERIC comparison — values within ${tol} tolerance are MATCH`;
+    }
+    return `- "${f.fieldName}": FUZZY match — ignore formatting differences (dates, names, whitespace, currency symbols)`;
+  }).join("\n");
+
+  return `Compare the following data from a web portal page against data extracted from associated PDF documents.
+
+IMPORTANT: Only compare the fields listed below. Ignore all other fields.
+
+## Matching Rules
+${rules}
+
+## Portal Page Fields
+${JSON.stringify(pageFields, null, 2)}
+
+## PDF Extracted Fields
+${JSON.stringify(pdfFields, null, 2)}
+
+Return the JSON comparison result. Only include the fields specified in the matching rules above.`;
+}
+
 export function getComparisonUserPrompt(
   pageFields: Record<string, string>,
   pdfFields: Record<string, string>
