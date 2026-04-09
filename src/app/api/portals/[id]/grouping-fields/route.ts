@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { errorResponse, NotFoundError } from "@/lib/errors";
 import { updateGroupingFieldsSchema } from "@/lib/validations/portal";
+import { clearTemplateCache } from "@/lib/comparison-templates";
 
 export async function PUT(
   req: NextRequest,
@@ -21,12 +22,26 @@ export async function PUT(
     const body = await req.json();
     const data = updateGroupingFieldsSchema.parse(body);
 
-    await db.portal.update({
-      where: { id },
-      data: { groupingFields: JSON.parse(JSON.stringify(data.groupingFields)) },
-    });
+    const [allTemplates] = await Promise.all([
+      db.comparisonTemplate.findMany({
+        where: { portalId: id },
+        select: { groupingKey: true },
+      }),
+      db.portal.update({
+        where: { id },
+        data: { groupingFields: JSON.parse(JSON.stringify(data.groupingFields)) },
+      }),
+    ]);
 
-    return NextResponse.json({ groupingFields: data.groupingFields });
+    const affectedTemplateCount = allTemplates.filter((t) => {
+      const keyFields = Object.keys(t.groupingKey as Record<string, string>);
+      return !keyFields.every((f) => data.groupingFields.includes(f)) ||
+        !data.groupingFields.every((f) => keyFields.includes(f));
+    }).length;
+
+    clearTemplateCache(id);
+
+    return NextResponse.json({ groupingFields: data.groupingFields, affectedTemplateCount });
   } catch (err) {
     return errorResponse(err);
   }

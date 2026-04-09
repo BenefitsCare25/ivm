@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { errorResponse, NotFoundError } from "@/lib/errors";
 import { createComparisonTemplateSchema } from "@/lib/validations/portal";
+import { clearTemplateCache } from "@/lib/comparison-templates";
 
 export async function GET(
   _req: NextRequest,
@@ -54,6 +55,8 @@ export async function POST(
         fields: JSON.parse(JSON.stringify(data.fields)),
       },
     });
+
+    clearTemplateCache(id);
 
     return NextResponse.json(template, { status: 201 });
   } catch (err) {

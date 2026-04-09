@@ -6,15 +6,6 @@ import { RefreshCw, RotateCcw, Play, CheckCircle2, Square, Trash2, Loader2, Skip
 import { Button } from "@/components/ui/button";
 import { ComparisonTemplateModal } from "./comparison-template-modal";
 
-function mergeFieldOptions(pageFields: string[], pdfFields: string[]) {
-  const pageSet = new Set(pageFields);
-  const pdfSet = new Set(pdfFields);
-  return [...new Set([...pageFields, ...pdfFields])].map((name) => ({
-    name,
-    source: (pageSet.has(name) && pdfSet.has(name) ? "both" : pageSet.has(name) ? "page" : "pdf") as "page" | "pdf" | "both",
-  }));
-}
-
 interface SessionActionsProps {
   portalId: string;
   sessionId: string;
@@ -41,12 +32,12 @@ export function SessionActions({
   const [unconfiguredTypes, setUnconfiguredTypes] = useState<Array<{
     groupingKey: Record<string, string>;
     itemId: string;
-    pageFields: string[];
-    pdfFields: string[];
+    fieldOptions: Array<{ name: string; pageValue?: string; pdfValue?: string }>;
   }>>([]);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [currentTypeIndex, setCurrentTypeIndex] = useState(0);
   const checkedUnconfiguredRef = useRef(false);
+  const [recompareError, setRecompareError] = useState<string | null>(null);
 
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const done = (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) + (counts.ERROR ?? 0) + (counts.SKIPPED ?? 0);
@@ -69,20 +60,30 @@ export function SessionActions({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [counts.ERROR, inFlight, sessionId]);
 
-  // Check for unconfigured claim types once processing is complete
-  useEffect(() => {
-    const compared = (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0);
-    if (!isComplete || compared === 0 || checkedUnconfiguredRef.current) return;
-    checkedUnconfiguredRef.current = true;
-
+  function fetchUnconfiguredTypes() {
     fetch(`/api/portals/${portalId}/scrape/${sessionId}/unconfigured-types`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data.unconfiguredTypes) && data.unconfiguredTypes.length > 0) {
           setUnconfiguredTypes(data.unconfiguredTypes);
+          setCurrentTypeIndex(0);
+          setShowTemplateModal(true);
         }
       })
       .catch(() => {});
+  }
+
+  // Check for unconfigured claim types once processing is complete
+  useEffect(() => {
+    const compared = (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0);
+    if (!isComplete || compared === 0 || checkedUnconfiguredRef.current) return;
+
+    const storageKey = `unconfigured_checked_${sessionId}`;
+    if (sessionStorage.getItem(storageKey)) return;
+
+    checkedUnconfiguredRef.current = true;
+    sessionStorage.setItem(storageKey, "1");
+    fetchUnconfiguredTypes();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isComplete, counts.COMPARED, counts.FLAGGED]);
 
@@ -170,12 +171,36 @@ export function SessionActions({
       {isComplete && (
         <div className="flex items-center gap-2 rounded-md bg-status-success/10 px-3 py-2">
           <CheckCircle2 className="h-4 w-4 text-status-success shrink-0" />
-          <div className="text-xs text-status-success">
+          <div className="flex-1 text-xs text-status-success">
             <span className="font-medium">Done. </span>
             {counts.COMPARED ?? 0} matched · {counts.FLAGGED ?? 0} flagged
             {(counts.SKIPPED ?? 0) > 0 && ` · ${counts.SKIPPED} skipped`}
             {(counts.ERROR ?? 0) > 0 && ` · ${counts.ERROR} failed`}
           </div>
+          {isComplete && (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) > 0 && unconfiguredTypes.length === 0 && !showTemplateModal && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-xs text-status-success hover:text-status-success hover:bg-status-success/10"
+              onClick={() => {
+                const storageKey = `unconfigured_checked_${sessionId}`;
+                sessionStorage.removeItem(storageKey);
+                checkedUnconfiguredRef.current = false;
+                fetchUnconfiguredTypes();
+              }}
+            >
+              <FileSliders className="mr-1 h-3 w-3" />
+              Configure Templates
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Recompare error banner */}
+      {recompareError && (
+        <div className="flex items-center gap-2 rounded-md bg-status-warning/10 px-3 py-2 text-xs text-status-warning">
+          <span className="flex-1">{recompareError}</span>
+          <button onClick={() => setRecompareError(null)} className="text-status-warning hover:opacity-70">✕</button>
         </div>
       )}
 
@@ -304,19 +329,23 @@ export function SessionActions({
           portalId={portalId}
           groupingKey={unconfiguredTypes[currentTypeIndex].groupingKey}
           suggestedName={Object.values(unconfiguredTypes[currentTypeIndex].groupingKey).join(" / ")}
-          availableFields={mergeFieldOptions(
-            unconfiguredTypes[currentTypeIndex].pageFields,
-            unconfiguredTypes[currentTypeIndex].pdfFields
-          )}
+          availableFields={unconfiguredTypes[currentTypeIndex].fieldOptions}
           onSaved={async (templateId) => {
             setShowTemplateModal(false);
-            // Re-compare items with new template
-            await fetch(`/api/portals/${portalId}/scrape/${sessionId}/recompare`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ templateId }),
-            }).catch(() => {});
-            // Move to next unconfigured type or finish
+            setRecompareError(null);
+            try {
+              const res = await fetch(`/api/portals/${portalId}/scrape/${sessionId}/recompare`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ templateId }),
+              });
+              if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                setRecompareError(body.message ?? "Recompare failed — items may need manual refresh");
+              }
+            } catch {
+              setRecompareError("Recompare failed — check your API key and try again");
+            }
             const nextIndex = currentTypeIndex + 1;
             if (nextIndex < unconfiguredTypes.length) {
               setCurrentTypeIndex(nextIndex);

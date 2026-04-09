@@ -34,12 +34,15 @@ export async function POST(
     const groupingFields = (portal.groupingFields ?? []) as string[];
     const templateKey = template.groupingKey as Record<string, string>;
 
-    // Find items that match this template's grouping key and have no template-based comparison
+    // Find items that match this template's grouping key and have no template-based comparison (or already have this template)
     const items = await db.trackedItem.findMany({
       where: {
         scrapeSessionId: sessionId,
         status: { in: ["COMPARED", "FLAGGED"] },
-        comparisonResult: { templateId: null },
+        OR: [
+          { comparisonResult: { templateId: null } },
+          { comparisonResult: { templateId: template.id } },
+        ],
       },
       include: {
         comparisonResult: true,
@@ -59,12 +62,15 @@ export async function POST(
     }
 
     const { provider, apiKey } = await resolveProviderAndKey(session.user.id);
+    const templateId_ = template.id;
     const templateFields = template.fields as unknown as TemplateField[];
+
+    const CONCURRENCY = 5;
     let recompared = 0;
 
-    for (const item of matchingItems) {
+    async function processOne(item: typeof matchingItems[0]): Promise<void> {
       const detailData = (item.detailData as Record<string, string>) ?? {};
-      if (Object.keys(detailData).length === 0) continue;
+      if (Object.keys(detailData).length === 0) return;
 
       // Reconstruct pdf fields from existing comparison result
       const existingComparisons = (item.comparisonResult?.fieldComparisons ?? []) as Array<{
@@ -73,10 +79,8 @@ export async function POST(
       }>;
       const pdfFields: Record<string, string> = {};
       for (const c of existingComparisons) {
-        if (c.pdfValue) pdfFields[c.fieldName] = c.pdfValue;
+        if (c.pdfValue != null) pdfFields[c.fieldName] = c.pdfValue;
       }
-
-      if (Object.keys(pdfFields).length === 0) continue;
 
       const { filteredPageFields, filteredPdfFields } = filterFieldsByTemplate(
         detailData,
@@ -88,47 +92,52 @@ export async function POST(
         Object.keys(filteredPageFields).length === 0 &&
         Object.keys(filteredPdfFields).length === 0
       )
-        continue;
+        return;
 
-      try {
-        const result = await compareFields({
-          pageFields: filteredPageFields,
-          pdfFields: filteredPdfFields,
-          provider,
-          apiKey,
-          templateFields,
+      const result = await compareFields({
+        pageFields: filteredPageFields,
+        pdfFields: filteredPdfFields,
+        provider,
+        apiKey,
+        templateFields,
+      });
+
+      // Delete old comparison result and create new one with template
+      if (item.comparisonResult) {
+        await db.comparisonResult.delete({
+          where: { id: item.comparisonResult.id },
         });
-
-        // Delete old comparison result and create new one with template
-        if (item.comparisonResult) {
-          await db.comparisonResult.delete({
-            where: { id: item.comparisonResult.id },
-          });
-        }
-
-        await db.comparisonResult.create({
-          data: {
-            trackedItemId: item.id,
-            provider,
-            templateId: template.id,
-            fieldComparisons: JSON.parse(JSON.stringify(result.fieldComparisons)),
-            matchCount: result.matchCount,
-            mismatchCount: result.mismatchCount,
-            summary: result.summary,
-            completedAt: new Date(),
-          },
-        });
-
-        const hasMismatch = result.mismatchCount > 0;
-        await db.trackedItem.update({
-          where: { id: item.id },
-          data: { status: hasMismatch ? "FLAGGED" : "COMPARED" },
-        });
-
-        recompared++;
-      } catch (err) {
-        logger.warn({ err, itemId: item.id }, "[recompare] Failed to recompare item");
       }
+
+      await db.comparisonResult.create({
+        data: {
+          trackedItemId: item.id,
+          provider,
+          templateId: templateId_,
+          fieldComparisons: JSON.parse(JSON.stringify(result.fieldComparisons)),
+          matchCount: result.matchCount,
+          mismatchCount: result.mismatchCount,
+          summary: result.summary,
+          completedAt: new Date(),
+        },
+      });
+
+      const hasMismatch = result.mismatchCount > 0;
+      await db.trackedItem.update({
+        where: { id: item.id },
+        data: { status: hasMismatch ? "FLAGGED" : "COMPARED" },
+      });
+    }
+
+    for (let i = 0; i < matchingItems.length; i += CONCURRENCY) {
+      const batch = matchingItems.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(batch.map(processOne));
+      recompared += results.filter((r) => r.status === "fulfilled").length;
+      results
+        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+        .forEach((r, idx) => {
+          logger.warn({ err: r.reason, itemId: batch[idx].id }, "[recompare] Failed to recompare item");
+        });
     }
 
     return NextResponse.json({ recompared, total: matchingItems.length });

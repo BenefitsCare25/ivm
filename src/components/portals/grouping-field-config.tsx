@@ -23,6 +23,8 @@ export function GroupingFieldConfig({
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [affectedTemplateCount, setAffectedTemplateCount] = useState(0);
+  const [showAffectedWarning, setShowAffectedWarning] = useState(false);
 
   async function handleSave() {
     setSaving(true);
@@ -34,7 +36,12 @@ export function GroupingFieldConfig({
         body: JSON.stringify({ groupingFields: selected }),
       });
       if (!res.ok) throw new Error("Failed to save");
+      const data = await res.json();
       setEditing(false);
+      if (data.affectedTemplateCount > 0) {
+        setAffectedTemplateCount(data.affectedTemplateCount);
+        setShowAffectedWarning(true);
+      }
       onSaved();
     } catch {
       setError("Failed to save grouping fields");
@@ -55,26 +62,41 @@ export function GroupingFieldConfig({
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Comparison Grouping</CardTitle>
+            <CardTitle className="text-base">Claim Type Detection</CardTitle>
             <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
               <Settings2 className="mr-2 h-4 w-4" />
               Configure
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
           {currentGroupingFields.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No grouping fields configured. Set up grouping to enable per-claim-type comparison
-              templates.
+              Select which scraped fields identify the type of each item (e.g. &ldquo;Claim Type&rdquo;). After
+              scraping, you&apos;ll set comparison rules per detected type.
             </p>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              {currentGroupingFields.map((f) => (
-                <Badge key={f} variant="secondary">
-                  {f}
-                </Badge>
-              ))}
+            <>
+              <div className="flex flex-wrap gap-2">
+                {currentGroupingFields.map((f) => (
+                  <Badge key={f} variant="secondary">
+                    {f}
+                  </Badge>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Items will be grouped by these fields. Run a scrape to detect claim types and
+                configure comparison rules.
+              </p>
+            </>
+          )}
+          {showAffectedWarning && (
+            <div className="flex items-start gap-2 rounded-md bg-status-warning/10 px-3 py-2 text-xs text-status-warning">
+              <span className="flex-1">
+                ⚠ {affectedTemplateCount} existing template{affectedTemplateCount > 1 ? "s" : ""} may
+                no longer match items. Consider reviewing or deleting them.
+              </span>
+              <button onClick={() => setShowAffectedWarning(false)} className="hover:opacity-70">✕</button>
             </div>
           )}
         </CardContent>
@@ -85,10 +107,10 @@ export function GroupingFieldConfig({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Configure Grouping Fields</CardTitle>
+        <CardTitle className="text-base">Claim Type Detection</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Select which scraped fields determine the claim type. Items with the same values for
-          these fields will share a comparison template. Max 5 fields.
+          Pick 1–5 fields whose values distinguish item types. Each unique combination becomes a
+          comparison template.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">

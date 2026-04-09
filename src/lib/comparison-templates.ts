@@ -8,6 +8,17 @@ interface MatchedTemplate {
   fields: TemplateField[];
 }
 
+const templateCache = new Map<string, {
+  groupingFields: string[];
+  templates: Array<{ id: string; name: string; groupingKey: unknown; fields: unknown }>;
+  expiresAt: number;
+}>();
+const CACHE_TTL_MS = 60_000;
+
+export function clearTemplateCache(portalId: string): void {
+  templateCache.delete(portalId);
+}
+
 /** Returns true if `itemData` matches the given template grouping key for all configured fields. */
 export function itemMatchesGroupingKey(
   groupingFields: string[],
@@ -27,23 +38,32 @@ export async function findMatchingTemplate(
   portalId: string,
   itemData: Record<string, string>
 ): Promise<MatchedTemplate | null> {
-  const portal = await db.portal.findUnique({
-    where: { id: portalId },
-    select: { groupingFields: true },
-  });
+  const now = Date.now();
+  let cached = templateCache.get(portalId);
 
-  const groupingFields = (portal?.groupingFields ?? []) as string[];
+  if (!cached || cached.expiresAt < now) {
+    const [portal, templates] = await Promise.all([
+      db.portal.findUnique({ where: { id: portalId }, select: { groupingFields: true } }),
+      db.comparisonTemplate.findMany({ where: { portalId }, select: { id: true, name: true, groupingKey: true, fields: true } }),
+    ]);
+    cached = {
+      groupingFields: (portal?.groupingFields ?? []) as string[],
+      templates,
+      expiresAt: now + CACHE_TTL_MS,
+    };
+    templateCache.set(portalId, cached);
+  }
+
+  const { groupingFields, templates } = cached;
   if (groupingFields.length === 0) return null;
 
   // Verify all grouping fields exist in item data
   for (const field of groupingFields) {
-    if (!itemData[field]) {
+    if (itemData[field] == null || !itemData[field].trim()) {
       logger.debug({ field, portalId }, "[templates] Grouping field not found in item data");
       return null;
     }
   }
-
-  const templates = await db.comparisonTemplate.findMany({ where: { portalId } });
 
   for (const template of templates) {
     if (itemMatchesGroupingKey(groupingFields, itemData, template.groupingKey as Record<string, string>)) {

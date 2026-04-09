@@ -58,17 +58,35 @@ export default async function PortalDetailPage({
     return acc;
   }, {});
 
-  // Derive available fields from configured selectors for grouping field picker
+  // Derive available fields
   const listSelectors = (portal.listSelectors ?? {}) as Record<string, unknown>;
   const detailSelectors = (portal.detailSelectors ?? {}) as Record<string, unknown>;
   const listColumns = (listSelectors.columns as Array<{ name: string }> | undefined) ?? [];
   const detailFieldKeys = Object.keys(
     (detailSelectors.fieldSelectors as Record<string, unknown> | undefined) ?? {}
   );
-  const availableFields = [...new Set([
+
+  // Prefer actual scraped item field names over selector config
+  const recentItems = await db.trackedItem.findMany({
+    where: { scrapeSession: { portalId: id } },
+    select: { listData: true, detailData: true },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+
+  const scrapedFields = new Set<string>();
+  for (const item of recentItems) {
+    Object.keys((item.listData as Record<string, unknown>) ?? {}).forEach((k) => scrapedFields.add(k));
+    Object.keys((item.detailData as Record<string, unknown>) ?? {}).forEach((k) => scrapedFields.add(k));
+  }
+
+  const selectorFields = [
     ...listColumns.map((c) => c.name),
     ...detailFieldKeys,
-  ])];
+  ];
+  const availableFields = scrapedFields.size > 0
+    ? [...scrapedFields].sort()
+    : [...new Set(selectorFields)];
 
   const serialized = {
     id: portal.id,

@@ -10,7 +10,7 @@ import { MATCH_MODE_LABELS } from "@/types/portal";
 
 interface FieldOption {
   name: string;
-  source: "page" | "pdf" | "both";
+  source?: "page" | "pdf" | "both";
   pageValue?: string;
   pdfValue?: string;
 }
@@ -126,7 +126,10 @@ export function ComparisonTemplateModal({
                     <Plus className="h-3 w-3" />
                     {f.name}
                     <span className="text-muted-foreground ml-0.5">
-                      ({f.source === "both" ? "page+pdf" : f.source})
+                      {(() => {
+                        const src = f.source ?? (f.pageValue != null && f.pdfValue != null ? "both" : f.pageValue != null ? "page" : "pdf");
+                        return `(${src === "both" ? "page+pdf" : src})`;
+                      })()}
                     </span>
                   </button>
                 ))}

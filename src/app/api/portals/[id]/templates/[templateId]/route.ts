@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { errorResponse, NotFoundError } from "@/lib/errors";
 import { updateComparisonTemplateSchema } from "@/lib/validations/portal";
+import { clearTemplateCache } from "@/lib/comparison-templates";
 
 export async function GET(
   _req: NextRequest,
@@ -58,6 +59,8 @@ export async function PATCH(
       where: { id: templateId },
     });
 
+    clearTemplateCache(id);
+
     return NextResponse.json(template);
   } catch (err) {
     return errorResponse(err);
@@ -82,6 +85,8 @@ export async function DELETE(
     });
 
     if (deleted.count === 0) throw new NotFoundError("Template");
+
+    clearTemplateCache(id);
 
     return NextResponse.json({ deleted: true });
   } catch (err) {

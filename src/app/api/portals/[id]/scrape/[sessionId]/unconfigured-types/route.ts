@@ -39,7 +39,7 @@ export async function GET(
             select: { fieldComparisons: true },
           },
         },
-        take: 100,
+        take: 500,
       }),
       db.comparisonTemplate.findMany({ where: { portalId: id } }),
     ]);
@@ -49,8 +49,7 @@ export async function GET(
       {
         groupingKey: Record<string, string>;
         itemId: string;
-        pageFields: string[];
-        pdfFields: string[];
+        fieldOptions: Array<{ name: string; pageValue?: string; pdfValue?: string }>;
       }
     >();
 
@@ -86,18 +85,16 @@ export async function GET(
         pdfValue: string | null;
       }>;
 
-      const pageFieldNames = comparisons
-        .filter((c) => c.pageValue != null)
-        .map((c) => c.fieldName);
-      const pdfFieldNames = comparisons
-        .filter((c) => c.pdfValue != null)
-        .map((c) => c.fieldName);
+      const fieldOptions = comparisons.map((c) => ({
+        name: c.fieldName,
+        ...(c.pageValue != null && { pageValue: c.pageValue }),
+        ...(c.pdfValue != null && { pdfValue: c.pdfValue }),
+      }));
 
       seen.set(keyStr, {
         groupingKey: keyParts,
         itemId: item.id,
-        pageFields: [...new Set(pageFieldNames)],
-        pdfFields: [...new Set(pdfFieldNames)],
+        fieldOptions,
       });
     }
 
