@@ -106,8 +106,8 @@ export default async function ExtractionPage() {
           </ul>
         </div>
         <p className="text-xs">
-          All three settings apply to both <span className="font-medium text-foreground">Auto Form</span> extraction
-          and <span className="font-medium text-foreground">Portal Tracker</span> file extraction.
+          All three settings apply to <span className="font-medium text-foreground">Portal Tracker</span> file
+          extraction during scrape sessions.
         </p>
       </InfoGuide>
 

@@ -14,25 +14,18 @@ export default async function IntelligenceDashboardPage() {
   const userId = session.user.id;
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  const [fillSessions, trackedItemsRaw] = await Promise.all([
-    db.fillSession.findMany({ where: { userId }, select: { id: true } }),
-    db.trackedItem.findMany({
-      where: { scrapeSession: { portal: { userId } } },
-      select: { id: true },
-    }),
-  ]);
-  const fillSessionIds = fillSessions.map((s) => s.id);
+  const trackedItemsRaw = await db.trackedItem.findMany({
+    where: { scrapeSession: { portal: { userId } } },
+    select: { id: true },
+  });
   const trackedItemIds = trackedItemsRaw.map((i) => i.id);
   const validationWhere =
-    fillSessionIds.length > 0 || trackedItemIds.length > 0
+    trackedItemIds.length > 0
       ? {
           createdAt: { gte: sevenDaysAgo },
-          OR: [
-            ...(fillSessionIds.length > 0 ? [{ fillSessionId: { in: fillSessionIds } }] : []),
-            ...(trackedItemIds.length > 0 ? [{ trackedItemId: { in: trackedItemIds } }] : []),
-          ],
+          trackedItemId: { in: trackedItemIds },
         }
-      : { createdAt: { gte: sevenDaysAgo }, id: "no-match" };
+      : { createdAt: { gte: sevenDaysAgo }, id: "no-match" as string };
 
   const [
     docTypesAll,
@@ -93,7 +86,7 @@ export default async function IntelligenceDashboardPage() {
       icon: FolderCheck,
       value: docSetsAll,
       sub: `${docSetsActive} active`,
-      href: "/intelligence/document-sets",
+      href: "/intelligence/document-types",
     },
     {
       title: "Business Rules",
@@ -145,7 +138,7 @@ export default async function IntelligenceDashboardPage() {
         <p className="font-medium text-foreground mb-1">Reading this dashboard</p>
         <ul className="list-disc pl-4 space-y-0.5">
           <li>Metric cards show total and active counts — inactive items do not run during processing.</li>
-          <li><span className="font-medium text-foreground">Validations (7d)</span> counts all PASS / FAIL / WARNING results from both Auto Form and Portal Tracker in the last 7 days.</li>
+          <li><span className="font-medium text-foreground">Validations (7d)</span> counts all PASS / FAIL / WARNING results from Portal Tracker in the last 7 days.</li>
           <li><span className="font-medium text-foreground">Rules Executed</span> is the cumulative total run count across all business rules since they were created.</li>
           <li>Click any metric card to navigate directly to that configuration section.</li>
         </ul>
@@ -180,7 +173,7 @@ export default async function IntelligenceDashboardPage() {
         <EmptyState
           icon={<CheckCircle2 className="h-10 w-10" />}
           title="Getting started"
-          description="Create document types and sets, then configure business rules to automate validation during document processing."
+          description="Create document types and sets, then configure business rules to automate validation during Portal Tracker processing."
         />
       )}
 

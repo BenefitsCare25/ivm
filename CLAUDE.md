@@ -170,19 +170,23 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 
 ### Intelligence Hub (All Phases — Fully Implemented)
 - **Purpose**: User-configurable document classification, validation, business rules, extraction templates, reference data, and analytics. Zero hardcoded business logic.
-- **Sidebar**: Brain icon → `/intelligence` hub page with 8 clickable cards (all live)
-- **Migration**: `20260410200000_add_intelligence_hub` — creates all tables in one migration
+- **Portal Tracker only**: All intelligence features run in Portal Tracker scrape sessions only. Auto Form has no intelligence integration.
+- **Sidebar**: Brain icon → `/intelligence` hub page with 7 clickable cards (all live)
+- **Migrations**: `20260410200000_add_intelligence_hub` (all tables), `20260411000000_add_expected_doc_type_to_scrape_session` (ScrapeSession optional type/set fields)
 
-#### Phase 1 — Document Types & Validation
-- **Prisma models**: `DocumentType`, `DocumentSet` + `DocumentSetItem`, `ValidationResult` (fillSessionId?, trackedItemId?, ruleType, status PASS/FAIL/WARNING, message, metadata JSON)
+#### Phase 1 — Document Classification (Types + Sets)
+- **Page**: `/intelligence/document-types` — single tabbed page ("Document Types" | "Document Sets") via `DocumentClassificationTabs` client component
+- **Prisma models**: `DocumentType`, `DocumentSet` + `DocumentSetItem`, `ValidationResult` (trackedItemId?, ruleType, status PASS/FAIL/WARNING, message, metadata JSON)
+- **ScrapeSession fields**: `expectedDocumentTypeId?` and `expectedDocumentSetId?` — set at scrape creation via modal, stored for reference (worker does not currently filter by them)
+- **Scrape modal**: `ScrapeSessionModal` — opened on "Scrape Now" click, fetches active types/sets, optional dropdowns, passes selections to `POST /api/portals/[id]/scrape` body
 - **API routes**: `GET/POST /api/intelligence/document-types`, `PATCH/DELETE /api/intelligence/document-types/[id]`, same pattern for document-sets
-- **Validation API**: `GET /api/sessions/[id]/validations` (Auto Form), `GET /api/portals/[id]/scrape/[sessionId]/items/[itemId]/validations` (Portal Tracker)
+- **Validation API**: `GET /api/portals/[id]/scrape/[sessionId]/items/[itemId]/validations` (Portal Tracker only — fill session validation route was removed)
 - **Runtime lib** (`src/lib/intelligence/`):
   - `classifier.ts` — `fetchDocTypes(userId)` pre-fetches once; `classifyDocumentTypeFromCache(aiDocType, docTypes)` pure Jaro-Winkler fuzzy match
   - `validator.ts` — `validateDocumentSet(userId, classifiedDocs, options)`, `validateRequiredFields(docType, extractedFields, options)`
   - `deduplicator.ts` — `checkDuplicate(userId, documentTypeId, keyFields, extractedFields, options)` SHA-256 hashes key field values, 90-day lookback
 - **Worker integration** (`item-detail-worker.ts`): Non-fatal pipeline — classify → validate required fields → check duplicate → validateDocumentSet. Never blocks comparison pipeline.
-- **Key constraint**: `ValidationResult` has no `userId` — always scope queries via fillSessionId→FillSession.userId or trackedItemId→TrackedItem→ScrapeSession→Portal.userId
+- **Key constraint**: `ValidationResult` has no `userId` — always scope queries via trackedItemId→TrackedItem→ScrapeSession→Portal.userId (fillSessionId field exists on model but is never populated)
 
 #### Phase 2 — Reference Data & Mapping Rules
 - **Prisma models**: `ReferenceDataset` (columns JSON, rowCount, sourceType, version), `ReferenceEntry` (data JSON, searchText), `CodeMappingRule` (sourceFieldLabel, lookupColumn, outputColumn, matchStrategy: exact/fuzzy/contains/ai)
@@ -206,12 +210,12 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Validations**: `src/lib/validations/intelligence-phase4.ts`
 
 #### Phase 5 — Dashboard
-- **Page**: `/intelligence/dashboard` — 6 stat cards (Doc Types, Doc Sets, Business Rules, Extraction Templates, Validations 7d, Rules Executed), recent validation list, getting-started empty state
-- **API**: `GET /api/intelligence/metrics` — parallel aggregation of all counts + 7-day validation groupBy
+- **Page**: `/intelligence/dashboard` — 6 stat cards (Doc Types, Doc Sets → links to `/intelligence/document-types`, Business Rules, Extraction Templates, Validations 7d, Rules Executed), recent validation list, getting-started empty state
+- **API**: `GET /api/intelligence/metrics` — parallel aggregation of all counts + 7-day validation groupBy (Portal Tracker only)
 
 #### Phase 6 — Validation History (Audit)
-- **Page**: `/intelligence/audit` — shows recent `ValidationResult` records scoped to user's fill sessions and tracked items, ordered newest first
-- **API**: `GET /api/intelligence/audit` — same scoping logic with pagination (?page, ?limit)
+- **Page**: `/intelligence/audit` — shows recent `ValidationResult` records scoped to user's tracked items (Portal Tracker only), ordered newest first
+- **API**: `GET /api/intelligence/audit` — trackedItem-scoped with pagination (?page, ?limit)
 - **Note**: Uses `ValidationResult` (not `AuditEvent` — that model is scoped to `FillSession` fill events only)
 
 ## Deployment

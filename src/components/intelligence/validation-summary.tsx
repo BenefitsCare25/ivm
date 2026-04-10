@@ -7,10 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import type { ValidationResultData } from "@/types/intelligence";
 
 interface ValidationSummaryProps {
-  fillSessionId?: string;
-  portalId?: string;
-  sessionId?: string;
-  itemId?: string;
+  portalId: string;
+  sessionId: string;
+  itemId: string;
   compact?: boolean;
 }
 
@@ -29,7 +28,6 @@ const RULE_TYPE_LABELS: Record<string, string> = {
 };
 
 export function ValidationSummary({
-  fillSessionId,
   portalId,
   sessionId,
   itemId,
@@ -41,16 +39,7 @@ export function ValidationSummary({
   useEffect(() => {
     async function fetchResults() {
       try {
-        let url: string;
-        if (fillSessionId) {
-          url = `/api/sessions/${fillSessionId}/validations`;
-        } else if (portalId && sessionId && itemId) {
-          url = `/api/portals/${portalId}/scrape/${sessionId}/items/${itemId}/validations`;
-        } else {
-          setLoading(false);
-          return;
-        }
-
+        const url = `/api/portals/${portalId}/scrape/${sessionId}/items/${itemId}/validations`;
         const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
@@ -64,7 +53,7 @@ export function ValidationSummary({
     }
 
     fetchResults();
-  }, [fillSessionId, portalId, sessionId, itemId]);
+  }, [portalId, sessionId, itemId]);
 
   if (loading) {
     return compact ? null : (

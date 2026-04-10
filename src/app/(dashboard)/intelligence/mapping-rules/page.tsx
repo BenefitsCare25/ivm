@@ -67,20 +67,11 @@ export default async function MappingRulesPage() {
           Reference Datasets. They run after AI extraction, before the review step — so the normalized value
           is what you see in the output.
         </p>
-        <div className="space-y-1">
-          <p className="font-medium text-foreground">Where this runs:</p>
-          <ul className="list-disc pl-4 space-y-0.5">
-            <li>
-              <span className="font-medium text-foreground">Auto Form</span> — after AI extracts fields, any field
-              whose label matches the Source Field Label is looked up in the dataset and the output column value
-              is appended to the extracted data.
-            </li>
-            <li>
-              <span className="font-medium text-foreground">Portal Tracker</span> — same pipeline applies to files
-              downloaded during a scrape session.
-            </li>
-          </ul>
-        </div>
+        <p>
+          Mapping rules run during Portal Tracker scrape sessions — after AI extracts fields from
+          downloaded files, any field whose label matches the Source Field Label is looked up in the
+          dataset and the output column value is appended to the extracted data.
+        </p>
         <div className="space-y-1">
           <p className="font-medium text-foreground">Match strategies:</p>
           <ul className="list-disc pl-4 space-y-0.5">

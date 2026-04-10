@@ -6,7 +6,7 @@ import { errorResponse, UnauthorizedError, NotFoundError, AppError } from "@/lib
 import { logger } from "@/lib/logger";
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -20,9 +20,18 @@ export async function POST(
     });
     if (!portal) throw new NotFoundError("Portal");
 
+    const body = await req.json().catch(() => ({}));
+    const expectedDocumentTypeId = typeof body.expectedDocumentTypeId === "string" ? body.expectedDocumentTypeId : null;
+    const expectedDocumentSetId = typeof body.expectedDocumentSetId === "string" ? body.expectedDocumentSetId : null;
+
     // Create scrape session
     const scrapeSession = await db.scrapeSession.create({
-      data: { portalId: id, triggeredBy: "MANUAL" },
+      data: {
+        portalId: id,
+        triggeredBy: "MANUAL",
+        expectedDocumentTypeId,
+        expectedDocumentSetId,
+      },
     });
 
     // Enqueue the scrape job

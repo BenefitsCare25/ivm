@@ -354,19 +354,23 @@ model PortalCredential {
 }
 
 model ScrapeSession {
-  id             String              @id @default(cuid())
-  portalId       String
-  status         ScrapeSessionStatus @default(PENDING)
-  triggeredBy    String              @default("MANUAL")
-  itemsFound     Int                 @default(0)
-  itemsProcessed Int                 @default(0)
-  startedAt      DateTime?
-  completedAt    DateTime?
-  errorMessage   String?
-  createdAt      DateTime            @default(now())
+  id                      String              @id @default(cuid())
+  portalId                String
+  status                  ScrapeSessionStatus @default(PENDING)
+  triggeredBy             String              @default("MANUAL")
+  itemsFound              Int                 @default(0)
+  itemsProcessed          Int                 @default(0)
+  expectedDocumentTypeId  String?
+  expectedDocumentSetId   String?
+  startedAt               DateTime?
+  completedAt             DateTime?
+  errorMessage            String?
+  createdAt               DateTime            @default(now())
 
-  portal       Portal        @relation(fields: [portalId], references: [id], onDelete: Cascade)
-  trackedItems TrackedItem[]
+  portal               Portal        @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  expectedDocumentType DocumentType? @relation(fields: [expectedDocumentTypeId], references: [id], onDelete: SetNull)
+  expectedDocumentSet  DocumentSet?  @relation(fields: [expectedDocumentSetId], references: [id], onDelete: SetNull)
+  trackedItems         TrackedItem[]
 
   @@index([portalId])
   @@index([createdAt])
@@ -480,6 +484,7 @@ model DocumentType {
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   documentSetItems DocumentSetItem[]
   extractionTemplates ExtractionTemplate[]
+  scrapeSessions   ScrapeSession[]
 
   @@unique([userId, name])
   @@index([userId])
@@ -495,8 +500,9 @@ model DocumentSet {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items DocumentSetItem[]
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items          DocumentSetItem[]
+  scrapeSessions ScrapeSession[]
 
   @@unique([userId, name])
   @@index([userId])

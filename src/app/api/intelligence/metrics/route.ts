@@ -10,26 +10,18 @@ export async function GET() {
     const userId = session.user.id;
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-    // Scope: get user's fill session IDs and tracked item IDs in parallel
-    const [fillSessions, trackedItemsRaw] = await Promise.all([
-      db.fillSession.findMany({ where: { userId }, select: { id: true } }),
-      db.trackedItem.findMany({
-        where: { scrapeSession: { portal: { userId } } },
-        select: { id: true },
-      }),
-    ]);
-    const fillSessionIds = fillSessions.map((s) => s.id);
+    const trackedItemsRaw = await db.trackedItem.findMany({
+      where: { scrapeSession: { portal: { userId } } },
+      select: { id: true },
+    });
     const trackedItemIds = trackedItemsRaw.map((i) => i.id);
     const validationWhere =
-      fillSessionIds.length > 0 || trackedItemIds.length > 0
+      trackedItemIds.length > 0
         ? {
             createdAt: { gte: sevenDaysAgo },
-            OR: [
-              ...(fillSessionIds.length > 0 ? [{ fillSessionId: { in: fillSessionIds } }] : []),
-              ...(trackedItemIds.length > 0 ? [{ trackedItemId: { in: trackedItemIds } }] : []),
-            ],
+            trackedItemId: { in: trackedItemIds },
           }
-        : { createdAt: { gte: sevenDaysAgo }, id: "no-match" };
+        : { createdAt: { gte: sevenDaysAgo }, id: { in: [] as string[] } };
 
     const [
       docTypesAll,

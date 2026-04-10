@@ -66,15 +66,15 @@ export default async function BusinessRulesPage() {
           <ul className="list-disc pl-4 space-y-0.5">
             <li>
               <span className="font-medium text-foreground">POST_EXTRACTION</span> — runs right after AI extracts
-              fields. Available in both Auto Form and Portal Tracker.
+              fields from downloaded files during a Portal Tracker scrape.
             </li>
             <li>
               <span className="font-medium text-foreground">POST_MAPPING</span> — runs after Mapping Rules are
-              applied to the extracted fields. Available in both Auto Form and Portal Tracker.
+              applied to the extracted fields.
             </li>
             <li>
               <span className="font-medium text-foreground">POST_COMPARISON</span> — runs after Portal Tracker
-              compares portal data vs downloaded PDF data. Portal Tracker only.
+              compares portal data vs downloaded PDF data.
             </li>
           </ul>
         </div>

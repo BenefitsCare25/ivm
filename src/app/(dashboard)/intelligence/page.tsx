@@ -1,7 +1,6 @@
 import Link from "next/link";
 import {
   FileType,
-  FolderCheck,
   Database,
   ArrowRightLeft,
   GitBranch,
@@ -14,16 +13,10 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/ca
 
 const sections = [
   {
-    title: "Document Types",
-    description: "Define and classify document types with aliases and required fields",
+    title: "Document Classification",
+    description: "Define document types and sets for automatic classification and validation",
     href: "/intelligence/document-types",
     icon: FileType,
-  },
-  {
-    title: "Document Sets",
-    description: "Required document packages for validation",
-    href: "/intelligence/document-sets",
-    icon: FolderCheck,
   },
   {
     title: "Reference Data",
@@ -64,12 +57,11 @@ const sections = [
 ];
 
 const setupSteps = [
-  "1. Document Types",
-  "2. Document Sets",
-  "3. Reference Data",
-  "4. Mapping Rules",
-  "5. Business Rules",
-  "6. Extraction Config",
+  "1. Document Classification",
+  "2. Reference Data",
+  "3. Mapping Rules",
+  "4. Business Rules",
+  "5. Extraction Config",
 ];
 
 export default function IntelligencePage() {

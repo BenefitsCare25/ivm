@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { AutoRefresh } from "./auto-refresh";
 import { GroupingFieldConfig } from "./grouping-field-config";
 import { TemplateList } from "./template-list";
+import { ScrapeSessionModal } from "./scrape-session-modal";
 import {
   ArrowLeft, Play, Loader2, Shield,
   Calendar, Settings, Trash2, AlertCircle, Hash,
@@ -66,6 +67,7 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
 
   // Existing state
   const [scraping, setScraping] = useState(false);
+  const [scrapeModalOpen, setScrapeModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [limitInput, setLimitInput] = useState(portal.scrapeLimit?.toString() ?? "");
@@ -199,15 +201,20 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
   );
   const shouldRefresh = hasActiveSessions || hasProcessingItems;
 
-  async function triggerScrape() {
+  async function triggerScrape(options?: { expectedDocumentTypeId?: string; expectedDocumentSetId?: string }) {
     setScraping(true);
     setError(null);
     try {
-      const res = await fetch(`/api/portals/${portal.id}/scrape`, { method: "POST" });
+      const res = await fetch(`/api/portals/${portal.id}/scrape`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(options ?? {}),
+      });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.message || "Failed to trigger scrape");
       }
+      setScrapeModalOpen(false);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to trigger scrape");
@@ -358,7 +365,7 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
         </div>
         <div className="flex items-center gap-2">
           {shouldRefresh && <AutoRefresh />}
-          <Button onClick={triggerScrape} disabled={scraping}>
+          <Button onClick={() => setScrapeModalOpen(true)} disabled={scraping}>
             {scraping ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -959,6 +966,13 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
           )}
         </CardContent>
       </Card>
+
+      <ScrapeSessionModal
+        open={scrapeModalOpen}
+        onOpenChange={setScrapeModalOpen}
+        onStart={triggerScrape}
+        loading={scraping}
+      />
     </div>
   );
 }
