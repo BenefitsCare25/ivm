@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, type KeyboardEvent } from "react";
+import { useState, useRef, useId, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Pencil, Trash2, X, Loader2, HelpCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -258,6 +258,8 @@ function DocumentTypeForm({
   onRemoveTag: (field: "aliases" | "requiredFields", index: number) => void;
   title: string;
 }) {
+  const categoryListId = useId();
+
   return (
     <Card>
       <CardContent className="pt-6">
@@ -283,7 +285,7 @@ function DocumentTypeForm({
               Category
             </label>
             <input
-              list="category-options"
+              list={categoryListId}
               type="text"
               value={form.category}
               onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
@@ -291,7 +293,7 @@ function DocumentTypeForm({
               placeholder="Select or type a category"
               className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
             />
-            <datalist id="category-options">
+            <datalist id={categoryListId}>
               {CATEGORY_OPTIONS.map((opt) => (
                 <option key={opt} value={opt} />
               ))}

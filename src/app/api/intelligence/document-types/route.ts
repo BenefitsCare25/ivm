@@ -12,9 +12,6 @@ export async function GET() {
     const documentTypes = await db.documentType.findMany({
       where: { userId: session.user.id },
       orderBy: { name: "asc" },
-      include: {
-        _count: { select: { documentSetItems: true } },
-      },
     });
 
     return NextResponse.json(documentTypes);
