@@ -8,7 +8,7 @@ import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { extractFieldsFromDocument } from "@/lib/ai";
 import { compareFields } from "@/lib/ai/comparison";
 import { findMatchingTemplate, filterFieldsByTemplate } from "@/lib/comparison-templates";
-import { classifyDocumentType, fetchDocTypes, validateDocumentSet, validateRequiredFields, checkDuplicate } from "@/lib/intelligence";
+import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDuplicate } from "@/lib/intelligence";
 import type { DocTypeRecord } from "@/lib/intelligence";
 import { emitItemEvent, emitFailureEvent, withEventTracking } from "@/lib/portal-events";
 import {
@@ -219,14 +219,6 @@ async function processItemDetailCore(
           }
         } catch (intErr) {
           logger.warn({ err: intErr, fileName: ext.fileName }, "[worker] Intelligence pipeline error (non-fatal)");
-        }
-      }
-
-      if (classifiedDocs.length > 0) {
-        try {
-          await validateDocumentSet(userId, classifiedDocs, { trackedItemId });
-        } catch (intErr) {
-          logger.warn({ err: intErr }, "[worker] Document set validation error (non-fatal)");
         }
       }
 

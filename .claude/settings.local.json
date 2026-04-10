@@ -92,7 +92,11 @@
       "WebFetch(domain:ai.google.dev)",
       "Bash(npx --yes tsc --noEmit)",
       "Bash(./node_modules/.bin/tsc --noEmit)",
-      "Bash(timeout 60 ./node_modules/.bin/tsc --noEmit --skipLibCheck)"
+      "Bash(timeout 60 ./node_modules/.bin/tsc --noEmit --skipLibCheck)",
+      "Bash(\"/c/Program Files/Docker/Docker/resources/bin/docker.exe\" --version)",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" --version)",
+      "Bash(rm -f \"C:/Users/huien/ivm/src/app/api/sessions/[id]/validations/route.ts\")",
+      "Bash(rmdir \"C:/Users/huien/ivm/src/app/api/sessions/[id]/validations\")"
     ]
   }
 }

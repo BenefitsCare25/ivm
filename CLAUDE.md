@@ -174,18 +174,19 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Sidebar**: Brain icon → `/intelligence` hub page with 7 clickable cards (all live)
 - **Migrations**: `20260410200000_add_intelligence_hub` (all tables), `20260411000000_add_expected_doc_type_to_scrape_session` (ScrapeSession optional type/set fields)
 
-#### Phase 1 — Document Classification (Types + Sets)
-- **Page**: `/intelligence/document-types` — single tabbed page ("Document Types" | "Document Sets") via `DocumentClassificationTabs` client component
-- **Prisma models**: `DocumentType`, `DocumentSet` + `DocumentSetItem`, `ValidationResult` (trackedItemId?, ruleType, status PASS/FAIL/WARNING, message, metadata JSON)
-- **ScrapeSession fields**: `expectedDocumentTypeId?` and `expectedDocumentSetId?` — set at scrape creation via modal, stored for reference (worker does not currently filter by them)
-- **Scrape modal**: `ScrapeSessionModal` — opened on "Scrape Now" click, fetches active types/sets, optional dropdowns, passes selections to `POST /api/portals/[id]/scrape` body
-- **API routes**: `GET/POST /api/intelligence/document-types`, `PATCH/DELETE /api/intelligence/document-types/[id]`, same pattern for document-sets
+#### Phase 1 — Document Classification (Types)
+- **Page**: `/intelligence/document-types` — renders `DocumentTypeList` directly (no tabs; Document Sets removed)
+- **Prisma models**: `DocumentType`, `ValidationResult` (trackedItemId?, ruleType, status PASS/FAIL/WARNING, message, metadata JSON). `DocumentSet`/`DocumentSetItem` models remain in schema but are unused.
+- **ScrapeSession fields**: `expectedDocumentTypeId?` — set at scrape creation via modal (optional). `expectedDocumentSetId` field remains in DB schema but is never populated.
+- **Scrape modal**: `ScrapeSessionModal` — single optional "Expected Document Type" dropdown; passes `expectedDocumentTypeId` to `POST /api/portals/[id]/scrape` body
+- **API routes**: `GET/POST /api/intelligence/document-types`, `PATCH/DELETE /api/intelligence/document-types/[id]`. Document-sets routes return 410.
 - **Validation API**: `GET /api/portals/[id]/scrape/[sessionId]/items/[itemId]/validations` (Portal Tracker only — fill session validation route was removed)
 - **Runtime lib** (`src/lib/intelligence/`):
-  - `classifier.ts` — `fetchDocTypes(userId)` pre-fetches once; `classifyDocumentTypeFromCache(aiDocType, docTypes)` pure Jaro-Winkler fuzzy match
-  - `validator.ts` — `validateDocumentSet(userId, classifiedDocs, options)`, `validateRequiredFields(docType, extractedFields, options)`
+  - `classifier.ts` — `fetchDocTypes(userId)` pre-fetches once; `classifyDocumentTypeFromCache(aiDocType, docTypes)` pure Jaro-Winkler fuzzy match on name + aliases
+  - `validator.ts` — `validateRequiredFields(docType, extractedFields, options)` checks required field names exist in extracted data
   - `deduplicator.ts` — `checkDuplicate(userId, documentTypeId, keyFields, extractedFields, options)` SHA-256 hashes key field values, 90-day lookback
-- **Worker integration** (`item-detail-worker.ts`): Non-fatal pipeline — classify → validate required fields → check duplicate → validateDocumentSet. Never blocks comparison pipeline.
+- **Worker integration** (`item-detail-worker.ts`): Non-fatal pipeline — classify → validate required fields → check duplicate. Never blocks comparison pipeline.
+- **DocumentType fields used in pipeline**: `name` + `aliases` (classifier fuzzy match), `requiredFields` (field presence validation), `isActive` (filter). `category` is display-only.
 - **Key constraint**: `ValidationResult` has no `userId` — always scope queries via trackedItemId→TrackedItem→ScrapeSession→Portal.userId (fillSessionId field exists on model but is never populated)
 
 #### Phase 2 — Reference Data & Mapping Rules

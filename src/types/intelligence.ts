@@ -9,26 +9,6 @@ export interface DocumentTypeData {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
-  _count?: { documentSetItems: number };
-}
-
-export interface DocumentSetData {
-  id: string;
-  name: string;
-  description: string | null;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-  items: DocumentSetItemData[];
-}
-
-export interface DocumentSetItemData {
-  id: string;
-  documentTypeId: string;
-  isRequired: boolean;
-  minCount: number;
-  maxCount: number | null;
-  documentType: { id: string; name: string };
 }
 
 // ─── Validation ──────────────────────────────────────────────────

@@ -2,11 +2,22 @@
 
 import { useState, useRef, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, X, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Loader2, HelpCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { DocumentTypeData } from "@/types/intelligence";
+
+const CATEGORY_OPTIONS = [
+  "Financial",
+  "Medical",
+  "Legal",
+  "Insurance",
+  "Government",
+  "HR",
+  "Identity",
+  "Other",
+];
 
 interface DocumentTypeListProps {
   documentTypes: DocumentTypeData[];
@@ -272,18 +283,25 @@ function DocumentTypeForm({
               Category
             </label>
             <input
+              list="category-options"
               type="text"
               value={form.category}
               onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
               disabled={saving}
-              placeholder="e.g. Financial, Medical, Legal"
+              placeholder="Select or type a category"
               className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
             />
+            <datalist id="category-options">
+              {CATEGORY_OPTIONS.map((opt) => (
+                <option key={opt} value={opt} />
+              ))}
+            </datalist>
           </div>
 
           <TagInput
             label="Aliases"
-            hint="Type and press Enter to add"
+            hint='e.g. "med inv", "hospital bill"'
+            subtext="Alternative names the AI uses for fuzzy matching"
             items={form.aliases}
             inputRef={aliasInputRef}
             disabled={saving}
@@ -292,13 +310,15 @@ function DocumentTypeForm({
           />
 
           <TagInput
-            label="Required Fields"
-            hint="Type and press Enter to add"
+            label="Required in extracted data"
+            hint='e.g. "Invoice Date", "Patient Name"'
+            subtext="Fields that must be present — missing fields generate FAIL validations"
             items={form.requiredFields}
             inputRef={fieldInputRef}
             disabled={saving}
             onKeyDown={(e) => onTagKeyDown(e, "requiredFields", fieldInputRef)}
             onRemove={(i) => onRemoveTag("requiredFields", i)}
+            helpIcon
           />
         </div>
 
@@ -338,28 +358,44 @@ function DocumentTypeForm({
 function TagInput({
   label,
   hint,
+  subtext,
   items,
   inputRef,
   disabled,
   onKeyDown,
   onRemove,
+  helpIcon,
 }: {
   label: string;
   hint: string;
+  subtext?: string;
   items: string[];
   inputRef: React.RefObject<HTMLInputElement | null>;
   disabled: boolean;
   onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void;
   onRemove: (index: number) => void;
+  helpIcon?: boolean;
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-muted-foreground">{label}</label>
+      <div className="mb-1 flex items-center gap-1">
+        <label className="text-xs font-medium text-muted-foreground">{label}</label>
+        {helpIcon && (
+          <span
+            title="Fields that must be found in AI-extracted content for this document type. Missing fields generate FAIL validations in Portal Tracker."
+          >
+            <HelpCircle className="h-3 w-3 text-muted-foreground/50" />
+          </span>
+        )}
+      </div>
+      {subtext && (
+        <p className="mb-1.5 text-[11px] text-muted-foreground/60">{subtext}</p>
+      )}
       <input
         ref={inputRef}
         type="text"
         disabled={disabled}
-        placeholder={hint}
+        placeholder={`${hint} — press Enter to add`}
         onKeyDown={onKeyDown}
         className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
       />
@@ -401,8 +437,6 @@ function DocumentTypeCard({
   deleting: boolean;
   disabled: boolean;
 }) {
-  const usedInSets = dt._count?.documentSetItems ?? 0;
-
   return (
     <Card className={disabled ? "opacity-60 pointer-events-none" : ""}>
       <CardContent className="flex items-start justify-between gap-4 pt-6">
@@ -421,7 +455,7 @@ function DocumentTypeCard({
 
           {dt.aliases.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-xs text-muted-foreground/60">Aliases:</span>
+              <span className="text-[11px] text-muted-foreground/60">Aliases:</span>
               {dt.aliases.map((alias, i) => (
                 <span
                   key={`${alias}-${i}`}
@@ -435,7 +469,7 @@ function DocumentTypeCard({
 
           {dt.requiredFields.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-xs text-muted-foreground/60">Required:</span>
+              <span className="text-[11px] text-muted-foreground/60">Validates:</span>
               {dt.requiredFields.map((field, i) => (
                 <span
                   key={`${field}-${i}`}
@@ -445,12 +479,6 @@ function DocumentTypeCard({
                 </span>
               ))}
             </div>
-          )}
-
-          {usedInSets > 0 && (
-            <p className="text-xs text-muted-foreground">
-              Used in {usedInSets} document set{usedInSets !== 1 ? "s" : ""}
-            </p>
           )}
         </div>
 

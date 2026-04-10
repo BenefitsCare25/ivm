@@ -22,7 +22,6 @@ export async function POST(
 
     const body = await req.json().catch(() => ({}));
     const expectedDocumentTypeId = typeof body.expectedDocumentTypeId === "string" ? body.expectedDocumentTypeId : null;
-    const expectedDocumentSetId = typeof body.expectedDocumentSetId === "string" ? body.expectedDocumentSetId : null;
 
     // Create scrape session
     const scrapeSession = await db.scrapeSession.create({
@@ -30,7 +29,6 @@ export async function POST(
         portalId: id,
         triggeredBy: "MANUAL",
         expectedDocumentTypeId,
-        expectedDocumentSetId,
       },
     });
 
