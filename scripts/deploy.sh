@@ -23,6 +23,10 @@ echo "Deploying on VPS..."
 ssh -i "$KEY" "$VPS" "
   set -e
   cd /var/www/ivm
+
+  # Remove pages that no longer exist locally (tar extract won't delete old files)
+  rm -rf src/app/\(dashboard\)/intelligence/document-sets
+
   tar xzf /tmp/ivm-deploy.tar.gz
 
   # Always symlink .env to persistent config — survives every deploy
