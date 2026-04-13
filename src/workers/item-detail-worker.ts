@@ -232,23 +232,28 @@ async function processItemDetailCore(
               }),
             ]);
           }
-
-          // Doc type mismatch check — runs regardless of whether classification succeeded
-          const expectedDocTypeId = item.scrapeSession.expectedDocumentTypeId;
-          if (expectedDocTypeId) {
-            const expectedDocType = cachedDocTypes?.find((dt) => dt.id === expectedDocTypeId);
-            if (expectedDocType) {
-              await checkDocTypeMatch(
-                classification.documentTypeId,
-                classification.documentTypeName,
-                expectedDocTypeId,
-                expectedDocType.name,
-                { trackedItemId }
-              );
-            }
-          }
         } catch (intErr) {
           logger.warn({ err: intErr, fileName: ext.fileName }, "[worker] Intelligence pipeline error (non-fatal)");
+        }
+      }
+
+      // Doc type mismatch — once per item using the first classified file
+      const expectedDocTypeId = item.scrapeSession.expectedDocumentTypeId;
+      const expectedDocType = expectedDocTypeId
+        ? cachedDocTypes?.find((dt) => dt.id === expectedDocTypeId)
+        : undefined;
+      if (expectedDocTypeId && expectedDocType) {
+        const primary = classifiedDocs[0];
+        try {
+          await checkDocTypeMatch(
+            primary?.documentTypeId ?? null,
+            primary?.documentTypeName ?? null,
+            expectedDocTypeId,
+            expectedDocType.name,
+            { trackedItemId }
+          );
+        } catch (intErr) {
+          logger.warn({ err: intErr }, "[worker] Doc type match check error (non-fatal)");
         }
       }
 

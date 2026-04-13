@@ -19,6 +19,7 @@ import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import { ItemStatusBadge } from "./portal-status-badge";
 import { ItemEventTimeline } from "./item-event-timeline";
 import type { TrackedItemStatus, FieldComparison, ComparisonFieldStatus } from "@/types/portal";
+import { FWA_LABELS } from "@/types/portal";
 
 interface ItemFile {
   id: string;
@@ -39,15 +40,6 @@ interface FwaAlert {
   message: string;
 }
 
-const FWA_LABELS: Record<string, string> = {
-  TAMPERING: "Tampering",
-  ANOMALY: "Anomaly",
-  DUPLICATE: "Duplicate",
-  DOCUMENT_METADATA: "Metadata",
-  VISUAL_FORENSICS: "Forgery",
-  ARITHMETIC_INCONSISTENCY: "Math Error",
-  DOC_TYPE_MATCH: "Wrong Doc Type",
-};
 
 interface TableItem {
   id: string;

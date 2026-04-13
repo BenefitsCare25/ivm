@@ -6,17 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { ComparisonStatusBadge } from "./portal-status-badge";
 import { formatFieldLabel } from "@/lib/utils";
 import type { TrackedItemStatus, ComparisonFieldStatus } from "@/types/portal";
-
-const FWA_RULE_TYPES = new Set(["TAMPERING", "ANOMALY", "DUPLICATE", "DOCUMENT_METADATA", "VISUAL_FORENSICS", "ARITHMETIC_INCONSISTENCY"]);
-
-const FWA_RULE_LABELS: Record<string, string> = {
-  TAMPERING: "Tampering",
-  ANOMALY: "Anomaly",
-  DUPLICATE: "Duplicate",
-  DOCUMENT_METADATA: "Metadata",
-  VISUAL_FORENSICS: "Visual Forgery",
-  ARITHMETIC_INCONSISTENCY: "Math Error",
-};
+import { FWA_RULE_TYPES, FWA_LABELS as FWA_RULE_LABELS } from "@/types/portal";
 
 interface FileData {
   id: string;

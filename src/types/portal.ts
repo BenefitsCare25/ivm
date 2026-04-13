@@ -13,10 +13,31 @@ export const TRACKED_ITEM_STATUSES = [
 ] as const;
 export type TrackedItemStatus = (typeof TRACKED_ITEM_STATUSES)[number];
 
+export const TERMINAL_ITEM_STATUSES = [
+  "COMPARED", "FLAGGED", "VERIFIED", "ERROR", "SKIPPED",
+] as const satisfies ReadonlyArray<TrackedItemStatus>;
+
 export const COMPARISON_FIELD_STATUSES = [
   "MATCH", "MISMATCH", "MISSING_IN_PDF", "MISSING_ON_PAGE", "UNCERTAIN",
 ] as const;
 export type ComparisonFieldStatus = (typeof COMPARISON_FIELD_STATUSES)[number];
+
+// ─── FWA / Validation Alert Display ──────────────────────────────
+
+export const FWA_RULE_TYPES = new Set([
+  "TAMPERING", "ANOMALY", "DUPLICATE", "DOCUMENT_METADATA",
+  "VISUAL_FORENSICS", "ARITHMETIC_INCONSISTENCY", "DOC_TYPE_MATCH",
+]);
+
+export const FWA_LABELS: Record<string, string> = {
+  TAMPERING: "Tampering",
+  ANOMALY: "Anomaly",
+  DUPLICATE: "Duplicate",
+  DOCUMENT_METADATA: "Metadata",
+  VISUAL_FORENSICS: "Forgery",
+  ARITHMETIC_INCONSISTENCY: "Math Error",
+  DOC_TYPE_MATCH: "Wrong Doc Type",
+};
 
 // ─── Selector Configurations (stored as JSON on Portal) ─────────
 
