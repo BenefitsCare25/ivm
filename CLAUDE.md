@@ -168,56 +168,36 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Click-discovery**: When no `detailLinkSelector` and no `href` links, detect `cursor:pointer` rows → Phase 1: extract data; Phase 2 (post-loop): click first row, wait for URL change via `waitForFunction((orig) => location.href !== orig)`, extract URL pattern, apply to all rows, `goBack()`
 - **SPA navigation**: Use `waitForFunction((orig) => location.href !== orig, currentUrl)` — NOT `waitForNavigation()` (SPA routing doesn't fire navigation events)
 
-### Intelligence Hub (All Phases — Fully Implemented)
-- **Purpose**: User-configurable document classification, validation, business rules, extraction templates, reference data, and analytics. Zero hardcoded business logic.
+### Intelligence (Monitoring Only)
+- **Purpose**: Document classification, validation monitoring, and analytics. Phases 2-4 (Reference Data, Mapping Rules, Business Rules, Extraction Config) had UI/APIs removed — Prisma models remain in schema but are unused.
 - **Portal Tracker only**: All intelligence features run in Portal Tracker scrape sessions only. Auto Form has no intelligence integration.
-- **Sidebar**: Brain icon → `/intelligence` hub page with 7 clickable cards (all live)
-- **Migrations**: `20260410200000_add_intelligence_hub` (all tables), `20260411000000_add_expected_doc_type_to_scrape_session` (ScrapeSession optional type/set fields)
+- **Sidebar**: Brain icon → `/intelligence` hub page with 3 cards: Document Types, Dashboard, Validation History
+- **Migrations**: `20260410200000_add_intelligence_hub` (all tables), `20260411000000_add_expected_doc_type_to_scrape_session`, `20260413100000_add_default_doc_type_to_portal`
 
-#### Phase 1 — Document Classification (Types)
-- **Page**: `/intelligence/document-types` — renders `DocumentTypeList` directly (no tabs; Document Sets removed)
-- **Prisma models**: `DocumentType`, `ValidationResult` (trackedItemId?, ruleType, status PASS/FAIL/WARNING, message, metadata JSON). `DocumentSet`/`DocumentSetItem` models remain in schema but are unused.
-- **ScrapeSession fields**: `expectedDocumentTypeId?` — set at scrape creation via modal (optional). `expectedDocumentSetId` field remains in DB schema but is never populated.
-- **Scrape modal**: `ScrapeSessionModal` — single optional "Expected Document Type" dropdown; passes `expectedDocumentTypeId` to `POST /api/portals/[id]/scrape` body
-- **API routes**: `GET/POST /api/intelligence/document-types`, `PATCH/DELETE /api/intelligence/document-types/[id]`. Document-sets routes return 410.
-- **Validation API**: `GET /api/portals/[id]/scrape/[sessionId]/items/[itemId]/validations` (Portal Tracker only — fill session validation route was removed)
+#### Document Classification (Types)
+- **Page**: `/intelligence/document-types` — renders `DocumentTypeList` directly
+- **Prisma models**: `DocumentType`, `ValidationResult` (trackedItemId?, ruleType, status PASS/FAIL/WARNING, message, metadata JSON)
+- **ScrapeSession fields**: `expectedDocumentTypeId?` — set at scrape creation via modal (optional, pre-selected from portal default)
+- **Portal default**: `Portal.defaultDocumentTypeId` — optional FK to `DocumentType`, configurable via dropdown card on portal detail page. `ScrapeSessionModal` pre-selects this value.
+- **API routes**: `GET/POST /api/intelligence/document-types`, `PATCH/DELETE /api/intelligence/document-types/[id]`
+- **Validation API**: `GET /api/portals/[id]/scrape/[sessionId]/items/[itemId]/validations`
 - **Runtime lib** (`src/lib/intelligence/`):
   - `classifier.ts` — `fetchDocTypes(userId)` pre-fetches once; `classifyDocumentTypeFromCache(aiDocType, docTypes)` pure Jaro-Winkler fuzzy match on name + aliases
-  - `validator.ts` — `validateRequiredFields(docType, extractedFields, options)` checks required field names exist in extracted data
+  - `validator.ts` — `validateRequiredFields(docType, extractedFields, options)` checks required field names; `checkDocTypeMatch(classifiedTypeId, classifiedTypeName, expectedTypeId, expectedTypeName, options)` persists `DOC_TYPE_MATCH` FAIL/WARNING when classified type differs from expected
   - `deduplicator.ts` — `checkDuplicate(userId, documentTypeId, keyFields, extractedFields, options)` SHA-256 hashes key field values, 90-day lookback
-- **Worker integration** (`item-detail-worker.ts`): Non-fatal pipeline — classify → validate required fields → check duplicate. Never blocks comparison pipeline.
-- **DocumentType fields used in pipeline**: `name` + `aliases` (classifier fuzzy match), `requiredFields` (field presence validation), `isActive` (filter). `category` is display-only.
-- **Key constraint**: `ValidationResult` has no `userId` — always scope queries via trackedItemId→TrackedItem→ScrapeSession→Portal.userId (fillSessionId field exists on model but is never populated)
+- **Worker integration** (`item-detail-worker.ts`): Non-fatal pipeline — classify → validate required fields → check duplicate → check doc type match (once per item, after file loop, uses first classified file). Never blocks comparison pipeline.
+- **Doc type mismatch badge**: After processing, if `scrapeSession.expectedDocumentTypeId` is set and the downloaded PDF was classified as a different type (or couldn't be classified), a `ValidationResult` with `ruleType: "DOC_TYPE_MATCH"` is written. Status `"FAIL"` = wrong type; `"WARNING"` = unrecognised type.
+- **FWA display constants**: `FWA_RULE_TYPES` (Set) and `FWA_LABELS` (Record) in `src/types/portal.ts` — shared by `TrackedItemsTable` and `ItemDetailView`. Adding a new alert type requires updating only this one location.
+- **Session items table**: DOC_TYPE_MATCH surfaces as a red/amber "Wrong Doc Type" badge in the FWA column alongside Tampering/Anomaly/etc. Tooltip shows the mismatch message.
+- **Key constraint**: `ValidationResult` has no `userId` — always scope queries via trackedItemId→TrackedItem→ScrapeSession→Portal.userId
+- **Item detail view**: Validation results displayed below comparison result card when present (PASS/FAIL/WARNING icons + rule type badge)
 
-#### Phase 2 — Reference Data & Mapping Rules
-- **Prisma models**: `ReferenceDataset` (columns JSON, rowCount, sourceType, version), `ReferenceEntry` (data JSON, searchText), `CodeMappingRule` (sourceFieldLabel, lookupColumn, outputColumn, matchStrategy: exact/fuzzy/contains/ai)
-- **API routes**: `GET/POST /api/intelligence/datasets`, `PATCH/DELETE /api/intelligence/datasets/[id]`, `GET/POST/DELETE /api/intelligence/datasets/[id]/entries` (bulk CSV import), `GET/POST /api/intelligence/mapping-rules`, `PATCH/DELETE /api/intelligence/mapping-rules/[id]`
-- **UI**: `reference-dataset-list.tsx` (CSV paste import per dataset), `code-mapping-rule-list.tsx` (lookup/output columns auto-populate from selected dataset)
-- **Pages**: `/intelligence/datasets`, `/intelligence/mapping-rules`
-- **Validations**: `src/lib/validations/intelligence-phase2.ts`
+#### Dashboard
+- **Page**: `/intelligence/dashboard` — 2 stat cards (Document Types, Validations 7d), recent validation list, getting-started empty state
 
-#### Phase 3 — Business Rules Engine
-- **Prisma models**: `BusinessRule` (triggerPoint: POST_EXTRACTION/POST_COMPARISON/POST_MAPPING, conditions JSON, actions JSON, scope JSON, runCount), `RuleExecution` (triggered, actionsRun, inputSnapshot)
-- **API routes**: `GET/POST /api/intelligence/rules`, `GET/PATCH/DELETE /api/intelligence/rules/[id]`
-- **UI**: `business-rule-list.tsx` — inline condition builder (AND/OR logic, field/operator/value per condition) and action builder (FLAG/SET_STATUS/ADD_NOTE/SET_FIELD/ESCALATE/SKIP)
-- **Page**: `/intelligence/rules`
-- **Validations**: `src/lib/validations/intelligence-phase3.ts`
-
-#### Phase 4 — Extraction Config
-- **Prisma models**: `ExtractionTemplate` (documentTypeId?, expectedFields JSON array of {label,fieldType,required,aliases}), `NormalizationRule` (fieldType, pattern?, outputFormat), `EscalationConfig` (confidenceThreshold, autoFlagLowConfidence, escalationMessage) — one per user via `@@unique([userId])`
-- **API routes**: `GET/POST /api/intelligence/extraction-templates`, `PATCH/DELETE /api/intelligence/extraction-templates/[id]`, same for normalization-rules, `GET/PUT /api/intelligence/escalation-config` (upsert)
-- **UI**: `extraction-config.tsx` — three-tab component (Templates | Normalization | Escalation) all on one page
-- **Page**: `/intelligence/extraction`
-- **Validations**: `src/lib/validations/intelligence-phase4.ts`
-
-#### Phase 5 — Dashboard
-- **Page**: `/intelligence/dashboard` — 6 stat cards (Doc Types, Doc Sets → links to `/intelligence/document-types`, Business Rules, Extraction Templates, Validations 7d, Rules Executed), recent validation list, getting-started empty state
-- **API**: `GET /api/intelligence/metrics` — parallel aggregation of all counts + 7-day validation groupBy (Portal Tracker only)
-
-#### Phase 6 — Validation History (Audit)
+#### Validation History (Audit)
 - **Page**: `/intelligence/audit` — shows recent `ValidationResult` records scoped to user's tracked items (Portal Tracker only), ordered newest first
 - **API**: `GET /api/intelligence/audit` — trackedItem-scoped with pagination (?page, ?limit)
-- **Note**: Uses `ValidationResult` (not `AuditEvent` — that model is scoped to `FillSession` fill events only)
 
 ## Deployment
 
