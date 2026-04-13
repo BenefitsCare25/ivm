@@ -15,6 +15,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import { ItemStatusBadge } from "./portal-status-badge";
 import { ItemEventTimeline } from "./item-event-timeline";
 import type { TrackedItemStatus, FieldComparison, ComparisonFieldStatus } from "@/types/portal";
@@ -35,6 +36,7 @@ interface ComparisonSummary {
 interface FwaAlert {
   ruleType: string;
   status: string;
+  message: string;
 }
 
 const FWA_LABELS: Record<string, string> = {
@@ -241,6 +243,7 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
   const columnCount = previewKeys.length + 5; // expand + ID + Status + FWA + preview cols + Docs
 
   return (
+    <TooltipProvider>
     <div className="rounded-lg border border-border overflow-hidden">
       <table className="w-full text-sm">
         <thead>
@@ -305,16 +308,18 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
 
                   <td className="whitespace-nowrap px-3 py-2.5">
                     {item.fwaAlert ? (
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-                          item.fwaAlert.status === "FAIL"
-                            ? "bg-status-error/10 text-status-error"
-                            : "bg-amber-500/10 text-amber-500"
-                        }`}
-                      >
-                        <ShieldAlert className="h-3 w-3 shrink-0" />
-                        {FWA_LABELS[item.fwaAlert.ruleType] ?? item.fwaAlert.ruleType}
-                      </span>
+                      <Tooltip content={item.fwaAlert.message} side="right">
+                        <span
+                          className={`inline-flex cursor-default items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+                            item.fwaAlert.status === "FAIL"
+                              ? "bg-status-error/10 text-status-error"
+                              : "bg-amber-500/10 text-amber-500"
+                          }`}
+                        >
+                          <ShieldAlert className="h-3 w-3 shrink-0" />
+                          {FWA_LABELS[item.fwaAlert.ruleType] ?? item.fwaAlert.ruleType}
+                        </span>
+                      </Tooltip>
                     ) : (
                       <span className="text-xs text-muted-foreground/40">—</span>
                     )}
@@ -355,5 +360,6 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
         </tbody>
       </table>
     </div>
+    </TooltipProvider>
   );
 }

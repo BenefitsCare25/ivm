@@ -72,13 +72,13 @@ export default async function SessionItemsPage({
           trackedItemId: { in: itemIds },
           ruleType: { in: ["TAMPERING", "ANOMALY", "DUPLICATE"] },
         },
-        select: { trackedItemId: true, ruleType: true, status: true },
+        select: { trackedItemId: true, ruleType: true, status: true, message: true },
       })
     : [];
 
   // Build per-item worst signal: FAIL beats WARNING; TAMPERING > DUPLICATE > ANOMALY
   const FWA_PRIORITY: Record<string, number> = { TAMPERING: 3, DUPLICATE: 2, ANOMALY: 1 };
-  const fwaByItem = new Map<string, { ruleType: string; status: string }>();
+  const fwaByItem = new Map<string, { ruleType: string; status: string; message: string }>();
   for (const r of fwaResults) {
     if (!r.trackedItemId) continue;
     const existing = fwaByItem.get(r.trackedItemId);
@@ -86,7 +86,7 @@ export default async function SessionItemsPage({
     const exScore = existing
       ? (existing.status === "FAIL" ? 100 : 0) + (FWA_PRIORITY[existing.ruleType] ?? 0)
       : -1;
-    if (newScore > exScore) fwaByItem.set(r.trackedItemId, { ruleType: r.ruleType, status: r.status });
+    if (newScore > exScore) fwaByItem.set(r.trackedItemId, { ruleType: r.ruleType, status: r.status, message: r.message });
   }
 
   const statusCounts = await db.trackedItem.groupBy({
