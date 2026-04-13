@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { createChildLogger } from "@/lib/logger";
+import { toInputJson } from "@/lib/utils";
 import type { AIProvider } from "@/lib/ai/types";
 
 const log = createChildLogger({ module: "intelligence-forensics" });
@@ -20,7 +21,7 @@ const SUSPICIOUS_PRODUCERS = [
  * Examines PDF document metadata for signs of post-creation editing:
  * - Creator is a raster/graphics editor (Photoshop, GIMP)
  * - Producer is an online PDF manipulation tool
- * - Modification date is suspiciously newer than creation date
+ * - Modification date suspiciously newer than creation date
  *
  * Creates a DOCUMENT_METADATA ValidationResult (WARNING or FAIL).
  * Always non-fatal — never throws.
@@ -36,8 +37,7 @@ export async function checkPdfMetadata(
     try {
       pdfDoc = await PDFDocument.load(fileBuffer, { ignoreEncryption: true });
     } catch {
-      // Malformed or encrypted PDF — skip metadata check
-      return;
+      return; // Malformed or encrypted PDF
     }
 
     const creator = pdfDoc.getCreator()?.toLowerCase() ?? "";
@@ -48,25 +48,20 @@ export async function checkPdfMetadata(
     const findings: string[] = [];
     let severity: "WARNING" | "FAIL" = "WARNING";
 
-    // Check for image/graphics editor as document creator
-    const suspiciousCreator = SUSPICIOUS_CREATORS.find((s) => creator.includes(s));
-    if (suspiciousCreator) {
+    if (SUSPICIOUS_CREATORS.some((s) => creator.includes(s))) {
       findings.push(
         `Document was created with "${pdfDoc.getCreator()}" — a graphics editor, not a document authoring tool`
       );
       severity = "FAIL";
     }
 
-    // Check for suspicious online PDF editor as producer
-    const suspiciousProducer = SUSPICIOUS_PRODUCERS.find((s) => producer.includes(s));
-    if (suspiciousProducer) {
+    if (SUSPICIOUS_PRODUCERS.some((s) => producer.includes(s))) {
       findings.push(
         `Document was produced by "${pdfDoc.getProducer()}" — an online PDF editor commonly used to modify documents`
       );
       severity = "FAIL";
     }
 
-    // Check for suspicious modification gap (> 30 days after creation)
     if (creationDate && modDate) {
       const gapDays = Math.round(
         (modDate.getTime() - creationDate.getTime()) / (1000 * 60 * 60 * 24)
@@ -87,16 +82,14 @@ export async function checkPdfMetadata(
         ruleType: "DOCUMENT_METADATA",
         status: severity,
         message: findings.join("; "),
-        metadata: JSON.parse(
-          JSON.stringify({
-            fileName,
-            creator: pdfDoc.getCreator() ?? null,
-            producer: pdfDoc.getProducer() ?? null,
-            creationDate: creationDate?.toISOString() ?? null,
-            modificationDate: modDate?.toISOString() ?? null,
-            findings,
-          })
-        ),
+        metadata: toInputJson({
+          fileName,
+          creator: pdfDoc.getCreator() ?? null,
+          producer: pdfDoc.getProducer() ?? null,
+          creationDate: creationDate?.toISOString() ?? null,
+          modificationDate: modDate?.toISOString() ?? null,
+          findings,
+        }),
       },
     });
 
@@ -131,6 +124,29 @@ interface ForensicsResult {
   summary: string;
 }
 
+const CONFIDENCE_VALUES = new Set<string>(["low", "medium", "high"]);
+
+function parseForensicsResponse(raw: string): ForensicsResult | null {
+  try {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]) as Partial<ForensicsResult>;
+    if (typeof parsed.suspicious !== "boolean") return null;
+    return {
+      suspicious: parsed.suspicious,
+      confidence: CONFIDENCE_VALUES.has(parsed.confidence ?? "")
+        ? (parsed.confidence as "low" | "medium" | "high")
+        : "low",
+      findings: Array.isArray(parsed.findings)
+        ? parsed.findings.filter((f): f is string => typeof f === "string")
+        : [],
+      summary: typeof parsed.summary === "string" ? parsed.summary : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function callForensicsAI(
   fileBuffer: Buffer,
   mimeType: string,
@@ -148,27 +164,17 @@ async function callForensicsAI(
     const Anthropic = (await import("@anthropic-ai/sdk")).default;
     const client = new Anthropic({ apiKey });
 
-    const content: Parameters<typeof client.messages.create>[0]["messages"][0]["content"] = [];
-
-    if (isPdf) {
-      content.push({
-        type: "document",
-        source: { type: "base64", media_type: "application/pdf", data: base64 },
-      } as never);
-    } else {
-      content.push({
-        type: "image",
-        source: { type: "base64", media_type: mimeType as "image/png" | "image/jpeg" | "image/webp", data: base64 },
-      });
-    }
-    content.push({ type: "text", text: "Analyze this document for signs of forgery or alteration." });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mediaBlock: any = isPdf
+      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } }
+      : { type: "image", source: { type: "base64", media_type: mimeType, data: base64 } };
 
     const response = await client.messages.create(
       {
         model: model ?? "claude-opus-4-6",
         max_tokens: 1024,
         system: FORENSICS_SYSTEM_PROMPT,
-        messages: [{ role: "user", content }],
+        messages: [{ role: "user", content: [mediaBlock, { type: "text", text: "Analyze this document for signs of forgery or alteration." }] }],
       },
       { signal: AbortSignal.timeout(30_000) }
     );
@@ -191,10 +197,7 @@ async function callForensicsAI(
           {
             role: "user",
             content: [
-              {
-                type: "image_url",
-                image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" },
-              },
+              { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" } },
               { type: "text", text: "Analyze this document for signs of forgery or alteration." },
             ],
           },
@@ -203,8 +206,7 @@ async function callForensicsAI(
       { signal: AbortSignal.timeout(30_000) }
     );
 
-    const text = response.choices[0]?.message?.content ?? "";
-    return parseForensicsResponse(text);
+    return parseForensicsResponse(response.choices[0]?.message?.content ?? "");
 
   } else if (provider === "gemini") {
     const { GoogleGenerativeAI } = await import("@google/generative-ai");
@@ -213,41 +215,19 @@ async function callForensicsAI(
 
     const result = await geminiModel.generateContent({
       systemInstruction: FORENSICS_SYSTEM_PROMPT,
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { inlineData: { mimeType, data: base64 } },
-            { text: "Analyze this document for signs of forgery or alteration." },
-          ],
-        },
-      ],
+      contents: [{
+        role: "user",
+        parts: [
+          { inlineData: { mimeType, data: base64 } },
+          { text: "Analyze this document for signs of forgery or alteration." },
+        ],
+      }],
     });
 
-    const text = result.response.text();
-    return parseForensicsResponse(text);
+    return parseForensicsResponse(result.response.text());
   }
 
   return null;
-}
-
-function parseForensicsResponse(raw: string): ForensicsResult | null {
-  try {
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    const parsed = JSON.parse(match[0]) as Partial<ForensicsResult>;
-    if (typeof parsed.suspicious !== "boolean") return null;
-    return {
-      suspicious: parsed.suspicious,
-      confidence: (["low", "medium", "high"] as const).includes(parsed.confidence as never)
-        ? (parsed.confidence as "low" | "medium" | "high")
-        : "low",
-      findings: Array.isArray(parsed.findings) ? parsed.findings.filter((f) => typeof f === "string") : [],
-      summary: typeof parsed.summary === "string" ? parsed.summary : "",
-    };
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -269,25 +249,15 @@ export async function checkVisualForensics(
 ): Promise<void> {
   try {
     const result = await callForensicsAI(fileBuffer, mimeType, provider, apiKey, model);
-
     if (!result || !result.suspicious || result.confidence === "low") return;
-
-    const severity = result.confidence === "high" ? "FAIL" : "WARNING";
 
     await db.validationResult.create({
       data: {
         trackedItemId,
         ruleType: "VISUAL_FORENSICS",
-        status: severity,
+        status: result.confidence === "high" ? "FAIL" : "WARNING",
         message: result.summary || result.findings.join("; ") || "AI detected visual signs of document alteration",
-        metadata: JSON.parse(
-          JSON.stringify({
-            fileName,
-            confidence: result.confidence,
-            findings: result.findings,
-            provider,
-          })
-        ),
+        metadata: toInputJson({ fileName, confidence: result.confidence, findings: result.findings, provider }),
       },
     });
 
@@ -308,18 +278,13 @@ const SERVICE_DATE_HINTS = ["date of service", "service date", "dos", "treatment
 const SUBMISSION_DATE_HINTS = ["submission date", "received date", "claim date", "date submitted", "date received"];
 
 function parseAmount(value: string): number | null {
-  const cleaned = value.replace(/[^0-9.-]/g, "");
-  const n = parseFloat(cleaned);
+  const n = parseFloat(value.replace(/[^0-9.-]/g, ""));
   return isNaN(n) || n < 0 ? null : n;
 }
 
 function parseDate(value: string): Date | null {
-  try {
-    const d = new Date(value);
-    return isNaN(d.getTime()) ? null : d;
-  } catch {
-    return null;
-  }
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
 }
 
 function matchesHints(key: string, hints: string[]): boolean {
@@ -337,58 +302,50 @@ function matchesHints(key: string, hints: string[]): boolean {
  */
 export async function checkArithmeticConsistency(
   trackedItemId: string,
-  fields: Record<string, string>,
-  fileName?: string
+  fields: Record<string, string>
 ): Promise<void> {
   try {
     const findings: string[] = [];
 
-    // ── Total vs line items check ────────────────────────────────
     let totalValue: number | null = null;
     let totalKey: string | null = null;
     const lineAmounts: { key: string; value: number }[] = [];
+    let serviceDate: Date | null = null;
+    let serviceDateKey: string | null = null;
+    let submissionDate: Date | null = null;
+    let submissionDateKey: string | null = null;
 
+    // Single pass: collect totals, line amounts, and dates simultaneously
     for (const [key, raw] of Object.entries(fields)) {
       const amount = parseAmount(raw);
-      if (amount === null) continue;
-
-      if (matchesHints(key, TOTAL_HINTS)) {
-        // Use the largest-valued "total" field as the authoritative total
-        if (totalValue === null || amount > totalValue) {
-          totalValue = amount;
-          totalKey = key;
+      if (amount !== null) {
+        if (matchesHints(key, TOTAL_HINTS)) {
+          if (totalValue === null || amount > totalValue) {
+            totalValue = amount;
+            totalKey = key;
+          }
+        } else if (matchesHints(key, LINE_AMOUNT_HINTS)) {
+          lineAmounts.push({ key, value: amount });
         }
-      } else if (matchesHints(key, LINE_AMOUNT_HINTS)) {
-        lineAmounts.push({ key, value: amount });
+      }
+
+      if (!serviceDate && matchesHints(key, SERVICE_DATE_HINTS)) {
+        const d = parseDate(raw);
+        if (d) { serviceDate = d; serviceDateKey = key; }
+      } else if (!submissionDate && matchesHints(key, SUBMISSION_DATE_HINTS)) {
+        const d = parseDate(raw);
+        if (d) { submissionDate = d; submissionDateKey = key; }
       }
     }
 
     if (totalValue !== null && lineAmounts.length >= 2) {
       const sum = lineAmounts.reduce((acc, { value }) => acc + value, 0);
       const discrepancy = Math.abs(sum - totalValue);
-      const tolerance = totalValue * 0.02; // 2% rounding tolerance
-
-      if (discrepancy > tolerance && discrepancy > 0.5) {
+      if (discrepancy > totalValue * 0.02 && discrepancy > 0.5) {
         findings.push(
           `"${totalKey}" (${totalValue.toFixed(2)}) does not match sum of line items ` +
           `(${sum.toFixed(2)}; difference: ${discrepancy.toFixed(2)})`
         );
-      }
-    }
-
-    // ── Date logic check ─────────────────────────────────────────
-    let serviceDate: Date | null = null;
-    let serviceDateKey: string | null = null;
-    let submissionDate: Date | null = null;
-    let submissionDateKey: string | null = null;
-
-    for (const [key, raw] of Object.entries(fields)) {
-      if (matchesHints(key, SERVICE_DATE_HINTS) && !serviceDate) {
-        const d = parseDate(raw);
-        if (d) { serviceDate = d; serviceDateKey = key; }
-      } else if (matchesHints(key, SUBMISSION_DATE_HINTS) && !submissionDate) {
-        const d = parseDate(raw);
-        if (d) { submissionDate = d; submissionDateKey = key; }
       }
     }
 
@@ -407,19 +364,16 @@ export async function checkArithmeticConsistency(
         ruleType: "ARITHMETIC_INCONSISTENCY",
         status: "FAIL",
         message: findings.join("; "),
-        metadata: JSON.parse(
-          JSON.stringify({
-            fileName: fileName ?? null,
-            findings,
-            totalField: totalKey,
-            totalValue,
-            lineAmountCount: lineAmounts.length,
-          })
-        ),
+        metadata: toInputJson({
+          findings,
+          totalField: totalKey,
+          totalValue,
+          lineAmountCount: lineAmounts.length,
+        }),
       },
     });
 
-    log.warn({ trackedItemId, fileName, findings }, "[forensics] Arithmetic inconsistency detected");
+    log.warn({ trackedItemId, findings }, "[forensics] Arithmetic inconsistency detected");
   } catch (err) {
     log.warn({ err, trackedItemId }, "[forensics] Arithmetic check failed (non-fatal)");
   }
