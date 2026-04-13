@@ -9,19 +9,9 @@ import { FormError } from "@/components/ui/form-error";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ArrowRight, ArrowLeft, Check, Sparkles, Cookie, KeyRound, AlertTriangle, ExternalLink, ChevronDown, CheckCircle2, RefreshCw } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
-import { detectExtension, captureCookiesFromExtension, syncExtensionConfig } from "@/lib/extension";
+import { detectExtension, captureCookiesFromExtension, syncExtensionConfig, mapChromeCookies } from "@/lib/extension";
 import type { ExtensionCookie } from "@/lib/extension";
 import type { ListSelectors, DetailSelectors } from "@/types/portal";
-
-/** Map Chrome extension sameSite values to the format expected by the Zod schema */
-function mapSameSite(v?: string): "Strict" | "Lax" | "None" | undefined {
-  switch (v) {
-    case "strict": return "Strict";
-    case "lax": return "Lax";
-    case "no_restriction": return "None";
-    default: return undefined;
-  }
-}
 
 function normalizeUrl(url: string): string {
   const trimmed = url.trim();
@@ -29,29 +19,13 @@ function normalizeUrl(url: string): string {
   return trimmed;
 }
 
-/** Transform Chrome extension cookies to the format expected by the save API */
-function mapChromeCookies(cookies: ExtensionCookie[]) {
-  return cookies.map((c) => ({
-    name: c.name,
-    value: c.value,
-    domain: c.domain,
-    path: c.path || "/",
-    // Chrome API returns `expirationDate` (seconds); our Zod schema expects `expires`
-    expires: c.expires ?? c.expirationDate,
-    httpOnly: c.httpOnly,
-    secure: c.secure,
-    sameSite: mapSameSite(c.sameSite),
-  }));
-}
-
-type WizardStep = "url" | "auth" | "analyze" | "selectors" | "save";
+type WizardStep = "url" | "auth" | "analyze" | "selectors";
 
 const STEPS: { key: WizardStep; label: string }[] = [
   { key: "url", label: "Portal URL" },
   { key: "auth", label: "Authentication" },
   { key: "analyze", label: "AI Analysis" },
   { key: "selectors", label: "Confirm Selectors" },
-  { key: "save", label: "Save" },
 ];
 
 const WIZARD_KEY = "ivm_portal_wizard";
@@ -298,8 +272,6 @@ export function PortalSetupWizard() {
         setStep("selectors");
       } else if (step === "selectors") {
         if (portalId) await saveSelectors(portalId);
-        setStep("save");
-      } else if (step === "save") {
         sessionStorage.removeItem(WIZARD_KEY);
         router.push(`/portals/${portalId}`);
       }
@@ -635,20 +607,6 @@ export function PortalSetupWizard() {
             </>
           )}
 
-          {step === "save" && (
-            <div className="flex flex-col items-center gap-4 py-8">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-status-success/10">
-                <Check className="h-6 w-6 text-status-success" />
-              </div>
-              <div className="text-center">
-                <h3 className="text-sm font-medium text-foreground">Portal configured</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Your portal is ready. You can trigger a scrape from the portal detail page.
-                </p>
-              </div>
-            </div>
-          )}
-
           <FormError message={error} />
 
           <div className="flex items-center justify-between pt-2">
@@ -665,8 +623,8 @@ export function PortalSetupWizard() {
             </Button>
             <Button onClick={handleNext} disabled={loading}>
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {step === "save" ? "Go to Portal" : "Next"}
-              {step !== "save" && <ArrowRight className="ml-2 h-4 w-4" />}
+              {step === "selectors" ? "Save & Go to Portal" : "Next"}
+              <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </div>
         </CardContent>

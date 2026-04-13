@@ -12,6 +12,7 @@ interface TemplateListProps {
   groupingField: string | null;
   detectedClaimTypes: string[];
   availableFields: string[];
+  refreshKey?: number;
 }
 
 // Inline field selector + rule editor for creating/editing a template
@@ -129,6 +130,7 @@ export function TemplateList({
   groupingField,
   detectedClaimTypes,
   availableFields,
+  refreshKey,
 }: TemplateListProps) {
   const [templates, setTemplates] = useState<ComparisonTemplateSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -146,12 +148,13 @@ export function TemplateList({
   const [createError, setCreateError] = useState<string | null>(null);
 
   useEffect(() => {
+    setLoading(true);
     fetch(`/api/portals/${portalId}/templates`)
       .then((r) => r.json())
       .then((data) => { if (Array.isArray(data)) setTemplates(data); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [portalId]);
+  }, [portalId, refreshKey]);
 
   async function handleDelete(templateId: string) {
     if (!confirm("Delete this template?")) return;
