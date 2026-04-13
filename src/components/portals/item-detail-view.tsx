@@ -1,10 +1,19 @@
 "use client";
 
-import { FileText, Download, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
+import { FileText, Download, CheckCircle2, XCircle, AlertTriangle, ShieldAlert, ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ComparisonStatusBadge } from "./portal-status-badge";
+import { formatFieldLabel } from "@/lib/utils";
 import type { TrackedItemStatus, ComparisonFieldStatus } from "@/types/portal";
+
+const FWA_RULE_TYPES = new Set(["TAMPERING", "ANOMALY", "DUPLICATE"]);
+
+const FWA_RULE_LABELS: Record<string, string> = {
+  TAMPERING: "Tampering",
+  ANOMALY: "Anomaly",
+  DUPLICATE: "Duplicate",
+};
 
 interface FileData {
   id: string;
@@ -46,10 +55,20 @@ interface ItemData {
   comparison: ComparisonData | null;
 }
 
+interface ValidationData {
+  id: string;
+  ruleType: string;
+  status: string;
+  message: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
 interface ItemDetailViewProps {
   item: ItemData;
   portalId: string;
   sessionId: string;
+  validations?: ValidationData[];
 }
 
 function formatBytes(bytes: number): string {
@@ -58,7 +77,13 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function ItemDetailView({ item, portalId, sessionId }: ItemDetailViewProps) {
+const VALIDATION_STATUS_ICON: Record<string, { icon: typeof CheckCircle2; cls: string }> = {
+  PASS: { icon: CheckCircle2, cls: "text-status-success" },
+  FAIL: { icon: XCircle, cls: "text-status-error" },
+  WARNING: { icon: AlertTriangle, cls: "text-amber-500" },
+};
+
+export function ItemDetailView({ item, portalId, sessionId, validations }: ItemDetailViewProps) {
   const comparison = item.comparison;
   const totalFields = comparison ? comparison.fields.length : 0;
 
@@ -254,6 +279,95 @@ export function ItemDetailView({ item, portalId, sessionId }: ItemDetailViewProp
             </CardContent>
           </Card>
         )}
+
+        {/* FWA Alerts */}
+        {(() => {
+          const fwaAlerts = validations?.filter((v) => FWA_RULE_TYPES.has(v.ruleType)) ?? [];
+          const hasFail = fwaAlerts.some((v) => v.status === "FAIL");
+          if (fwaAlerts.length === 0) return null;
+          return (
+            <Card className={hasFail ? "border-status-error/40" : "border-amber-400/40"}>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  {hasFail ? (
+                    <ShieldAlert className="h-4 w-4 text-status-error" />
+                  ) : (
+                    <ShieldAlert className="h-4 w-4 text-amber-500" />
+                  )}
+                  <CardTitle className="text-base">
+                    FWA Alerts ({fwaAlerts.length})
+                  </CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {fwaAlerts.map((v) => {
+                    const { icon: Icon, cls } = VALIDATION_STATUS_ICON[v.status] ?? {
+                      icon: AlertTriangle,
+                      cls: "text-muted-foreground",
+                    };
+                    return (
+                      <div
+                        key={v.id}
+                        className="flex items-start gap-3 rounded-lg border border-border p-3"
+                      >
+                        <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${cls}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-foreground">{v.message}</p>
+                          <Badge
+                            variant={v.status === "FAIL" ? "error" : "secondary"}
+                            className="mt-1 text-xs"
+                          >
+                            {FWA_RULE_LABELS[v.ruleType] ?? formatFieldLabel(v.ruleType)}
+                          </Badge>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
+
+        {/* Other validations */}
+        {(() => {
+          const others = validations?.filter((v) => !FWA_RULE_TYPES.has(v.ruleType)) ?? [];
+          if (others.length === 0) return null;
+          return (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Validations ({others.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {others.map((v) => {
+                    const { icon: Icon, cls } = VALIDATION_STATUS_ICON[v.status] ?? {
+                      icon: AlertTriangle,
+                      cls: "text-muted-foreground",
+                    };
+                    return (
+                      <div
+                        key={v.id}
+                        className="flex items-start gap-3 rounded-lg border border-border p-3"
+                      >
+                        <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${cls}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-foreground">{v.message}</p>
+                          <Badge variant="secondary" className="mt-1 text-xs">
+                            {formatFieldLabel(v.ruleType)}
+                          </Badge>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
       </div>
     </div>
   );

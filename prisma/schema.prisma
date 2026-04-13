@@ -329,7 +329,10 @@ model Portal {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
+  defaultDocumentTypeId String?
+
   user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  defaultDocumentType DocumentType?      @relation("PortalDefaultDocType", fields: [defaultDocumentTypeId], references: [id], onDelete: SetNull)
   credential          PortalCredential?
   scrapeSessions      ScrapeSession[]
   comparisonTemplates ComparisonTemplate[]
@@ -425,6 +428,7 @@ model TrackedItemFile {
   sizeBytes       Int
   storagePath     String
   storageProvider String   @default("local")
+  fileHash        String?
   downloadedAt    DateTime @default(now())
 
   trackedItem TrackedItem @relation(fields: [trackedItemId], references: [id], onDelete: Cascade)
@@ -482,6 +486,7 @@ model DocumentType {
   updatedAt      DateTime @updatedAt
 
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  portalsDefault   Portal[]          @relation("PortalDefaultDocType")
   documentSetItems DocumentSetItem[]
   extractionTemplates ExtractionTemplate[]
   scrapeSessions   ScrapeSession[]

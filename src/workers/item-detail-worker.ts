@@ -8,7 +8,7 @@ import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { extractFieldsFromDocument } from "@/lib/ai";
 import { compareFields } from "@/lib/ai/comparison";
 import { findMatchingTemplate, filterFieldsByTemplate } from "@/lib/comparison-templates";
-import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDuplicate } from "@/lib/intelligence";
+import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDuplicate, checkTampering, checkAnomalies } from "@/lib/intelligence";
 import type { DocTypeRecord } from "@/lib/intelligence";
 import { emitItemEvent, emitFailureEvent, withEventTracking } from "@/lib/portal-events";
 import {
@@ -19,6 +19,7 @@ import {
 } from "@/lib/queue/item-detail-queue";
 import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-queue";
 import { runStorageCleanup } from "@/lib/storage/cleanup";
+import { createHash } from "crypto";
 import type { DetailSelectors, TemplateField } from "@/types/portal";
 import type { BrowserContext, Page } from "playwright";
 
@@ -150,6 +151,14 @@ async function processItemDetailCore(
             const storage = getStorageAdapter();
             const fileBuffer = await storage.download(file.storagePath);
 
+            // Compute file hash for FWA tampering detection
+            const fileHash = createHash("sha256").update(fileBuffer).digest("hex");
+            await db.trackedItemFile.updateMany({
+              where: { trackedItemId, storagePath: file.storagePath },
+              data: { fileHash },
+            });
+            await checkTampering(trackedItemId, portalId, item.portalItemId, file.originalName, fileHash);
+
             const extraction = await extractFieldsFromDocument({
               sourceAssetId: trackedItemId,
               mimeType: file.mimeType,
@@ -220,6 +229,17 @@ async function processItemDetailCore(
         } catch (intErr) {
           logger.warn({ err: intErr, fileName: ext.fileName }, "[worker] Intelligence pipeline error (non-fatal)");
         }
+      }
+
+      // ── FWA: anomaly detection on scraped portal data ──────
+      try {
+        const allDataForAnomaly: Record<string, string> = {
+          ...(item.listData as Record<string, string>),
+          ...detailData,
+        };
+        await checkAnomalies(trackedItemId, portalId, allDataForAnomaly);
+      } catch (err) {
+        logger.warn({ err }, "[worker] Anomaly check error (non-fatal)");
       }
 
       // ── Template lookup + AI field comparison ──────────────
