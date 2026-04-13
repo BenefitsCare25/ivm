@@ -64,6 +64,31 @@ export default async function SessionItemsPage({
   });
   if (!scrapeSession) notFound();
 
+  // Fetch worst FWA signal per item (TAMPERING > DUPLICATE > ANOMALY, FAIL > WARNING)
+  const itemIds = scrapeSession.trackedItems.map((i) => i.id);
+  const fwaResults = itemIds.length > 0
+    ? await db.validationResult.findMany({
+        where: {
+          trackedItemId: { in: itemIds },
+          ruleType: { in: ["TAMPERING", "ANOMALY", "DUPLICATE"] },
+        },
+        select: { trackedItemId: true, ruleType: true, status: true },
+      })
+    : [];
+
+  // Build per-item worst signal: FAIL beats WARNING; TAMPERING > DUPLICATE > ANOMALY
+  const FWA_PRIORITY: Record<string, number> = { TAMPERING: 3, DUPLICATE: 2, ANOMALY: 1 };
+  const fwaByItem = new Map<string, { ruleType: string; status: string }>();
+  for (const r of fwaResults) {
+    if (!r.trackedItemId) continue;
+    const existing = fwaByItem.get(r.trackedItemId);
+    const newScore = (r.status === "FAIL" ? 100 : 0) + (FWA_PRIORITY[r.ruleType] ?? 0);
+    const exScore = existing
+      ? (existing.status === "FAIL" ? 100 : 0) + (FWA_PRIORITY[existing.ruleType] ?? 0)
+      : -1;
+    if (newScore > exScore) fwaByItem.set(r.trackedItemId, { ruleType: r.ruleType, status: r.status });
+  }
+
   const statusCounts = await db.trackedItem.groupBy({
     by: ["status"],
     where: { scrapeSessionId: sessionId },
@@ -169,6 +194,7 @@ export default async function SessionItemsPage({
             : null,
           createdAt: item.createdAt.toISOString(),
           updatedAt: item.updatedAt.toISOString(),
+          fwaAlert: fwaByItem.get(item.id) ?? null,
         }))}
         portalId={id}
         sessionId={sessionId}

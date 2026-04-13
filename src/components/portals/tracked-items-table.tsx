@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   XCircle,
   Download,
+  ShieldAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ItemStatusBadge } from "./portal-status-badge";
@@ -31,6 +32,17 @@ interface ComparisonSummary {
   fieldComparisons: FieldComparison[];
 }
 
+interface FwaAlert {
+  ruleType: string;
+  status: string;
+}
+
+const FWA_LABELS: Record<string, string> = {
+  TAMPERING: "Tampering",
+  ANOMALY: "Anomaly",
+  DUPLICATE: "Duplicate",
+};
+
 interface TableItem {
   id: string;
   portalItemId: string;
@@ -41,6 +53,7 @@ interface TableItem {
   errorMessage: string | null;
   files: ItemFile[];
   comparisonResult: ComparisonSummary | null;
+  fwaAlert: FwaAlert | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -225,7 +238,7 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
   }
 
   const previewKeys = Object.keys(items[0].listData).slice(0, 3);
-  const columnCount = previewKeys.length + 4;
+  const columnCount = previewKeys.length + 5; // expand + ID + Status + FWA + preview cols + Docs
 
   return (
     <div className="rounded-lg border border-border overflow-hidden">
@@ -238,6 +251,9 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
             </th>
             <th className="whitespace-nowrap px-3 py-2.5 text-left font-medium text-muted-foreground">
               Status
+            </th>
+            <th className="whitespace-nowrap px-3 py-2.5 text-left font-medium text-muted-foreground">
+              FWA
             </th>
             {previewKeys.map((key) => (
               <th
@@ -285,6 +301,23 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
                       )}
                       <ItemStatusBadge status={item.status} />
                     </div>
+                  </td>
+
+                  <td className="whitespace-nowrap px-3 py-2.5">
+                    {item.fwaAlert ? (
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+                          item.fwaAlert.status === "FAIL"
+                            ? "bg-status-error/10 text-status-error"
+                            : "bg-amber-500/10 text-amber-500"
+                        }`}
+                      >
+                        <ShieldAlert className="h-3 w-3 shrink-0" />
+                        {FWA_LABELS[item.fwaAlert.ruleType] ?? item.fwaAlert.ruleType}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground/40">—</span>
+                    )}
                   </td>
 
                   {previewKeys.map((key) => (
