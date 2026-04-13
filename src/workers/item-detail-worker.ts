@@ -8,7 +8,7 @@ import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { extractFieldsFromDocument } from "@/lib/ai";
 import { compareFields } from "@/lib/ai/comparison";
 import { findMatchingTemplate, filterFieldsByTemplate } from "@/lib/comparison-templates";
-import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDuplicate, checkTampering, checkAnomalies } from "@/lib/intelligence";
+import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDuplicate, checkTampering, checkAnomalies, checkPdfMetadata, checkVisualForensics, checkArithmeticConsistency } from "@/lib/intelligence";
 import type { DocTypeRecord } from "@/lib/intelligence";
 import { emitItemEvent, emitFailureEvent, withEventTracking } from "@/lib/portal-events";
 import {
@@ -159,6 +159,11 @@ async function processItemDetailCore(
             });
             await checkTampering(trackedItemId, portalId, item.portalItemId, file.originalName, fileHash);
 
+            // FWA: PDF metadata forensics (check for Photoshop/GIMP as creator)
+            if (file.mimeType === "application/pdf") {
+              await checkPdfMetadata(trackedItemId, fileBuffer, file.originalName);
+            }
+
             const extraction = await extractFieldsFromDocument({
               sourceAssetId: trackedItemId,
               mimeType: file.mimeType,
@@ -172,6 +177,12 @@ async function processItemDetailCore(
             for (const field of extraction.fields) {
               pdfFields[field.label] = field.value;
             }
+
+            // FWA: AI visual forensics (pixel-level forgery detection)
+            await checkVisualForensics(
+              trackedItemId, fileBuffer, file.mimeType, file.originalName,
+              provider, apiKey, visionModel
+            );
 
             fileExtractions.push({
               fileName: file.originalName,
@@ -240,6 +251,15 @@ async function processItemDetailCore(
         await checkAnomalies(trackedItemId, portalId, allDataForAnomaly);
       } catch (err) {
         logger.warn({ err }, "[worker] Anomaly check error (non-fatal)");
+      }
+
+      // ── FWA: arithmetic consistency on extracted PDF fields ──
+      if (Object.keys(pdfFields).length > 0) {
+        try {
+          await checkArithmeticConsistency(trackedItemId, pdfFields);
+        } catch (err) {
+          logger.warn({ err }, "[worker] Arithmetic check error (non-fatal)");
+        }
       }
 
       // ── Template lookup + AI field comparison ──────────────

@@ -70,7 +70,7 @@ export default async function SessionItemsPage({
     ? await db.validationResult.findMany({
         where: {
           trackedItemId: { in: itemIds },
-          ruleType: { in: ["TAMPERING", "ANOMALY", "DUPLICATE"] },
+          ruleType: { in: ["TAMPERING", "ANOMALY", "DUPLICATE", "DOCUMENT_METADATA", "VISUAL_FORENSICS", "ARITHMETIC_INCONSISTENCY"] },
         },
         select: { trackedItemId: true, ruleType: true, status: true, message: true },
       })

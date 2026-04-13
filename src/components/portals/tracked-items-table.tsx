@@ -43,6 +43,9 @@ const FWA_LABELS: Record<string, string> = {
   TAMPERING: "Tampering",
   ANOMALY: "Anomaly",
   DUPLICATE: "Duplicate",
+  DOCUMENT_METADATA: "Metadata",
+  VISUAL_FORENSICS: "Forgery",
+  ARITHMETIC_INCONSISTENCY: "Math Error",
 };
 
 interface TableItem {
