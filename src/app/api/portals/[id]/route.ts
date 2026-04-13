@@ -53,6 +53,7 @@ export async function GET(
       listPageUrl: portal.listPageUrl,
       listSelectors: portal.listSelectors,
       detailSelectors: portal.detailSelectors,
+      scrapeLimit: portal.scrapeLimit,
       scheduleEnabled: portal.scheduleEnabled,
       scheduleCron: portal.scheduleCron,
       hasCredentials: !!portal.credential?.encryptedUsername,

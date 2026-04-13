@@ -249,7 +249,7 @@ export async function downloadFiles(
   storagePrefix: string
 ): Promise<DownloadedFile[]> {
   const downloadSelector = selectors.downloadLinkSelector
-    ?? 'a[href$=".pdf"], a[href$=".doc"], a[href$=".docx"], a[href$=".xlsx"], a[href$=".csv"], a[href*="download"]';
+    ?? 'a[href$=".pdf"], a[href$=".doc"], a[href$=".docx"], a[href$=".xlsx"], a[href$=".csv"], a[href$=".jpg"], a[href$=".jpeg"], a[href$=".png"], a[href$=".gif"], a[href*="download"]';
 
   const links = await page.$$(downloadSelector);
   logger.info({ linkCount: links.length, selector: downloadSelector }, "[scraper] Found download links");
@@ -302,6 +302,10 @@ export async function downloadFiles(
         if (contentType.includes("pdf")) suggestedName += ".pdf";
         else if (contentType.includes("msword") || contentType.includes("wordprocessingml")) suggestedName += ".docx";
         else if (contentType.includes("spreadsheetml")) suggestedName += ".xlsx";
+        else if (contentType.includes("image/jpeg")) suggestedName += ".jpg";
+        else if (contentType.includes("image/png")) suggestedName += ".png";
+        else if (contentType.includes("image/gif")) suggestedName += ".gif";
+        else if (contentType.includes("image/webp")) suggestedName += ".webp";
       }
 
       const fileBuffer = await response.body();
