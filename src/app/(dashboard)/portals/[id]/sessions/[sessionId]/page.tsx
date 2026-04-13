@@ -70,14 +70,14 @@ export default async function SessionItemsPage({
     ? await db.validationResult.findMany({
         where: {
           trackedItemId: { in: itemIds },
-          ruleType: { in: ["TAMPERING", "ANOMALY", "DUPLICATE", "DOCUMENT_METADATA", "VISUAL_FORENSICS", "ARITHMETIC_INCONSISTENCY"] },
+          ruleType: { in: ["TAMPERING", "ANOMALY", "DUPLICATE", "DOCUMENT_METADATA", "VISUAL_FORENSICS", "ARITHMETIC_INCONSISTENCY", "DOC_TYPE_MATCH"] },
         },
         select: { trackedItemId: true, ruleType: true, status: true, message: true },
       })
     : [];
 
   // Build per-item worst signal: FAIL beats WARNING; TAMPERING > DUPLICATE > ANOMALY
-  const FWA_PRIORITY: Record<string, number> = { TAMPERING: 3, DUPLICATE: 2, ANOMALY: 1 };
+  const FWA_PRIORITY: Record<string, number> = { TAMPERING: 3, DUPLICATE: 2, ANOMALY: 1, DOC_TYPE_MATCH: 1 };
   const fwaByItem = new Map<string, { ruleType: string; status: string; message: string }>();
   for (const r of fwaResults) {
     if (!r.trackedItemId) continue;

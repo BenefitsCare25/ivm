@@ -46,6 +46,7 @@ const FWA_LABELS: Record<string, string> = {
   DOCUMENT_METADATA: "Metadata",
   VISUAL_FORENSICS: "Forgery",
   ARITHMETIC_INCONSISTENCY: "Math Error",
+  DOC_TYPE_MATCH: "Wrong Doc Type",
 };
 
 interface TableItem {

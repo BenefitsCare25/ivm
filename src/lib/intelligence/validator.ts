@@ -73,3 +73,31 @@ export async function validateRequiredFields(
   await persistChecks(checks, options);
   return checks;
 }
+
+export async function checkDocTypeMatch(
+  classifiedTypeId: string | null,
+  classifiedTypeName: string | null,
+  expectedTypeId: string,
+  expectedTypeName: string,
+  options: PersistOptions
+): Promise<void> {
+  const checks: ValidationCheck[] = [];
+
+  if (!classifiedTypeId) {
+    checks.push({
+      ruleType: "DOC_TYPE_MATCH",
+      status: "WARNING",
+      message: `Document type unrecognised — expected "${expectedTypeName}"`,
+      metadata: { expectedTypeId, expectedTypeName, classifiedTypeId: null },
+    });
+  } else if (classifiedTypeId !== expectedTypeId) {
+    checks.push({
+      ruleType: "DOC_TYPE_MATCH",
+      status: "FAIL",
+      message: `Wrong document type: got "${classifiedTypeName ?? classifiedTypeId}", expected "${expectedTypeName}"`,
+      metadata: { expectedTypeId, expectedTypeName, classifiedTypeId, classifiedTypeName },
+    });
+  }
+
+  await persistChecks(checks, options);
+}

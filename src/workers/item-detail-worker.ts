@@ -8,7 +8,7 @@ import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { extractFieldsFromDocument } from "@/lib/ai";
 import { compareFields } from "@/lib/ai/comparison";
 import { findMatchingTemplate, filterFieldsByTemplate } from "@/lib/comparison-templates";
-import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDuplicate, checkTampering, checkAnomalies, checkPdfMetadata, checkVisualForensics, checkArithmeticConsistency } from "@/lib/intelligence";
+import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDocTypeMatch, checkDuplicate, checkTampering, checkAnomalies, checkPdfMetadata, checkVisualForensics, checkArithmeticConsistency } from "@/lib/intelligence";
 import type { DocTypeRecord } from "@/lib/intelligence";
 import { emitItemEvent, emitFailureEvent, withEventTracking } from "@/lib/portal-events";
 import {
@@ -231,6 +231,21 @@ async function processItemDetailCore(
                 trackedItemId,
               }),
             ]);
+          }
+
+          // Doc type mismatch check — runs regardless of whether classification succeeded
+          const expectedDocTypeId = item.scrapeSession.expectedDocumentTypeId;
+          if (expectedDocTypeId) {
+            const expectedDocType = cachedDocTypes?.find((dt) => dt.id === expectedDocTypeId);
+            if (expectedDocType) {
+              await checkDocTypeMatch(
+                classification.documentTypeId,
+                classification.documentTypeName,
+                expectedDocTypeId,
+                expectedDocType.name,
+                { trackedItemId }
+              );
+            }
           }
         } catch (intErr) {
           logger.warn({ err: intErr, fileName: ext.fileName }, "[worker] Intelligence pipeline error (non-fatal)");
