@@ -171,38 +171,30 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Click-discovery**: When no `detailLinkSelector` and no `href` links, detect `cursor:pointer` rows → Phase 1: extract data; Phase 2 (post-loop): click first row, wait for URL change via `waitForFunction((orig) => location.href !== orig)`, extract URL pattern, apply to all rows, `goBack()`
 - **SPA navigation**: Use `waitForFunction((orig) => location.href !== orig, currentUrl)` — NOT `waitForNavigation()` (SPA routing doesn't fire navigation events)
 
-### Intelligence (Monitoring Only)
-- **Purpose**: Document classification, validation monitoring, and analytics. Phases 2-4 (Reference Data, Mapping Rules, Business Rules, Extraction Config) had UI/APIs removed — Prisma models remain in schema but are unused.
-- **Portal Tracker only**: All intelligence features run in Portal Tracker scrape sessions only. Auto Form has no intelligence integration.
-- **Sidebar**: Brain icon → `/intelligence` hub page with 3 cards: Document Types, Dashboard, Validation History
-- **Migrations**: `20260410200000_add_intelligence_hub` (all tables), `20260411000000_add_expected_doc_type_to_scrape_session`, `20260413100000_add_default_doc_type_to_portal`, `20260413200000_multi_acceptable_doc_types` (replaced single FK fields with `TEXT[]` arrays on both Portal and ScrapeSession)
+### Intelligence (Background Pipeline — No UI)
+- **Purpose**: Document classification, FWA detection, and validation checks that run silently during Portal Tracker scrape sessions. No sidebar link, no management UI — all background only.
+- **Portal Tracker only**: Runs in `item-detail-worker.ts` only. Auto Form has no intelligence integration.
+- **No UI**: All `/intelligence/*` pages, API routes (`/api/intelligence/*`), and intelligence components have been removed. Document types are managed directly via the DB if needed.
+- **Migrations**: `20260410200000_add_intelligence_hub` (all tables), `20260411000000_add_expected_doc_type_to_scrape_session`, `20260413100000_add_default_doc_type_to_portal`, `20260413200000_multi_acceptable_doc_types`
 
-#### Document Classification (Types)
-- **Page**: `/intelligence/document-types` — renders `DocumentTypeList` directly
-- **Prisma models**: `DocumentType`, `ValidationResult` (trackedItemId?, ruleType, status PASS/FAIL/WARNING, message, metadata JSON)
-- **Multi-type fields**: `Portal.defaultDocumentTypeIds String[] @default([])` — convenience defaults pre-ticked in the scrape modal. `ScrapeSession.acceptableDocumentTypeIds String[] @default([])` — the actual enforcement list for that session. Both replaced the old single FK fields (`defaultDocumentTypeId`, `expectedDocumentTypeId`) in migration `20260413200000_multi_acceptable_doc_types`.
-- **Portal default**: Scrollable checkbox list on portal detail page — each toggle fires PATCH immediately, disabled while saving. `ScrapeSessionModal` pre-ticks these values on open.
-- **Scrape modal**: Multi-select checkbox list; `startScrapeSchema` in `src/lib/validations/portal.ts` validates the body (`acceptableDocumentTypeIds?: string[]`).
-- **API routes**: `GET/POST /api/intelligence/document-types`, `PATCH/DELETE /api/intelligence/document-types/[id]`
+#### Runtime lib (`src/lib/intelligence/`)
+- `classifier.ts` — `fetchDocTypes(userId)` queries DB directly; `classifyDocumentTypeFromCache(aiDocType, docTypes)` Jaro-Winkler fuzzy match (fallback — AI receives exact names in prompt)
+- `validator.ts` — `validateRequiredFields(docType, extractedFields, options)`; `checkDocTypeMatch(...)` writes `DOC_TYPE_MATCH` FAIL/WARNING `ValidationResult` when classified type not in `acceptableDocumentTypeIds`
+- `deduplicator.ts` — `checkDuplicate(userId, documentTypeId, keyFields, extractedFields, options)` SHA-256 hash, 90-day lookback
+- `tampering.ts`, `anomaly.ts`, `document-forensics.ts` — FWA checks called from worker
+
+#### Prisma models
+- `DocumentType`, `ValidationResult` (trackedItemId?, ruleType, status PASS/FAIL/WARNING, message, metadata JSON)
+- `Portal.defaultDocumentTypeIds String[]`, `ScrapeSession.acceptableDocumentTypeIds String[]`
+
+#### Worker integration (`item-detail-worker.ts`)
+`fetchDocTypes` runs before extraction loop so `knownDocumentTypes` names are injected into the AI prompt. Non-fatal pipeline: classify → validate required fields → check duplicate → check doc type match. Never blocks comparison pipeline.
+
+#### FWA display
+- `FWA_RULE_TYPES` (Set) and `FWA_LABELS` (Record) in `src/types/portal.ts` — shared by `TrackedItemsTable` and `ItemDetailView`. Add new alert types here only.
+- `DOC_TYPE_MATCH` → "Wrong Doc Type" badge; `BUSINESS_RULE` / `REQUIRED_DOCUMENT` → alert badges in FWA column
 - **Validation API**: `GET /api/portals/[id]/scrape/[sessionId]/items/[itemId]/validations`
-- **Runtime lib** (`src/lib/intelligence/`):
-  - `classifier.ts` — `fetchDocTypes(userId)` pre-fetches once; `classifyDocumentTypeFromCache(aiDocType, docTypes)` pure Jaro-Winkler fuzzy match on name + aliases (fallback only — AI now receives exact names in prompt)
-  - `validator.ts` — `validateRequiredFields(docType, extractedFields, options)` checks required field names; `checkDocTypeMatch(classifiedTypeId, classifiedTypeName, acceptableTypeIds[], acceptableTypeNames[], options)` persists `DOC_TYPE_MATCH` FAIL/WARNING when classified type is not in the acceptable set
-  - `deduplicator.ts` — `checkDuplicate(userId, documentTypeId, keyFields, extractedFields, options)` SHA-256 hashes key field values, 90-day lookback
-- **Worker integration** (`item-detail-worker.ts`): `fetchDocTypes` runs **before** the extraction loop so `knownDocumentTypes` names can be injected into the AI prompt. Non-fatal pipeline — classify → validate required fields → check duplicate → check doc type match (once per item, uses first classified file). Never blocks comparison pipeline.
-- **Classification reliability**: AI receives `knownDocumentTypes` in the system prompt and must pick from the exact list when the document matches. Fuzzy matching is only a fallback for when `fetchDocTypes` fails or returns empty.
-- **Doc type mismatch badge**: `ValidationResult` with `ruleType: "DOC_TYPE_MATCH"` written when classified type is not in `acceptableDocumentTypeIds`. Status `"FAIL"` = wrong type; `"WARNING"` = unrecognised (null classification).
-- **FWA display constants**: `FWA_RULE_TYPES` (Set) and `FWA_LABELS` (Record) in `src/types/portal.ts` — shared by `TrackedItemsTable` and `ItemDetailView`. Adding a new alert type requires updating only this one location.
-- **Session items table**: DOC_TYPE_MATCH surfaces as a red/amber "Wrong Doc Type" badge in the FWA column alongside Tampering/Anomaly/etc. Tooltip shows the mismatch message.
 - **Key constraint**: `ValidationResult` has no `userId` — always scope queries via trackedItemId→TrackedItem→ScrapeSession→Portal.userId
-- **Item detail view**: Validation results displayed below comparison result card when present (PASS/FAIL/WARNING icons + rule type badge)
-
-#### Dashboard
-- **Page**: `/intelligence/dashboard` — 2 stat cards (Document Types, Validations 7d), recent validation list, getting-started empty state
-
-#### Validation History (Audit)
-- **Page**: `/intelligence/audit` — shows recent `ValidationResult` records scoped to user's tracked items (Portal Tracker only), ordered newest first
-- **API**: `GET /api/intelligence/audit` — trackedItem-scoped with pagination (?page, ?limit)
 
 ## Deployment
 
