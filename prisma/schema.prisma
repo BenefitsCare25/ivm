@@ -329,10 +329,9 @@ model Portal {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
-  defaultDocumentTypeId String?
+  defaultDocumentTypeIds String[] @default([])
 
   user                User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  defaultDocumentType DocumentType?      @relation("PortalDefaultDocType", fields: [defaultDocumentTypeId], references: [id], onDelete: SetNull)
   credential          PortalCredential?
   scrapeSessions      ScrapeSession[]
   comparisonTemplates ComparisonTemplate[]
@@ -363,16 +362,15 @@ model ScrapeSession {
   triggeredBy             String              @default("MANUAL")
   itemsFound              Int                 @default(0)
   itemsProcessed          Int                 @default(0)
-  expectedDocumentTypeId  String?
-  expectedDocumentSetId   String?
-  startedAt               DateTime?
-  completedAt             DateTime?
-  errorMessage            String?
-  createdAt               DateTime            @default(now())
+  acceptableDocumentTypeIds String[] @default([])
+  expectedDocumentSetId     String?
+  startedAt                 DateTime?
+  completedAt               DateTime?
+  errorMessage              String?
+  createdAt                 DateTime            @default(now())
 
-  portal               Portal        @relation(fields: [portalId], references: [id], onDelete: Cascade)
-  expectedDocumentType DocumentType? @relation(fields: [expectedDocumentTypeId], references: [id], onDelete: SetNull)
-  expectedDocumentSet  DocumentSet?  @relation(fields: [expectedDocumentSetId], references: [id], onDelete: SetNull)
+  portal              Portal        @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  expectedDocumentSet DocumentSet?  @relation(fields: [expectedDocumentSetId], references: [id], onDelete: SetNull)
   trackedItems         TrackedItem[]
 
   @@index([portalId])
@@ -455,13 +453,15 @@ model ComparisonResult {
 }
 
 model ComparisonTemplate {
-  id          String   @id @default(cuid())
-  portalId    String
-  name        String
-  groupingKey Json     @default("{}")
-  fields      Json     @default("[]")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String   @id @default(cuid())
+  portalId          String
+  name              String
+  groupingKey       Json     @default("{}")
+  fields            Json     @default("[]")
+  requiredDocuments Json     @default("[]")
+  businessRules     Json     @default("[]")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   portal Portal @relation(fields: [portalId], references: [id], onDelete: Cascade)
 
@@ -486,10 +486,8 @@ model DocumentType {
   updatedAt      DateTime @updatedAt
 
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  portalsDefault   Portal[]          @relation("PortalDefaultDocType")
   documentSetItems DocumentSetItem[]
   extractionTemplates ExtractionTemplate[]
-  scrapeSessions   ScrapeSession[]
 
   @@unique([userId, name])
   @@index([userId])
