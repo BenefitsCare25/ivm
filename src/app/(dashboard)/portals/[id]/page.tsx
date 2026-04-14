@@ -43,8 +43,8 @@ export default async function PortalDetailPage({
 
   if (!portal) notFound();
 
-  // Parallelise the two independent aggregation queries
-  const [sessionItemCounts, recentItems] = await Promise.all([
+  // Parallelise three independent queries
+  const [sessionItemCounts, recentItems, templateCount] = await Promise.all([
     db.trackedItem.groupBy({
       by: ["scrapeSessionId", "status"],
       where: { scrapeSession: { portalId: id } },
@@ -56,6 +56,7 @@ export default async function PortalDetailPage({
       orderBy: { createdAt: "desc" },
       take: 20,
     }),
+    db.comparisonTemplate.count({ where: { portalId: id } }),
   ]);
 
   const itemCountsMap = sessionItemCounts.reduce<
@@ -125,6 +126,7 @@ export default async function PortalDetailPage({
     defaultDocumentTypeIds: portal.defaultDocumentTypeIds,
     availableFields,
     detectedClaimTypes,
+    templateCount,
     sessions: portal.scrapeSessions.map((s) => ({
       ...s,
       startedAt: s.startedAt?.toISOString() ?? null,

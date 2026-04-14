@@ -5,13 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AutoRefresh } from "./auto-refresh";
 import { PortalAuthPanel } from "./portal-auth-panel";
-import { PortalComparisonSetup } from "./portal-comparison-setup";
 import { PortalSessionList } from "./portal-session-list";
 import { ScrapeSessionModal } from "./scrape-session-modal";
 import {
   ArrowLeft, Play, Loader2, Shield,
   Calendar, Settings, Trash2, AlertCircle, Hash,
-  RefreshCw,
+  RefreshCw, FileSliders,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -53,7 +52,40 @@ interface PortalData {
   defaultDocumentTypeIds: string[];
   availableFields: string[];
   detectedClaimTypes: string[];
+  templateCount: number;
   sessions: SessionData[];
+}
+
+function ClaimsConfigCard({
+  portalId,
+  groupingFields,
+  templateCount,
+}: {
+  portalId: string;
+  groupingFields: string[];
+  templateCount: number;
+}) {
+  const claimField = groupingFields[0] ?? null;
+  return (
+    <Card>
+      <CardContent className="flex items-center justify-between gap-4 py-4">
+        <div className="flex items-center gap-3">
+          <FileSliders className="h-5 w-5 shrink-0 text-muted-foreground" />
+          <div>
+            <p className="text-sm font-medium text-foreground">Claims Configuration</p>
+            <p className="text-xs text-muted-foreground">
+              {claimField
+                ? <>Grouped by <span className="font-mono text-foreground">{claimField}</span> · {templateCount} template{templateCount !== 1 ? "s" : ""} configured</>
+                : "Configure AI comparison rules per claim type"}
+            </p>
+          </div>
+        </div>
+        <Button variant="outline" size="sm" asChild className="shrink-0">
+          <Link href={`/portals/${portalId}/templates`}>Configure</Link>
+        </Button>
+      </CardContent>
+    </Card>
+  );
 }
 
 type AuthStatus = "ok" | "warn" | "expired" | "missing";
@@ -347,11 +379,10 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
         />
       )}
 
-      <PortalComparisonSetup
+      <ClaimsConfigCard
         portalId={portal.id}
         groupingFields={portal.groupingFields}
-        availableFields={portal.availableFields}
-        detectedClaimTypes={portal.detectedClaimTypes}
+        templateCount={portal.templateCount}
       />
 
       <PortalSessionList portalId={portal.id} sessions={portal.sessions} />

@@ -32,6 +32,8 @@ export function TemplateList({
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [creating, setCreating] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addName, setAddName] = useState("");
 
   useEffect(() => {
     setLoading(true);
@@ -61,6 +63,25 @@ export function TemplateList({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: claimValue, groupingKey, fields: [] }),
+      });
+      if (!res.ok) throw new Error("Failed to create");
+      const created = await res.json();
+      router.push(`/portals/${portalId}/templates/${created.id}`);
+    } catch {
+      setCreating(null);
+    }
+  }
+
+  async function handleCreateManual() {
+    const name = addName.trim();
+    if (!name) return;
+    setCreating(name);
+    try {
+      const groupingKey = groupingField ? { [groupingField]: name } : {};
+      const res = await fetch(`/api/portals/${portalId}/templates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, groupingKey, fields: [] }),
       });
       if (!res.ok) throw new Error("Failed to create");
       const created = await res.json();
@@ -152,40 +173,80 @@ export function TemplateList({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white">
-          2
-        </span>
-        <div>
-          <p className="text-sm font-medium text-foreground">
-            Comparison rules
-            {templates.length > 0 && (
-              <span className="ml-1.5 text-muted-foreground font-normal">
-                ({templates.length} configured)
-              </span>
-            )}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Which fields should the AI check against the document — per claim type
-          </p>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white">
+            2
+          </span>
+          <div>
+            <p className="text-sm font-medium text-foreground">
+              Comparison rules
+              {templates.length > 0 && (
+                <span className="ml-1.5 text-muted-foreground font-normal">
+                  ({templates.length} configured)
+                </span>
+              )}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Which fields should the AI check against the document — per claim type
+            </p>
+          </div>
         </div>
+        {!showAddForm && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { setShowAddForm(true); setAddName(""); }}
+            className="h-7 text-xs shrink-0"
+          >
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Add template
+          </Button>
+        )}
       </div>
 
       <div className="pl-7 space-y-2">
-        {!hasScrapedData && templates.length === 0 && (
-          <p className="text-sm text-muted-foreground italic">
-            {groupingField
-              ? `No scraped data yet. Run a scrape — the system will detect distinct "${groupingField}" values and list them here.`
-              : "Configure Step 1 first, then run a scrape to detect claim types."}
-          </p>
+        {/* Inline add form */}
+        {showAddForm && (
+          <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              {groupingField
+                ? <>Enter the <span className="font-mono text-foreground">{groupingField}</span> value for this template (e.g. &quot;Group Hospital and Surgical&quot;)</>
+                : "Enter a name for this template"}
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                autoFocus
+                type="text"
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleCreateManual(); if (e.key === "Escape") setShowAddForm(false); }}
+                placeholder={groupingField ? `e.g. Group Hospital and Surgical` : "Template name"}
+                className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+              <Button
+                size="sm"
+                onClick={handleCreateManual}
+                disabled={!addName.trim() || !!creating}
+                className="h-8 text-xs shrink-0"
+              >
+                {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Create"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setShowAddForm(false)}
+                className="h-8 text-xs shrink-0"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
         )}
 
-        {/* Templates before first scrape */}
+        {/* Existing templates (pre-scrape or post-scrape not matched) */}
         {preScrapedTemplates.length > 0 && (
           <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">
-              Configured (run a scrape to match against live claim types):
-            </p>
             {preScrapedTemplates.map((t) => <TemplateRow key={t.id} t={t} />)}
           </div>
         )}
