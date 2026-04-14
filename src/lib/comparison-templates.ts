@@ -1,16 +1,27 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
-import type { TemplateField } from "@/types/portal";
+import type { TemplateField, RequiredDocument, BusinessRule } from "@/types/portal";
 
 interface MatchedTemplate {
   id: string;
   name: string;
   fields: TemplateField[];
+  requiredDocuments: RequiredDocument[];
+  businessRules: BusinessRule[];
+}
+
+interface CachedTemplateEntry {
+  id: string;
+  name: string;
+  groupingKey: Record<string, string>;
+  fields: TemplateField[];
+  requiredDocuments: RequiredDocument[];
+  businessRules: BusinessRule[];
 }
 
 interface CachedPortalTemplates {
   groupingFields: string[];
-  templates: Array<{ id: string; name: string; groupingKey: Record<string, string>; fields: TemplateField[] }>;
+  templates: CachedTemplateEntry[];
   expiresAt: number;
 }
 
@@ -47,7 +58,10 @@ export async function findMatchingTemplate(
   if (!cached || cached.expiresAt < now) {
     const [portal, templates] = await Promise.all([
       db.portal.findUnique({ where: { id: portalId }, select: { groupingFields: true } }),
-      db.comparisonTemplate.findMany({ where: { portalId }, select: { id: true, name: true, groupingKey: true, fields: true } }),
+      db.comparisonTemplate.findMany({
+        where: { portalId },
+        select: { id: true, name: true, groupingKey: true, fields: true, requiredDocuments: true, businessRules: true },
+      }),
     ]);
     if (templateCache.size >= CACHE_MAX_SIZE) {
       for (const [key, entry] of templateCache) {
@@ -56,7 +70,7 @@ export async function findMatchingTemplate(
     }
     cached = {
       groupingFields: (portal?.groupingFields ?? []) as string[],
-      templates: templates as unknown as CachedPortalTemplates["templates"],
+      templates: templates as unknown as CachedTemplateEntry[],
       expiresAt: now + CACHE_TTL_MS,
     };
     templateCache.set(portalId, cached);
@@ -79,6 +93,8 @@ export async function findMatchingTemplate(
         id: template.id,
         name: template.name,
         fields: template.fields,
+        requiredDocuments: template.requiredDocuments ?? [],
+        businessRules: template.businessRules ?? [],
       };
     }
   }
@@ -95,7 +111,11 @@ export function filterFieldsByTemplate(
   pdfFields: Record<string, string>,
   templateFields: TemplateField[]
 ): { filteredPageFields: Record<string, string>; filteredPdfFields: Record<string, string> } {
-  const fieldNames = new Set(templateFields.map((f) => f.fieldName.toLowerCase().trim()));
+  // Support both old fieldName and new portalFieldName for backward compat
+  const fieldNames = new Set(templateFields.map((f) => {
+    const name = f.portalFieldName ?? (f as unknown as Record<string, string>).fieldName ?? "";
+    return name.toLowerCase().trim();
+  }));
 
   const filteredPageFields: Record<string, string> = {};
   for (const [key, value] of Object.entries(pageFields)) {
