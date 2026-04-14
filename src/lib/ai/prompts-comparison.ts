@@ -43,12 +43,15 @@ export function getTemplatedComparisonUserPrompt(
   templateFields: TemplateField[]
 ): string {
   const rules = templateFields.map((f) => {
-    if (f.mode === "exact") return `- "${f.fieldName}": EXACT match required — any difference is MISMATCH`;
+    // Support both old fieldName and new portalFieldName/documentFieldName
+    const portalName = f.portalFieldName ?? (f as unknown as Record<string, string>).fieldName ?? "";
+    const docName = f.documentFieldName ?? portalName;
+    if (f.mode === "exact") return `- Portal "${portalName}" ↔ Document "${docName}": EXACT match required — any difference is MISMATCH`;
     if (f.mode === "numeric") {
       const tol = f.tolerance ?? 0;
-      return `- "${f.fieldName}": NUMERIC comparison — values within ${tol} tolerance are MATCH`;
+      return `- Portal "${portalName}" ↔ Document "${docName}": NUMERIC comparison — values within ${tol} tolerance are MATCH`;
     }
-    return `- "${f.fieldName}": FUZZY match — ignore formatting differences (dates, names, whitespace, currency symbols)`;
+    return `- Portal "${portalName}" ↔ Document "${docName}": FUZZY match — ignore formatting differences (dates, names, whitespace, currency symbols)`;
   }).join("\n");
 
   return `Compare the following data from a web portal page against data extracted from associated PDF documents.
