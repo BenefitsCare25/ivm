@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import type { TemplateField, RequiredDocument, BusinessRule } from "@/types/portal";
 
-interface MatchedTemplate {
+export interface MatchedTemplate {
   id: string;
   name: string;
   fields: TemplateField[];

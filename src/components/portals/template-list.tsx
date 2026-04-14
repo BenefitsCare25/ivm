@@ -8,6 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { ComparisonTemplateSummary } from "@/types/portal";
 
+function getFieldDisplayName(f: { portalFieldName?: string; fieldName?: string }, i: number): string {
+  return f.portalFieldName ?? f.fieldName ?? `field-${i}`;
+}
+
 interface TemplateListProps {
   portalId: string;
   groupingField: string | null;
@@ -132,19 +136,14 @@ export function TemplateList({
         </div>
         {fieldCount > 0 && (
           <div className="flex flex-wrap gap-1">
-            {t.fields.map((f, i) => {
-              const name = (f as { portalFieldName?: string; fieldName?: string }).portalFieldName
-                ?? (f as { fieldName?: string }).fieldName
-                ?? `field-${i}`;
-              return (
-                <span
-                  key={i}
-                  className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
-                >
-                  {name}
-                </span>
-              );
-            })}
+            {t.fields.map((f, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+              >
+                {getFieldDisplayName(f as { portalFieldName?: string; fieldName?: string }, i)}
+              </span>
+            ))}
           </div>
         )}
       </div>
@@ -243,16 +242,11 @@ export function TemplateList({
                   </div>
                   {(template.fields?.length ?? 0) > 0 && (
                     <div className="flex flex-wrap gap-1">
-                      {template.fields.map((f, i) => {
-                        const name = (f as { portalFieldName?: string; fieldName?: string }).portalFieldName
-                          ?? (f as { fieldName?: string }).fieldName
-                          ?? `field-${i}`;
-                        return (
-                          <span key={i} className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                            {name}
-                          </span>
-                        );
-                      })}
+                      {template.fields.map((f, i) => (
+                        <span key={i} className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                          {getFieldDisplayName(f as { portalFieldName?: string; fieldName?: string }, i)}
+                        </span>
+                      ))}
                     </div>
                   )}
                 </>

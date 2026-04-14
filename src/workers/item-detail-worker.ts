@@ -21,6 +21,7 @@ import {
 import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-queue";
 import { runStorageCleanup } from "@/lib/storage/cleanup";
 import { createHash } from "crypto";
+import type { MatchedTemplate } from "@/lib/comparison-templates";
 import type { DetailSelectors, TemplateField, BusinessRule, RequiredDocument, BusinessRuleResult, RequiredDocumentCheck } from "@/types/portal";
 import type { BrowserContext, Page } from "playwright";
 
@@ -281,7 +282,7 @@ async function processItemDetailCore(
       // ── Template lookup + AI field comparison ──────────────
       let comparisonResult;
       let templateId: string | null = null;
-      let matchedTemplate: { id: string; name: string; fields: TemplateField[]; businessRules: BusinessRule[]; requiredDocuments: RequiredDocument[] } | null = null;
+      let matchedTemplate: MatchedTemplate | null = null;
 
       if (Object.keys(detailData).length > 0 && Object.keys(pdfFields).length > 0) {
         const allPageData = {

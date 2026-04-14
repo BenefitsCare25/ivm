@@ -1,4 +1,5 @@
 import type { TemplateField, RequiredDocument, BusinessRule } from "@/types/portal";
+import { BUSINESS_RULE_SEVERITY_LABELS } from "@/types/portal";
 
 interface FullPromptConfig {
   fields: TemplateField[];
@@ -88,11 +89,8 @@ export function buildFullComparisonUserPrompt(config: FullPromptConfig): string 
     return `- Portal "${f.portalFieldName}" ↔ Document "${f.documentFieldName}" — ${modeDesc}`;
   });
 
-  const severityLabel = (s: string) =>
-    s === "critical" ? "CRITICAL" : s === "warning" ? "WARNING" : "INFO";
-
   const ruleLines = businessRules.map(
-    (r, i) => `${i + 1}. [${severityLabel(r.severity)}] ${r.rule}`
+    (r, i) => `${i + 1}. [${BUSINESS_RULE_SEVERITY_LABELS[r.severity]}] ${r.rule}`
   );
 
   const requiredDocLines = requiredDocuments.map((rd) => {

@@ -5,7 +5,6 @@ import { errorResponse, NotFoundError } from "@/lib/errors";
 import { buildPromptPreview } from "@/lib/ai/prompt-builder";
 import type { TemplateField, RequiredDocument, BusinessRule } from "@/types/portal";
 
-
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string; templateId: string }> }
@@ -14,14 +13,10 @@ export async function GET(
     const session = await requireAuth();
     const { id, templateId } = await params;
 
-    await db.portal.findFirstOrThrow({
-      where: { id, userId: session.user.id },
-      select: { id: true },
-    });
-
-    const template = await db.comparisonTemplate.findFirst({
-      where: { id: templateId, portalId: id },
-    });
+    const [, template] = await Promise.all([
+      db.portal.findFirstOrThrow({ where: { id, userId: session.user.id }, select: { id: true } }),
+      db.comparisonTemplate.findFirst({ where: { id: templateId, portalId: id } }),
+    ]);
     if (!template) throw new NotFoundError("Template");
 
     const fields = template.fields as unknown as TemplateField[];

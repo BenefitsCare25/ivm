@@ -15,6 +15,11 @@ interface FieldOption {
   pdfValue?: string;
 }
 
+function fieldSourceLabel(f: FieldOption): string {
+  const src = f.source ?? (f.pageValue != null && f.pdfValue != null ? "both" : f.pageValue != null ? "page" : "pdf");
+  return src === "both" ? "(page+pdf)" : `(${src})`;
+}
+
 interface ComparisonTemplateModalProps {
   portalId: string;
   groupingKey: Record<string, string>;

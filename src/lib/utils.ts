@@ -33,6 +33,11 @@ export function toInputJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/** Generate a short random ID (8 chars, base-36). Suitable for transient client-side IDs. */
+export function generateId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
 /** Toggle an item in an array: removes it if present, appends it if absent. */
 export function toggleArrayItem<T>(arr: T[], item: T): T[] {
   return arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];

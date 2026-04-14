@@ -6,16 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { BusinessRule, BusinessRuleSeverity } from "@/types/portal";
+import { generateId } from "@/lib/utils";
 
 const SEVERITIES: { value: BusinessRuleSeverity; label: string }[] = [
   { value: "warning", label: "Warning" },
   { value: "critical", label: "Critical" },
   { value: "info", label: "Info" },
 ];
-
-function generateId() {
-  return Math.random().toString(36).slice(2, 10);
-}
 
 interface Props {
   businessRules: BusinessRule[];

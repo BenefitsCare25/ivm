@@ -179,6 +179,12 @@ export interface RequiredDocument {
 export const BUSINESS_RULE_SEVERITIES = ["critical", "warning", "info"] as const;
 export type BusinessRuleSeverity = (typeof BUSINESS_RULE_SEVERITIES)[number];
 
+export const BUSINESS_RULE_SEVERITY_LABELS: Record<BusinessRuleSeverity, string> = {
+  critical: "CRITICAL",
+  warning: "WARNING",
+  info: "INFO",
+};
+
 export const BUSINESS_RULE_CATEGORIES = [
   "Amount Validation",
   "Document Check",
