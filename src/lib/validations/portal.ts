@@ -26,6 +26,7 @@ export const updatePortalSchema = z.object({
   authMethod: z.enum(["COOKIES", "CREDENTIALS"]).optional(),
   listPageUrl: z.string().url().max(2000).optional().nullable(),
   scrapeLimit: z.number().int().min(1).nullable().optional(),
+  defaultDocumentTypeIds: z.array(z.string().cuid()).max(20).optional(),
 });
 
 export type UpdatePortalInput = z.infer<typeof updatePortalSchema>;
@@ -89,6 +90,12 @@ export const updateScheduleSchema = z.object({
 
 export type UpdateScheduleInput = z.infer<typeof updateScheduleSchema>;
 
+export const startScrapeSchema = z.object({
+  acceptableDocumentTypeIds: z.array(z.string().cuid()).max(20).optional(),
+});
+
+export type StartScrapeInput = z.infer<typeof startScrapeSchema>;
+
 export const updateTrackedItemSchema = z.object({
   status: z.enum(["VERIFIED", "FLAGGED"]),
 });
@@ -96,22 +103,40 @@ export const updateTrackedItemSchema = z.object({
 export type UpdateTrackedItemInput = z.infer<typeof updateTrackedItemSchema>;
 
 export const templateFieldSchema = z.object({
-  fieldName: z.string().min(1).max(200),
+  portalFieldName: z.string().min(1).max(200),
+  documentFieldName: z.string().min(1).max(200),
   mode: z.enum(["fuzzy", "exact", "numeric"]),
   tolerance: z.number().min(0).max(1000).optional(),
+});
+
+export const requiredDocumentSchema = z.object({
+  documentTypeName: z.string().min(1).max(200),
+  rule: z.enum(["required", "one_of"]),
+  group: z.string().max(100).optional(),
+});
+
+export const businessRuleSchema = z.object({
+  id: z.string().min(1).max(50),
+  rule: z.string().min(1).max(1000),
+  category: z.string().min(1).max(200),
+  severity: z.enum(["critical", "warning", "info"]),
 });
 
 export const createComparisonTemplateSchema = z.object({
   name: z.string().min(1).max(200),
   groupingKey: z.record(z.string().max(200), z.string().max(500)),
-  fields: z.array(templateFieldSchema).min(1, "Select at least one field").max(100),
+  fields: z.array(templateFieldSchema).max(100).default([]),
+  requiredDocuments: z.array(requiredDocumentSchema).max(20).default([]),
+  businessRules: z.array(businessRuleSchema).max(50).default([]),
 });
 
 export type CreateComparisonTemplateInput = z.infer<typeof createComparisonTemplateSchema>;
 
 export const updateComparisonTemplateSchema = z.object({
   name: z.string().min(1).max(200).optional(),
-  fields: z.array(templateFieldSchema).min(1).max(100).optional(),
+  fields: z.array(templateFieldSchema).max(100).optional(),
+  requiredDocuments: z.array(requiredDocumentSchema).max(20).optional(),
+  businessRules: z.array(businessRuleSchema).max(50).optional(),
 });
 
 export type UpdateComparisonTemplateInput = z.infer<typeof updateComparisonTemplateSchema>;

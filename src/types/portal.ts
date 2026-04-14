@@ -27,6 +27,7 @@ export type ComparisonFieldStatus = (typeof COMPARISON_FIELD_STATUSES)[number];
 export const FWA_RULE_TYPES = new Set([
   "TAMPERING", "ANOMALY", "DUPLICATE", "DOCUMENT_METADATA",
   "VISUAL_FORENSICS", "ARITHMETIC_INCONSISTENCY", "DOC_TYPE_MATCH",
+  "BUSINESS_RULE", "REQUIRED_DOCUMENT",
 ]);
 
 export const FWA_LABELS: Record<string, string> = {
@@ -37,6 +38,8 @@ export const FWA_LABELS: Record<string, string> = {
   VISUAL_FORENSICS: "Forgery",
   ARITHMETIC_INCONSISTENCY: "Math Error",
   DOC_TYPE_MATCH: "Wrong Doc Type",
+  BUSINESS_RULE: "Rule Violation",
+  REQUIRED_DOCUMENT: "Missing Document",
 };
 
 // ─── Selector Configurations (stored as JSON on Portal) ─────────
@@ -154,9 +157,57 @@ export const MATCH_MODE_LABELS: Record<MatchMode, string> = {
 };
 
 export interface TemplateField {
-  fieldName: string;
+  portalFieldName: string;
+  documentFieldName: string;
   mode: MatchMode;
   tolerance?: number;
+}
+
+// ─── Required Documents ────────────────────────────────────────
+
+export const REQUIRED_DOCUMENT_RULES = ["required", "one_of"] as const;
+export type RequiredDocumentRule = (typeof REQUIRED_DOCUMENT_RULES)[number];
+
+export interface RequiredDocument {
+  documentTypeName: string;
+  rule: RequiredDocumentRule;
+  group?: string;
+}
+
+// ─── Business Rules ────────────────────────────────────────────
+
+export const BUSINESS_RULE_SEVERITIES = ["critical", "warning", "info"] as const;
+export type BusinessRuleSeverity = (typeof BUSINESS_RULE_SEVERITIES)[number];
+
+export const BUSINESS_RULE_CATEGORIES = [
+  "Amount Validation",
+  "Document Check",
+  "Line Item Check",
+  "Duplicate Detection",
+  "Compliance Check",
+] as const;
+
+export interface BusinessRule {
+  id: string;
+  rule: string;
+  category: string;
+  severity: BusinessRuleSeverity;
+}
+
+// ─── AI Response Types (business rules + required docs) ────────
+
+export interface BusinessRuleResult {
+  rule: string;
+  category: string;
+  status: "PASS" | "FAIL" | "WARNING" | "NOT_APPLICABLE";
+  evidence: string;
+  notes?: string;
+}
+
+export interface RequiredDocumentCheck {
+  documentTypeName: string;
+  found: boolean;
+  notes?: string;
 }
 
 export interface ComparisonTemplateSummary {
@@ -165,6 +216,8 @@ export interface ComparisonTemplateSummary {
   name: string;
   groupingKey: Record<string, string>;
   fields: TemplateField[];
+  requiredDocuments: RequiredDocument[];
+  businessRules: BusinessRule[];
   createdAt: string;
   updatedAt: string;
 }
