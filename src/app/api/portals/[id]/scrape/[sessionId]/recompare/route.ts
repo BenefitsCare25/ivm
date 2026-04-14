@@ -4,9 +4,10 @@ import { db } from "@/lib/db";
 import { errorResponse, NotFoundError, ValidationError } from "@/lib/errors";
 import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { compareFields } from "@/lib/ai/comparison";
+import { getFullComparisonSystemPrompt, buildFullComparisonUserPrompt } from "@/lib/ai/prompt-builder";
 import { filterFieldsByTemplate, itemMatchesGroupingKey } from "@/lib/comparison-templates";
 import { logger } from "@/lib/logger";
-import type { TemplateField } from "@/types/portal";
+import type { TemplateField, RequiredDocument, BusinessRule, BusinessRuleResult, RequiredDocumentCheck } from "@/types/portal";
 
 export async function POST(
   req: NextRequest,
@@ -63,7 +64,10 @@ export async function POST(
 
     const { provider, apiKey, textModel } = await resolveProviderAndKey(session.user.id);
     const templateFields = template.fields as unknown as TemplateField[];
+    const templateRequiredDocuments = template.requiredDocuments as unknown as RequiredDocument[];
+    const templateBusinessRules = template.businessRules as unknown as BusinessRule[];
     const resolvedTemplateId = template.id;
+    const useFullPrompt = templateBusinessRules.length > 0 || templateRequiredDocuments.length > 0;
 
     const CONCURRENCY = 5;
     let recompared = 0;
@@ -94,6 +98,16 @@ export async function POST(
       )
         return false;
 
+      const systemPromptOverride = useFullPrompt ? getFullComparisonSystemPrompt() : undefined;
+      const userPromptOverride = useFullPrompt ? buildFullComparisonUserPrompt({
+        fields: templateFields,
+        businessRules: templateBusinessRules,
+        requiredDocuments: templateRequiredDocuments,
+        pageFields: filteredPageFields,
+        pdfFields: filteredPdfFields,
+        documentTypesFound: [],
+      }) : undefined;
+
       const result = await compareFields({
         pageFields: filteredPageFields,
         pdfFields: filteredPdfFields,
@@ -101,6 +115,8 @@ export async function POST(
         apiKey,
         model: textModel,
         templateFields,
+        systemPromptOverride,
+        userPromptOverride,
       });
 
       const comparisonData = {
@@ -118,10 +134,71 @@ export async function POST(
         update: comparisonData,
       });
 
+      // Clear old business rule + required document validation results
+      await db.validationResult.deleteMany({
+        where: {
+          trackedItemId: item.id,
+          ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT"] },
+        },
+      });
+
+      // Save new business rule results
+      if (result.businessRuleResults) {
+        const brInserts = result.businessRuleResults
+          .filter((r: BusinessRuleResult) => r.status !== "PASS")
+          .map((r: BusinessRuleResult) => {
+            const matchedRule = templateBusinessRules.find((br) => br.rule === r.rule);
+            return db.validationResult.create({
+              data: {
+                trackedItemId: item.id,
+                ruleType: "BUSINESS_RULE",
+                status: r.status === "FAIL" ? "FAIL" : "WARNING",
+                message: `${r.category}: ${r.rule}`,
+                metadata: JSON.parse(JSON.stringify({
+                  rule: r.rule,
+                  category: r.category,
+                  severity: matchedRule?.severity ?? "warning",
+                  evidence: r.evidence,
+                  notes: r.notes,
+                  aiStatus: r.status,
+                })),
+              },
+            });
+          });
+        if (brInserts.length > 0) await Promise.all(brInserts);
+      }
+
+      // Save required document failures
+      if (result.requiredDocumentsCheck) {
+        const rdInserts = result.requiredDocumentsCheck
+          .filter((d: RequiredDocumentCheck) => !d.found)
+          .map((d: RequiredDocumentCheck) => {
+            const matchedReqDoc = templateRequiredDocuments.find(
+              (rd) => rd.documentTypeName === d.documentTypeName
+            );
+            return db.validationResult.create({
+              data: {
+                trackedItemId: item.id,
+                ruleType: "REQUIRED_DOCUMENT",
+                status: "FAIL",
+                message: `Required document not found: ${d.documentTypeName}`,
+                metadata: JSON.parse(JSON.stringify({
+                  documentTypeName: d.documentTypeName,
+                  group: matchedReqDoc?.group ?? null,
+                  notes: d.notes,
+                })),
+              },
+            });
+          });
+        if (rdInserts.length > 0) await Promise.all(rdInserts);
+      }
+
       const hasMismatch = result.mismatchCount > 0;
+      const hasRuleFailure = result.businessRuleResults?.some((r: BusinessRuleResult) => r.status === "FAIL") ?? false;
+      const hasMissingDoc = result.requiredDocumentsCheck?.some((d: RequiredDocumentCheck) => !d.found) ?? false;
       await db.trackedItem.update({
         where: { id: item.id },
-        data: { status: hasMismatch ? "FLAGGED" : "COMPARED" },
+        data: { status: (hasMismatch || hasRuleFailure || hasMissingDoc) ? "FLAGGED" : "COMPARED" },
       });
       return true;
     }
