@@ -7,6 +7,7 @@ import { closeBrowser } from "@/lib/playwright/browser";
 import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { extractFieldsFromDocument } from "@/lib/ai";
 import { compareFields } from "@/lib/ai/comparison";
+import { getFullComparisonSystemPrompt, buildFullComparisonUserPrompt } from "@/lib/ai/prompt-builder";
 import { findMatchingTemplate, filterFieldsByTemplate } from "@/lib/comparison-templates";
 import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDocTypeMatch, checkDuplicate, checkTampering, checkAnomalies, checkPdfMetadata, checkVisualForensics, checkArithmeticConsistency } from "@/lib/intelligence";
 import type { DocTypeRecord } from "@/lib/intelligence";
@@ -20,7 +21,7 @@ import {
 import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-queue";
 import { runStorageCleanup } from "@/lib/storage/cleanup";
 import { createHash } from "crypto";
-import type { DetailSelectors, TemplateField } from "@/types/portal";
+import type { DetailSelectors, TemplateField, BusinessRuleResult, RequiredDocumentCheck } from "@/types/portal";
 import type { BrowserContext, Page } from "playwright";
 
 // Hard cap per job — prevents hung Playwright or AI calls from blocking a slot indefinitely
@@ -138,6 +139,16 @@ async function processItemDetailCore(
       const pdfFields: Record<string, string> = {};
       const fileExtractions: { fileName: string; documentType: string; fields: { label: string; value: string }[] }[] = [];
 
+      // Fetch doc types before extraction so the AI receives the constrained list,
+      // eliminating fuzzy-match ambiguity during classification.
+      let cachedDocTypes: DocTypeRecord[] | undefined;
+      try {
+        cachedDocTypes = await fetchDocTypes(userId);
+      } catch (intErr) {
+        logger.warn({ err: intErr }, "[worker] Failed to fetch doc types (non-fatal)");
+      }
+      const knownDocumentTypes = cachedDocTypes?.map((dt) => dt.name);
+
       for (const file of downloadedFiles) {
         if (file.mimeType === "application/pdf" || file.mimeType.startsWith("image/")) {
           try {
@@ -168,6 +179,7 @@ async function processItemDetailCore(
                 provider,
                 apiKey,
                 model: visionModel,
+                knownDocumentTypes,
               }),
               ...(file.mimeType === "application/pdf"
                 ? [checkPdfMetadata(trackedItemId, fileBuffer, file.originalName)]
@@ -201,13 +213,6 @@ async function processItemDetailCore(
       // ── Intelligence: classify, validate, deduplicate ──────
       const classifiedDocs: { documentTypeId: string | null; documentTypeName: string | null; fileName: string }[] = [];
 
-      let cachedDocTypes: DocTypeRecord[] | undefined;
-      try {
-        cachedDocTypes = await fetchDocTypes(userId);
-      } catch (intErr) {
-        logger.warn({ err: intErr }, "[worker] Failed to fetch doc types (non-fatal)");
-      }
-
       for (const ext of fileExtractions) {
         try {
           const classification = await classifyDocumentType(userId, ext.documentType, cachedDocTypes);
@@ -238,18 +243,17 @@ async function processItemDetailCore(
       }
 
       // Doc type mismatch — once per item using the first classified file
-      const expectedDocTypeId = item.scrapeSession.expectedDocumentTypeId;
-      const expectedDocType = expectedDocTypeId
-        ? cachedDocTypes?.find((dt) => dt.id === expectedDocTypeId)
-        : undefined;
-      if (expectedDocTypeId && expectedDocType) {
+      const acceptableTypeIds = item.scrapeSession.acceptableDocumentTypeIds;
+      if (acceptableTypeIds.length > 0) {
+        const acceptableTypeNames = acceptableTypeIds
+          .map((tid) => cachedDocTypes?.find((dt) => dt.id === tid)?.name ?? "Unknown");
         const primary = classifiedDocs[0];
         try {
           await checkDocTypeMatch(
             primary?.documentTypeId ?? null,
             primary?.documentTypeName ?? null,
-            expectedDocTypeId,
-            expectedDocType.name,
+            acceptableTypeIds,
+            acceptableTypeNames,
             { trackedItemId }
           );
         } catch (intErr) {
@@ -289,6 +293,9 @@ async function processItemDetailCore(
         let comparePdfFields = pdfFields;
         let templateFields: TemplateField[] | undefined;
 
+        // Collect detected document type names for required-doc checking
+        const documentTypesFound: string[] = [];
+
         if (template) {
           templateId = template.id;
           templateFields = template.fields;
@@ -297,7 +304,8 @@ async function processItemDetailCore(
           comparePdfFields = filtered.filteredPdfFields;
 
           logger.info(
-            { templateId, templateName: template.name, fieldCount: template.fields.length },
+            { templateId, templateName: template.name, fieldCount: template.fields.length,
+              businessRuleCount: template.businessRules.length, requiredDocCount: template.requiredDocuments.length },
             "[worker] Using comparison template"
           );
         } else {
@@ -305,6 +313,20 @@ async function processItemDetailCore(
         }
 
         if (Object.keys(comparePageFields).length > 0 || Object.keys(comparePdfFields).length > 0) {
+          // Determine if we need the full combined prompt (has business rules or required docs)
+          const useFullPrompt = template &&
+            (template.businessRules.length > 0 || template.requiredDocuments.length > 0);
+
+          const systemPromptOverride = useFullPrompt ? getFullComparisonSystemPrompt() : undefined;
+          const userPromptOverride = useFullPrompt && template ? buildFullComparisonUserPrompt({
+            fields: template.fields,
+            businessRules: template.businessRules,
+            requiredDocuments: template.requiredDocuments,
+            pageFields: comparePageFields,
+            pdfFields: comparePdfFields,
+            documentTypesFound,
+          }) : undefined;
+
           comparisonResult = await withEventTracking(
             trackedItemId,
             "AI_COMPARE_START",
@@ -315,6 +337,7 @@ async function processItemDetailCore(
               pageFieldCount: Object.keys(comparePageFields).length,
               pdfFieldCount: Object.keys(comparePdfFields).length,
               templateId: templateId ?? undefined,
+              useFullPrompt: !!useFullPrompt,
             },
             () => compareFields({
               pageFields: comparePageFields,
@@ -323,6 +346,8 @@ async function processItemDetailCore(
               apiKey,
               model: textModel,
               templateFields,
+              systemPromptOverride,
+              userPromptOverride,
             })
           );
         }
@@ -341,11 +366,71 @@ async function processItemDetailCore(
             completedAt: new Date(),
           },
         });
+
+        // Save business rule results as ValidationResult records
+        if (comparisonResult.businessRuleResults && template) {
+          const brInserts = comparisonResult.businessRuleResults
+            .filter((r: BusinessRuleResult) => r.status !== "PASS")
+            .map((r: BusinessRuleResult) => {
+              const matchedRule = template.businessRules.find((br) => br.rule === r.rule);
+              const status = r.status === "FAIL" ? "FAIL" : "WARNING";
+              return db.validationResult.create({
+                data: {
+                  trackedItemId,
+                  ruleType: "BUSINESS_RULE",
+                  status,
+                  message: `${r.category}: ${r.rule}`,
+                  metadata: JSON.parse(JSON.stringify({
+                    rule: r.rule,
+                    category: r.category,
+                    severity: matchedRule?.severity ?? "warning",
+                    evidence: r.evidence,
+                    notes: r.notes,
+                    aiStatus: r.status,
+                  })),
+                },
+              });
+            });
+          if (brInserts.length > 0) await Promise.all(brInserts);
+        }
+
+        // Save required document failures as ValidationResult records
+        if (comparisonResult.requiredDocumentsCheck) {
+          const rdInserts = comparisonResult.requiredDocumentsCheck
+            .filter((d: RequiredDocumentCheck) => !d.found)
+            .map((d: RequiredDocumentCheck) => {
+              const matchedReqDoc = template?.requiredDocuments.find(
+                (rd) => rd.documentTypeName === d.documentTypeName
+              );
+              return db.validationResult.create({
+                data: {
+                  trackedItemId,
+                  ruleType: "REQUIRED_DOCUMENT",
+                  status: "FAIL",
+                  message: `Required document not found: ${d.documentTypeName}`,
+                  metadata: JSON.parse(JSON.stringify({
+                    documentTypeName: d.documentTypeName,
+                    group: matchedReqDoc?.group ?? null,
+                    notes: d.notes,
+                  })),
+                },
+              });
+            });
+          if (rdInserts.length > 0) await Promise.all(rdInserts);
+        }
       }
 
       const noDocuments = downloadedFiles.length === 0;
       const hasMismatch = (comparisonResult?.mismatchCount ?? 0) > 0;
-      const finalStatus = noDocuments ? "REQUIRE_DOC" : hasMismatch ? "FLAGGED" : "COMPARED";
+      const hasRuleFailure = comparisonResult?.businessRuleResults?.some(
+        (r: BusinessRuleResult) => r.status === "FAIL"
+      ) ?? false;
+      const hasMissingDoc = comparisonResult?.requiredDocumentsCheck?.some(
+        (d: RequiredDocumentCheck) => !d.found
+      ) ?? false;
+      const finalStatus = noDocuments
+        ? "REQUIRE_DOC"
+        : (hasMismatch || hasRuleFailure || hasMissingDoc) ? "FLAGGED" : "COMPARED";
 
       await db.trackedItem.update({
         where: { id: trackedItemId },
