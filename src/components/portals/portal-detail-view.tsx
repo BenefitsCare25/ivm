@@ -11,10 +11,9 @@ import { ScrapeSessionModal } from "./scrape-session-modal";
 import {
   ArrowLeft, Play, Loader2, Shield,
   Calendar, Settings, Trash2, AlertCircle, Hash,
-  RefreshCw, FileText, HelpCircle,
+  RefreshCw,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormError } from "@/components/ui/form-error";
@@ -51,8 +50,7 @@ interface PortalData {
   updatedAt: string;
   groupingFields: string[];
   scrapeLimit: number | null;
-  defaultDocumentTypeId: string | null;
-  defaultDocumentTypeName: string | null;
+  defaultDocumentTypeIds: string[];
   availableFields: string[];
   detectedClaimTypes: string[];
   sessions: SessionData[];
@@ -71,18 +69,6 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
   const [savingLimit, setSavingLimit] = useState(false);
   const [showReAuth, setShowReAuth] = useState(false);
   const [authStatus, setAuthStatus] = useState<AuthStatus>("ok");
-  const [docTypes, setDocTypes] = useState<Array<{ id: string; name: string }>>([]);
-  const [docTypeId, setDocTypeId] = useState(portal.defaultDocumentTypeId ?? "");
-  const [savingDocType, setSavingDocType] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/intelligence/document-types")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((types: Array<{ id: string; name: string; isActive?: boolean }>) =>
-        setDocTypes(types.filter((t) => t.isActive !== false))
-      )
-      .catch(() => setDocTypes([]));
-  }, []);
 
   // Computed client-side to avoid SSR hydration mismatch with date comparisons
   useEffect(() => {
@@ -102,25 +88,6 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
       setAuthStatus("ok");
     }
   }, [portal.hasCookies, portal.hasCredentials, portal.cookieExpiresAt, portal.authMethod]);
-
-  async function saveDefaultDocType(newId: string) {
-    setDocTypeId(newId);
-    setSavingDocType(true);
-    try {
-      const res = await fetch(`/api/portals/${portal.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ defaultDocumentTypeId: newId || null }),
-      });
-      if (!res.ok) throw new Error();
-      router.refresh();
-    } catch {
-      setDocTypeId(portal.defaultDocumentTypeId ?? "");
-      setError("Failed to update document type");
-    } finally {
-      setSavingDocType(false);
-    }
-  }
 
   async function saveScrapeLimit() {
     const value = limitInput.trim() === "" ? null : parseInt(limitInput, 10);
@@ -145,17 +112,14 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
     }
   }
 
-  async function triggerScrape(options?: {
-    expectedDocumentTypeId?: string;
-    expectedDocumentSetId?: string;
-  }) {
+  async function triggerScrape() {
     setScraping(true);
     setError(null);
     try {
       const res = await fetch(`/api/portals/${portal.id}/scrape`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(options ?? {}),
+        body: JSON.stringify({}),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -266,8 +230,7 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
       <FormError message={error} />
 
       {/* Status grid */}
-      <TooltipProvider>
-      <div className="grid gap-4 sm:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-4">
         <Card
           className={
             authBad ? "ring-1 ring-status-error/40" : authWarn ? "ring-1 ring-amber-400/40" : ""
@@ -371,54 +334,7 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <FileText className="h-5 w-5 text-muted-foreground" />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1 mb-1.5">
-                  <p className="text-sm font-medium text-foreground">Document Type</p>
-                  <Tooltip
-                    side="bottom"
-                    content={
-                      <div className="space-y-1.5">
-                        <p className="font-medium text-popover-foreground">Default Document Type</p>
-                        <p>Pre-selects a document type in the scrape session modal so you don&apos;t have to pick it every time.</p>
-                        <p className="text-muted-foreground pt-1 border-t border-border">The system auto-classifies downloaded PDFs by reading them — this setting is just a convenience default.</p>
-                      </div>
-                    }
-                  >
-                    <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help shrink-0" />
-                  </Tooltip>
-                </div>
-                {docTypes.length > 0 ? (
-                  <select
-                    value={docTypeId}
-                    onChange={(e) => saveDefaultDocType(e.target.value)}
-                    disabled={savingDocType}
-                    className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
-                  >
-                    <option value="">Not set</option>
-                    {docTypes.map((dt) => (
-                      <option key={dt.id} value={dt.id}>
-                        {dt.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    No document types configured.{" "}
-                    <Link href="/intelligence/document-types" className="text-primary hover:underline">
-                      Create one →
-                    </Link>
-                  </p>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
-      </TooltipProvider>
 
       {/* Inline re-auth panel */}
       {showReAuth && (
@@ -445,7 +361,6 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
         onOpenChange={setScrapeModalOpen}
         onStart={triggerScrape}
         loading={scraping}
-        defaultDocumentTypeId={portal.defaultDocumentTypeId ?? undefined}
       />
     </div>
   );

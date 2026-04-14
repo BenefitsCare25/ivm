@@ -24,32 +24,46 @@ export default async function ItemDetailPage({
   });
   if (!portal) notFound();
 
-  const item = await db.trackedItem.findFirst({
-    where: { id: itemId, scrapeSessionId: sessionId },
-    include: {
-      files: {
-        select: {
-          id: true,
-          fileName: true,
-          mimeType: true,
-          sizeBytes: true,
-          downloadedAt: true,
+  const [item, validations] = await Promise.all([
+    db.trackedItem.findFirst({
+      where: { id: itemId, scrapeSessionId: sessionId },
+      include: {
+        files: {
+          select: {
+            id: true,
+            fileName: true,
+            mimeType: true,
+            sizeBytes: true,
+            downloadedAt: true,
+          },
+        },
+        comparisonResult: {
+          select: {
+            id: true,
+            provider: true,
+            templateId: true,
+            matchCount: true,
+            mismatchCount: true,
+            summary: true,
+            fieldComparisons: true,
+            completedAt: true,
+          },
         },
       },
-      comparisonResult: {
-        select: {
-          id: true,
-          provider: true,
-          templateId: true,
-          matchCount: true,
-          mismatchCount: true,
-          summary: true,
-          fieldComparisons: true,
-          completedAt: true,
-        },
+    }),
+    db.validationResult.findMany({
+      where: { trackedItemId: itemId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        ruleType: true,
+        status: true,
+        message: true,
+        metadata: true,
+        createdAt: true,
       },
-    },
-  });
+    }),
+  ]);
   if (!item) notFound();
 
   const comparison = item.comparisonResult;
@@ -124,6 +138,14 @@ export default async function ItemDetailPage({
         }}
         portalId={id}
         sessionId={sessionId}
+        validations={validations.map((v) => ({
+          id: v.id,
+          ruleType: v.ruleType,
+          status: v.status,
+          message: v.message,
+          metadata: v.metadata as Record<string, unknown> | null,
+          createdAt: v.createdAt.toISOString(),
+        }))}
       />
     </div>
   );

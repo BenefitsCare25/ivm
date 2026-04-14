@@ -1,97 +1,45 @@
 import Link from "next/link";
-import {
-  FileType,
-  Database,
-  ArrowRightLeft,
-  GitBranch,
-  ScanSearch,
-  BarChart3,
-  History,
-  ArrowRight,
-} from "lucide-react";
+import { FileType, BarChart3, History } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 const sections = [
   {
-    title: "Document Classification",
-    description: "Define document types and sets for automatic classification and validation",
+    title: "Document Types",
+    description: "Define document types for automatic classification and field validation",
     href: "/intelligence/document-types",
     icon: FileType,
   },
   {
-    title: "Reference Data",
-    description: "Lookup tables and code mapping datasets",
-    href: "/intelligence/datasets",
-    icon: Database,
-  },
-  {
-    title: "Mapping Rules",
-    description: "Auto-map extracted fields to standard codes",
-    href: "/intelligence/mapping-rules",
-    icon: ArrowRightLeft,
-  },
-  {
-    title: "Business Rules",
-    description: "If/then processing rules for auto-flagging and validation",
-    href: "/intelligence/rules",
-    icon: GitBranch,
-  },
-  {
-    title: "Extraction Config",
-    description: "Templates, normalization, and escalation settings",
-    href: "/intelligence/extraction",
-    icon: ScanSearch,
-  },
-  {
     title: "Dashboard",
-    description: "Analytics, metrics, and bulk processing",
+    description: "Validation metrics and processing analytics",
     href: "/intelligence/dashboard",
     icon: BarChart3,
   },
   {
-    title: "Audit Log",
-    description: "Validation history from document processing runs",
+    title: "Validation History",
+    description: "Audit log of all validation results from document processing",
     href: "/intelligence/audit",
     icon: History,
   },
-];
-
-const setupSteps = [
-  "1. Document Classification",
-  "2. Reference Data",
-  "3. Mapping Rules",
-  "4. Business Rules",
-  "5. Extraction Config",
 ];
 
 export default function IntelligencePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Intelligence Hub</h1>
+        <h1 className="text-2xl font-bold text-foreground">Intelligence</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Configure rules, datasets, and validation logic that run automatically during document processing.
+          Document classification, validation, and processing analytics.
         </p>
       </div>
 
-      {/* Setup order guide */}
       <div className="rounded-lg border border-border bg-muted/30 p-4">
-        <p className="mb-2.5 text-sm font-medium text-foreground">Recommended setup order</p>
-        <div className="flex flex-wrap items-center gap-2">
-          {setupSteps.map((step, i) => (
-            <span key={step} className="flex items-center gap-2">
-              <span className="rounded bg-background px-2 py-0.5 text-xs font-medium text-foreground border border-border">
-                {step}
-              </span>
-              {i < setupSteps.length - 1 && (
-                <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
-              )}
-            </span>
-          ))}
-        </div>
-        <p className="mt-2.5 text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">Document Types</span> define
+          what the AI looks for when classifying downloaded files.{" "}
           <span className="font-medium text-foreground">Dashboard</span> and{" "}
-          <span className="font-medium text-foreground">Audit Log</span> are monitoring pages — visit them after processing documents to review validation results.
+          <span className="font-medium text-foreground">Validation History</span> show
+          processing results — visit them after running a scrape session.
         </p>
       </div>
 

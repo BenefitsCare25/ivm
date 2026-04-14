@@ -77,25 +77,26 @@ export async function validateRequiredFields(
 export async function checkDocTypeMatch(
   classifiedTypeId: string | null,
   classifiedTypeName: string | null,
-  expectedTypeId: string,
-  expectedTypeName: string,
+  acceptableTypeIds: string[],
+  acceptableTypeNames: string[],
   options: PersistOptions
 ): Promise<void> {
   const checks: ValidationCheck[] = [];
+  const label = acceptableTypeNames.join(" / ") || acceptableTypeIds.join(" / ");
 
   if (!classifiedTypeId) {
     checks.push({
       ruleType: "DOC_TYPE_MATCH",
       status: "WARNING",
-      message: `Document type unrecognised — expected "${expectedTypeName}"`,
-      metadata: { expectedTypeId, expectedTypeName, classifiedTypeId: null },
+      message: `Document type unrecognised — expected one of: "${label}"`,
+      metadata: { acceptableTypeIds, acceptableTypeNames, classifiedTypeId: null },
     });
-  } else if (classifiedTypeId !== expectedTypeId) {
+  } else if (!acceptableTypeIds.includes(classifiedTypeId)) {
     checks.push({
       ruleType: "DOC_TYPE_MATCH",
       status: "FAIL",
-      message: `Wrong document type: got "${classifiedTypeName ?? classifiedTypeId}", expected "${expectedTypeName}"`,
-      metadata: { expectedTypeId, expectedTypeName, classifiedTypeId, classifiedTypeName },
+      message: `Wrong document type: got "${classifiedTypeName ?? classifiedTypeId}", expected one of: "${label}"`,
+      metadata: { acceptableTypeIds, acceptableTypeNames, classifiedTypeId, classifiedTypeName },
     });
   }
 

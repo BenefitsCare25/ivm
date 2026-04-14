@@ -32,3 +32,8 @@ export function confidenceVariant(confidence: number): "success" | "warning" | "
 export function toInputJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
+
+/** Toggle an item in an array: removes it if present, appends it if absent. */
+export function toggleArrayItem<T>(arr: T[], item: T): T[] {
+  return arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
+}

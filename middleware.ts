@@ -53,7 +53,7 @@ export default auth(async (req) => {
   }
 
   if (/^\/api\/sessions\/[^/]+\/(extract|mapping)$/.test(pathname) && req.auth?.user?.id) {
-    const result = await aiLimiter(req.auth.user.id);
+    const result = await aiLimiter(`user:${req.auth.user.id}`);
     if (!result.allowed) {
       const res = rateLimitResponse(result, "Too many AI requests. Please wait before retrying.");
       res.headers.set(REQUEST_ID_HEADER, requestId);
@@ -62,7 +62,10 @@ export default auth(async (req) => {
   }
 
   if (pathname.startsWith("/api/")) {
-    const result = await globalLimiter(ip);
+    // Use userId when authenticated so shared IPs (corporate proxies, VPNs)
+    // don't bucket multiple users together under a single IP limit.
+    const globalKey = req.auth?.user?.id ? `user:${req.auth.user.id}` : ip;
+    const result = await globalLimiter(globalKey);
     if (!result.allowed) {
       const res = rateLimitResponse(result, "Too many requests.");
       res.headers.set(REQUEST_ID_HEADER, requestId);

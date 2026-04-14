@@ -50,6 +50,8 @@ export async function PATCH(
       data: {
         ...(data.name && { name: data.name }),
         ...(data.fields && { fields: JSON.parse(JSON.stringify(data.fields)) }),
+        ...(data.requiredDocuments !== undefined && { requiredDocuments: JSON.parse(JSON.stringify(data.requiredDocuments)) }),
+        ...(data.businessRules !== undefined && { businessRules: JSON.parse(JSON.stringify(data.businessRules)) }),
       },
     });
 

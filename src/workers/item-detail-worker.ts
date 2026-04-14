@@ -21,7 +21,7 @@ import {
 import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-queue";
 import { runStorageCleanup } from "@/lib/storage/cleanup";
 import { createHash } from "crypto";
-import type { DetailSelectors, TemplateField, BusinessRuleResult, RequiredDocumentCheck } from "@/types/portal";
+import type { DetailSelectors, TemplateField, BusinessRule, RequiredDocument, BusinessRuleResult, RequiredDocumentCheck } from "@/types/portal";
 import type { BrowserContext, Page } from "playwright";
 
 // Hard cap per job — prevents hung Playwright or AI calls from blocking a slot indefinitely
@@ -281,6 +281,7 @@ async function processItemDetailCore(
       // ── Template lookup + AI field comparison ──────────────
       let comparisonResult;
       let templateId: string | null = null;
+      let matchedTemplate: { id: string; name: string; fields: TemplateField[]; businessRules: BusinessRule[]; requiredDocuments: RequiredDocument[] } | null = null;
 
       if (Object.keys(detailData).length > 0 && Object.keys(pdfFields).length > 0) {
         const allPageData = {
@@ -288,6 +289,7 @@ async function processItemDetailCore(
           ...detailData,
         };
         const template = await findMatchingTemplate(portalId, allPageData);
+        matchedTemplate = template;
 
         let comparePageFields = detailData;
         let comparePdfFields = pdfFields;
@@ -368,11 +370,11 @@ async function processItemDetailCore(
         });
 
         // Save business rule results as ValidationResult records
-        if (comparisonResult.businessRuleResults && template) {
+        if (comparisonResult.businessRuleResults && matchedTemplate) {
           const brInserts = comparisonResult.businessRuleResults
             .filter((r: BusinessRuleResult) => r.status !== "PASS")
             .map((r: BusinessRuleResult) => {
-              const matchedRule = template.businessRules.find((br) => br.rule === r.rule);
+              const matchedRule = matchedTemplate!.businessRules.find((br: BusinessRule) => br.rule === r.rule);
               const status = r.status === "FAIL" ? "FAIL" : "WARNING";
               return db.validationResult.create({
                 data: {
@@ -399,8 +401,8 @@ async function processItemDetailCore(
           const rdInserts = comparisonResult.requiredDocumentsCheck
             .filter((d: RequiredDocumentCheck) => !d.found)
             .map((d: RequiredDocumentCheck) => {
-              const matchedReqDoc = template?.requiredDocuments.find(
-                (rd) => rd.documentTypeName === d.documentTypeName
+              const matchedReqDoc = matchedTemplate?.requiredDocuments.find(
+                (rd: RequiredDocument) => rd.documentTypeName === d.documentTypeName
               );
               return db.validationResult.create({
                 data: {

@@ -43,12 +43,20 @@ export default async function PortalDetailPage({
 
   if (!portal) notFound();
 
-  // Item status counts per session
-  const sessionItemCounts = await db.trackedItem.groupBy({
-    by: ["scrapeSessionId", "status"],
-    where: { scrapeSession: { portalId: id } },
-    _count: { id: true },
-  });
+  // Parallelise the two independent aggregation queries
+  const [sessionItemCounts, recentItems] = await Promise.all([
+    db.trackedItem.groupBy({
+      by: ["scrapeSessionId", "status"],
+      where: { scrapeSession: { portalId: id } },
+      _count: { id: true },
+    }),
+    db.trackedItem.findMany({
+      where: { scrapeSession: { portalId: id } },
+      select: { listData: true, detailData: true },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    }),
+  ]);
 
   const itemCountsMap = sessionItemCounts.reduce<
     Record<string, Record<string, number>>
@@ -65,14 +73,6 @@ export default async function PortalDetailPage({
   const detailFieldKeys = Object.keys(
     (detailSelectors.fieldSelectors as Record<string, unknown> | undefined) ?? {}
   );
-
-  // Prefer actual scraped item field names over selector config
-  const recentItems = await db.trackedItem.findMany({
-    where: { scrapeSession: { portalId: id } },
-    select: { listData: true, detailData: true },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-  });
 
   const scrapedFields = new Set<string>();
   for (const item of recentItems) {
@@ -122,6 +122,7 @@ export default async function PortalDetailPage({
     updatedAt: portal.updatedAt.toISOString(),
     groupingFields: (portal.groupingFields ?? []) as string[],
     scrapeLimit: portal.scrapeLimit,
+    defaultDocumentTypeIds: portal.defaultDocumentTypeIds,
     availableFields,
     detectedClaimTypes,
     sessions: portal.scrapeSessions.map((s) => ({

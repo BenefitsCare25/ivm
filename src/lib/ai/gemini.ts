@@ -23,7 +23,7 @@ export async function extractWithGemini(request: AIExtractionRequest): Promise<A
     const genAI = new GoogleGenerativeAI(request.apiKey);
     const model = genAI.getGenerativeModel({
       model: request.model ?? env.GEMINI_MODEL,
-      systemInstruction: getExtractionSystemPrompt(),
+      systemInstruction: getExtractionSystemPrompt(request.knownDocumentTypes),
     });
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;

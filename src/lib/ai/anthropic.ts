@@ -70,7 +70,7 @@ export async function extractWithAnthropic(request: AIExtractionRequest): Promis
     {
       model: request.model ?? env.ANTHROPIC_MODEL,
       max_tokens: 4096,
-      system: getExtractionSystemPrompt(),
+      system: getExtractionSystemPrompt(request.knownDocumentTypes),
       messages: [{ role: "user", content }],
     },
     { signal: AbortSignal.timeout(60_000) }

@@ -96,7 +96,13 @@
       "Bash(\"/c/Program Files/Docker/Docker/resources/bin/docker.exe\" --version)",
       "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" --version)",
       "Bash(rm -f \"C:/Users/huien/ivm/src/app/api/sessions/[id]/validations/route.ts\")",
-      "Bash(rmdir \"C:/Users/huien/ivm/src/app/api/sessions/[id]/validations\")"
+      "Bash(rmdir \"C:/Users/huien/ivm/src/app/api/sessions/[id]/validations\")",
+      "Bash(C:/Program Files/Docker/Docker/resources/bin/docker compose:*)",
+      "Bash(where docker.exe)",
+      "Read(//c/Program Files/Docker/Docker/resources/**)",
+      "Bash(awk '$1 > 500 {print}')",
+      "Bash(git:*)",
+      "Bash(node_modules/.bin/tsc --noEmit --pretty false)"
     ]
   }
 }

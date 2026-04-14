@@ -35,8 +35,15 @@ export async function authenticateWithCredentials(
   const context = await createBrowserContext();
   const page = await context.newPage();
 
-  const username = decrypt(options.encryptedUsername);
-  const password = decrypt(options.encryptedPassword);
+  let username: string;
+  let password: string;
+  try {
+    username = decrypt(options.encryptedUsername);
+    password = decrypt(options.encryptedPassword);
+  } catch {
+    await context.close();
+    throw new Error("Failed to decrypt credentials — re-configure authentication in portal settings");
+  }
 
   logger.info({ loginUrl: options.loginUrl }, "[playwright] Navigating to login page");
 

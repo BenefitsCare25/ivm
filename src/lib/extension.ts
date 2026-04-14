@@ -173,6 +173,30 @@ export async function sendFillToExtension(
   });
 }
 
+/** Map Chrome extension sameSite values to the format expected by the Zod schema */
+export function mapSameSite(v?: string): "Strict" | "Lax" | "None" | undefined {
+  switch (v) {
+    case "strict": return "Strict";
+    case "lax": return "Lax";
+    case "no_restriction": return "None";
+    default: return undefined;
+  }
+}
+
+/** Transform Chrome extension cookies to the format expected by the save API */
+export function mapChromeCookies(cookies: ExtensionCookie[]) {
+  return cookies.map((c) => ({
+    name: c.name,
+    value: c.value,
+    domain: c.domain,
+    path: c.path || "/",
+    expires: c.expires ?? c.expirationDate,
+    httpOnly: c.httpOnly,
+    secure: c.secure,
+    sameSite: mapSameSite(c.sameSite),
+  }));
+}
+
 export interface ExtensionCookie {
   name: string;
   value: string;

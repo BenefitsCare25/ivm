@@ -1,7 +1,15 @@
 import type { ExtractedField } from "@/types/extraction";
 import type { TargetField } from "@/types/target";
 
-export function getExtractionSystemPrompt(): string {
+export function getExtractionSystemPrompt(knownDocumentTypes?: string[]): string {
+  const docTypeInstruction = knownDocumentTypes && knownDocumentTypes.length > 0
+    ? `Document type identification:
+- You MUST use one of these exact names if the document matches: ${knownDocumentTypes.map((t) => `"${t}"`).join(", ")}
+- Copy the name character-for-character — do not paraphrase, abbreviate, or translate
+- If the document clearly does not match any listed type, describe it freely (e.g., "receipt", "contract", "unknown")`
+    : `Document type identification:
+- Identify the documentType (e.g., "invoice", "tax form", "insurance claim", "identity document", "contract", "receipt", "application form", "survey", "questionnaire")`;
+
   return `You are a document field extraction specialist. Your task is to analyze uploaded documents and extract every distinct data field into a structured JSON format.
 
 COMPLETENESS IS CRITICAL:
@@ -16,7 +24,7 @@ Rules:
 - Assign a fieldType from exactly these values: text, date, number, email, phone, address, name, currency, other.
 - Generate a unique ID for each field (use format: field_1, field_2, etc.).
 - Include the rawText exactly as it appears in the document.
-- Identify the documentType (e.g., "invoice", "tax form", "insurance claim", "identity document", "contract", "receipt", "application form", "survey", "questionnaire").
+${docTypeInstruction}
 
 Confidence scoring (assign differentiated scores, NOT the same score for every field):
 - 0.95-1.0: Value is clearly legible, unambiguous, standard format.

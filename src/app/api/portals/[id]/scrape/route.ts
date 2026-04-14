@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { enqueuePortalScrape } from "@/lib/queue/portal-scrape-queue";
 import { errorResponse, UnauthorizedError, NotFoundError, AppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
+import { startScrapeSchema } from "@/lib/validations/portal";
 
 export async function POST(
   req: Request,
@@ -20,15 +21,15 @@ export async function POST(
     });
     if (!portal) throw new NotFoundError("Portal");
 
-    const body = await req.json().catch(() => ({}));
-    const expectedDocumentTypeId = typeof body.expectedDocumentTypeId === "string" ? body.expectedDocumentTypeId : null;
+    const body = startScrapeSchema.parse(await req.json().catch(() => ({})));
+    const acceptableDocumentTypeIds = body.acceptableDocumentTypeIds ?? [];
 
     // Create scrape session
     const scrapeSession = await db.scrapeSession.create({
       data: {
         portalId: id,
         triggeredBy: "MANUAL",
-        expectedDocumentTypeId,
+        acceptableDocumentTypeIds,
       },
     });
 

@@ -53,6 +53,7 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 - Prompts: `src/lib/ai/prompts.ts`; Types: `src/lib/ai/types.ts`
 - Key validation: `src/lib/ai/validate-key.ts` (minimal API call before saving)
 - Images → base64 content blocks; PDFs → base64 document blocks; DOCX → graceful error
+- **`knownDocumentTypes?: string[]`** on `AIExtractionRequest` — when provided, injected into the system prompt so the AI picks from the exact list instead of free-texting. Pass `cachedDocTypes.map(dt => dt.name)` from the worker. Falls back to free-text description when omitted (auto-form extraction path is unaffected).
 
 ### AI Field Mapping
 - Entry point: `proposeFieldMappings()` from `src/lib/ai/mapping.ts` (text-only, no file uploads)
@@ -81,6 +82,8 @@ Wrap typed arrays/objects with `JSON.parse(JSON.stringify(...))` to satisfy `Inp
 
 ### Shared Utilities (`src/lib/utils.ts`)
 - `cn()` — className merging; `formatDate()` — en-SG locale; `sanitizeFileName()`, `formatFieldLabel()`, `confidenceVariant()`
+- `toInputJson<T>()` — strips `undefined` via JSON round-trip for Prisma `InputJsonValue`
+- `toggleArrayItem<T>(arr, item)` — removes item if present, appends if absent; use for checkbox array state in portal doc type selectors
 
 ### RSC Serialization — Lucide Icons
 Never pass Lucide icon components as props from Server → Client Components (functions don't serialize). Pass pre-rendered `<Icon />` JSX instead. `EmptyState` accepts `icon` as `React.ReactNode`.
@@ -172,21 +175,23 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Purpose**: Document classification, validation monitoring, and analytics. Phases 2-4 (Reference Data, Mapping Rules, Business Rules, Extraction Config) had UI/APIs removed — Prisma models remain in schema but are unused.
 - **Portal Tracker only**: All intelligence features run in Portal Tracker scrape sessions only. Auto Form has no intelligence integration.
 - **Sidebar**: Brain icon → `/intelligence` hub page with 3 cards: Document Types, Dashboard, Validation History
-- **Migrations**: `20260410200000_add_intelligence_hub` (all tables), `20260411000000_add_expected_doc_type_to_scrape_session`, `20260413100000_add_default_doc_type_to_portal`
+- **Migrations**: `20260410200000_add_intelligence_hub` (all tables), `20260411000000_add_expected_doc_type_to_scrape_session`, `20260413100000_add_default_doc_type_to_portal`, `20260413200000_multi_acceptable_doc_types` (replaced single FK fields with `TEXT[]` arrays on both Portal and ScrapeSession)
 
 #### Document Classification (Types)
 - **Page**: `/intelligence/document-types` — renders `DocumentTypeList` directly
 - **Prisma models**: `DocumentType`, `ValidationResult` (trackedItemId?, ruleType, status PASS/FAIL/WARNING, message, metadata JSON)
-- **ScrapeSession fields**: `expectedDocumentTypeId?` — set at scrape creation via modal (optional, pre-selected from portal default)
-- **Portal default**: `Portal.defaultDocumentTypeId` — optional FK to `DocumentType`, configurable via dropdown card on portal detail page. `ScrapeSessionModal` pre-selects this value.
+- **Multi-type fields**: `Portal.defaultDocumentTypeIds String[] @default([])` — convenience defaults pre-ticked in the scrape modal. `ScrapeSession.acceptableDocumentTypeIds String[] @default([])` — the actual enforcement list for that session. Both replaced the old single FK fields (`defaultDocumentTypeId`, `expectedDocumentTypeId`) in migration `20260413200000_multi_acceptable_doc_types`.
+- **Portal default**: Scrollable checkbox list on portal detail page — each toggle fires PATCH immediately, disabled while saving. `ScrapeSessionModal` pre-ticks these values on open.
+- **Scrape modal**: Multi-select checkbox list; `startScrapeSchema` in `src/lib/validations/portal.ts` validates the body (`acceptableDocumentTypeIds?: string[]`).
 - **API routes**: `GET/POST /api/intelligence/document-types`, `PATCH/DELETE /api/intelligence/document-types/[id]`
 - **Validation API**: `GET /api/portals/[id]/scrape/[sessionId]/items/[itemId]/validations`
 - **Runtime lib** (`src/lib/intelligence/`):
-  - `classifier.ts` — `fetchDocTypes(userId)` pre-fetches once; `classifyDocumentTypeFromCache(aiDocType, docTypes)` pure Jaro-Winkler fuzzy match on name + aliases
-  - `validator.ts` — `validateRequiredFields(docType, extractedFields, options)` checks required field names; `checkDocTypeMatch(classifiedTypeId, classifiedTypeName, expectedTypeId, expectedTypeName, options)` persists `DOC_TYPE_MATCH` FAIL/WARNING when classified type differs from expected
+  - `classifier.ts` — `fetchDocTypes(userId)` pre-fetches once; `classifyDocumentTypeFromCache(aiDocType, docTypes)` pure Jaro-Winkler fuzzy match on name + aliases (fallback only — AI now receives exact names in prompt)
+  - `validator.ts` — `validateRequiredFields(docType, extractedFields, options)` checks required field names; `checkDocTypeMatch(classifiedTypeId, classifiedTypeName, acceptableTypeIds[], acceptableTypeNames[], options)` persists `DOC_TYPE_MATCH` FAIL/WARNING when classified type is not in the acceptable set
   - `deduplicator.ts` — `checkDuplicate(userId, documentTypeId, keyFields, extractedFields, options)` SHA-256 hashes key field values, 90-day lookback
-- **Worker integration** (`item-detail-worker.ts`): Non-fatal pipeline — classify → validate required fields → check duplicate → check doc type match (once per item, after file loop, uses first classified file). Never blocks comparison pipeline.
-- **Doc type mismatch badge**: After processing, if `scrapeSession.expectedDocumentTypeId` is set and the downloaded PDF was classified as a different type (or couldn't be classified), a `ValidationResult` with `ruleType: "DOC_TYPE_MATCH"` is written. Status `"FAIL"` = wrong type; `"WARNING"` = unrecognised type.
+- **Worker integration** (`item-detail-worker.ts`): `fetchDocTypes` runs **before** the extraction loop so `knownDocumentTypes` names can be injected into the AI prompt. Non-fatal pipeline — classify → validate required fields → check duplicate → check doc type match (once per item, uses first classified file). Never blocks comparison pipeline.
+- **Classification reliability**: AI receives `knownDocumentTypes` in the system prompt and must pick from the exact list when the document matches. Fuzzy matching is only a fallback for when `fetchDocTypes` fails or returns empty.
+- **Doc type mismatch badge**: `ValidationResult` with `ruleType: "DOC_TYPE_MATCH"` written when classified type is not in `acceptableDocumentTypeIds`. Status `"FAIL"` = wrong type; `"WARNING"` = unrecognised (null classification).
 - **FWA display constants**: `FWA_RULE_TYPES` (Set) and `FWA_LABELS` (Record) in `src/types/portal.ts` — shared by `TrackedItemsTable` and `ItemDetailView`. Adding a new alert type requires updating only this one location.
 - **Session items table**: DOC_TYPE_MATCH surfaces as a red/amber "Wrong Doc Type" badge in the FWA column alongside Tampering/Anomaly/etc. Tooltip shows the mismatch message.
 - **Key constraint**: `ValidationResult` has no `userId` — always scope queries via trackedItemId→TrackedItem→ScrapeSession→Portal.userId

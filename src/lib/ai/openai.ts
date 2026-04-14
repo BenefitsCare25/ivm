@@ -54,7 +54,7 @@ export async function extractWithOpenAI(request: AIExtractionRequest): Promise<A
       model: request.model ?? env.OPENAI_MODEL,
       max_tokens: 4096,
       messages: [
-        { role: "system", content: getExtractionSystemPrompt() },
+        { role: "system", content: getExtractionSystemPrompt(request.knownDocumentTypes) },
         { role: "user", content: buildUserContent(request) },
       ],
     },

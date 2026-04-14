@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import { ArrowLeft, FileType, FolderCheck, GitBranch, ScanSearch, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
+import { ArrowLeft, FileType, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import { requireAuth } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,25 +30,11 @@ export default async function IntelligenceDashboardPage() {
   const [
     docTypesAll,
     docTypesActive,
-    docSetsAll,
-    docSetsActive,
-    businessRulesAll,
-    businessRulesActive,
-    runsSum,
-    extractionAll,
-    extractionActive,
     validationGroups,
     recentValidations,
   ] = await Promise.all([
     db.documentType.count({ where: { userId } }),
     db.documentType.count({ where: { userId, isActive: true } }),
-    db.documentSet.count({ where: { userId } }),
-    db.documentSet.count({ where: { userId, isActive: true } }),
-    db.businessRule.count({ where: { userId } }),
-    db.businessRule.count({ where: { userId, isActive: true } }),
-    db.businessRule.aggregate({ where: { userId }, _sum: { runCount: true } }),
-    db.extractionTemplate.count({ where: { userId } }),
-    db.extractionTemplate.count({ where: { userId, isActive: true } }),
     db.validationResult.groupBy({
       by: ["status"],
       where: validationWhere,
@@ -69,8 +55,6 @@ export default async function IntelligenceDashboardPage() {
     else if (v.status === "WARNING") validationCounts.warning = v._count._all;
   }
 
-  const totalRuns = runsSum._sum.runCount ?? 0;
-  const isAllEmpty = docTypesAll === 0 && docSetsAll === 0 && businessRulesAll === 0 && extractionAll === 0;
   const totalValidations = validationCounts.pass + validationCounts.fail + validationCounts.warning;
 
   const stats = [
@@ -82,38 +66,10 @@ export default async function IntelligenceDashboardPage() {
       href: "/intelligence/document-types",
     },
     {
-      title: "Document Sets",
-      icon: FolderCheck,
-      value: docSetsAll,
-      sub: `${docSetsActive} active`,
-      href: "/intelligence/document-types",
-    },
-    {
-      title: "Business Rules",
-      icon: GitBranch,
-      value: businessRulesAll,
-      sub: `${businessRulesActive} active · ${totalRuns} runs`,
-      href: "/intelligence/rules",
-    },
-    {
-      title: "Extraction Templates",
-      icon: ScanSearch,
-      value: extractionAll,
-      sub: `${extractionActive} active`,
-      href: "/intelligence/extraction",
-    },
-    {
       title: "Validations (7d)",
       icon: CheckCircle2,
       value: totalValidations,
       sub: `${validationCounts.pass} pass · ${validationCounts.fail} fail · ${validationCounts.warning} warn`,
-      href: null,
-    },
-    {
-      title: "Rules Executed",
-      icon: GitBranch,
-      value: totalRuns,
-      sub: "total across all rules",
       href: null,
     },
   ];
@@ -126,11 +82,11 @@ export default async function IntelligenceDashboardPage() {
           className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Intelligence Hub
+          Intelligence
         </Link>
         <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Overview of your intelligence configuration and recent validation activity.
+          Overview of document classification and recent validation activity.
         </p>
       </div>
 
@@ -139,12 +95,11 @@ export default async function IntelligenceDashboardPage() {
         <ul className="list-disc pl-4 space-y-0.5">
           <li>Metric cards show total and active counts — inactive items do not run during processing.</li>
           <li><span className="font-medium text-foreground">Validations (7d)</span> counts all PASS / FAIL / WARNING results from Portal Tracker in the last 7 days.</li>
-          <li><span className="font-medium text-foreground">Rules Executed</span> is the cumulative total run count across all business rules since they were created.</li>
-          <li>Click any metric card to navigate directly to that configuration section.</li>
+          <li>Click any metric card with a link to navigate directly to that configuration section.</li>
         </ul>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         {stats.map((s) => {
           const Icon = s.icon;
           const card = (
@@ -169,11 +124,11 @@ export default async function IntelligenceDashboardPage() {
         })}
       </div>
 
-      {isAllEmpty && (
+      {docTypesAll === 0 && (
         <EmptyState
           icon={<CheckCircle2 className="h-10 w-10" />}
           title="Getting started"
-          description="Create document types and sets, then configure business rules to automate validation during Portal Tracker processing."
+          description="Create document types in Intelligence > Document Types, then run Portal Tracker scrape sessions to see validation results here."
         />
       )}
 

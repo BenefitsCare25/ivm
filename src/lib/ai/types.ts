@@ -13,6 +13,7 @@ export interface AIExtractionRequest {
   apiKey: string;
   model?: string;
   textContent?: string; // Pre-extracted text for DOCX files
+  knownDocumentTypes?: string[]; // Constrain AI to pick from this list when provided
 }
 
 export interface AIExtractionResponse {

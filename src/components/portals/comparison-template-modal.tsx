@@ -37,18 +37,18 @@ export function ComparisonTemplateModal({
   const [error, setError] = useState<string | null>(null);
 
   function addField(name: string) {
-    if (selectedFields.some((f) => f.fieldName === name)) return;
-    setSelectedFields((prev) => [...prev, { fieldName: name, mode: "fuzzy" }]);
+    if (selectedFields.some((f) => f.portalFieldName === name)) return;
+    setSelectedFields((prev) => [...prev, { portalFieldName: name, documentFieldName: name, mode: "fuzzy" }]);
   }
 
   function removeField(name: string) {
-    setSelectedFields((prev) => prev.filter((f) => f.fieldName !== name));
+    setSelectedFields((prev) => prev.filter((f) => f.portalFieldName !== name));
   }
 
   function updateMode(name: string, mode: MatchMode) {
     setSelectedFields((prev) =>
       prev.map((f) =>
-        f.fieldName === name
+        f.portalFieldName === name
           ? { ...f, mode, tolerance: mode === "numeric" ? 0.01 : undefined }
           : f
       )
@@ -57,7 +57,7 @@ export function ComparisonTemplateModal({
 
   function updateTolerance(name: string, tolerance: number) {
     setSelectedFields((prev) =>
-      prev.map((f) => (f.fieldName === name ? { ...f, tolerance } : f))
+      prev.map((f) => (f.portalFieldName === name ? { ...f, tolerance } : f))
     );
   }
 
@@ -88,7 +88,7 @@ export function ComparisonTemplateModal({
   }
 
   const unselected = availableFields.filter(
-    (f) => !selectedFields.some((s) => s.fieldName === f.name)
+    (f) => !selectedFields.some((s) => s.portalFieldName === f.name)
   );
 
   return (
@@ -145,15 +145,15 @@ export function ComparisonTemplateModal({
               </p>
               <div className="space-y-2">
                 {selectedFields.map((field) => {
-                  const opt = availableFields.find((f) => f.name === field.fieldName);
+                  const opt = availableFields.find((f) => f.name === field.portalFieldName);
                   return (
                     <div
-                      key={field.fieldName}
+                      key={field.portalFieldName}
                       className="flex items-center gap-3 rounded-lg border border-border p-3"
                     >
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-foreground truncate">
-                          {field.fieldName}
+                          {field.portalFieldName}
                         </p>
                         {opt && (
                           <p className="text-xs text-muted-foreground truncate">
@@ -163,7 +163,7 @@ export function ComparisonTemplateModal({
                       </div>
                       <select
                         value={field.mode}
-                        onChange={(e) => updateMode(field.fieldName, e.target.value as MatchMode)}
+                        onChange={(e) => updateMode(field.portalFieldName, e.target.value as MatchMode)}
                         className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
                       >
                         {(Object.entries(MATCH_MODE_LABELS) as [MatchMode, string][]).map(
@@ -181,14 +181,14 @@ export function ComparisonTemplateModal({
                           min="0"
                           value={field.tolerance ?? 0}
                           onChange={(e) =>
-                            updateTolerance(field.fieldName, parseFloat(e.target.value) || 0)
+                            updateTolerance(field.portalFieldName, parseFloat(e.target.value) || 0)
                           }
                           className="w-20 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
                           placeholder="Tolerance"
                         />
                       )}
                       <button
-                        onClick={() => removeField(field.fieldName)}
+                        onClick={() => removeField(field.portalFieldName)}
                         className="text-muted-foreground hover:text-destructive cursor-pointer"
                       >
                         <Trash2 className="h-4 w-4" />
