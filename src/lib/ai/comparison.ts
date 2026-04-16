@@ -15,6 +15,7 @@ export interface ComparisonRequest {
   provider: AIProvider;
   apiKey: string;
   model?: string;
+  baseURL?: string; // Custom base URL for OpenAI-compatible proxies
   templateFields?: TemplateField[];
   /** Override the system prompt (used by full comparison with business rules) */
   systemPromptOverride?: string;
@@ -71,7 +72,7 @@ export async function compareFields(
 }
 
 async function compareWithAnthropic(request: ComparisonRequest, userPrompt: string): Promise<string> {
-  const client = new Anthropic({ apiKey: request.apiKey });
+  const client = new Anthropic({ apiKey: request.apiKey, ...(request.baseURL ? { baseURL: request.baseURL } : {}) });
 
   const response = await client.messages.create(
     {
@@ -91,7 +92,7 @@ async function compareWithAnthropic(request: ComparisonRequest, userPrompt: stri
 }
 
 async function compareWithOpenAI(request: ComparisonRequest, userPrompt: string): Promise<string> {
-  const client = new OpenAI({ apiKey: request.apiKey });
+  const client = new OpenAI({ apiKey: request.apiKey, ...(request.baseURL ? { baseURL: request.baseURL } : {}) });
 
   const response = await client.chat.completions.create(
     {

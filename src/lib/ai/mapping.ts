@@ -18,9 +18,10 @@ async function callAnthropic(
   apiKey: string,
   systemPrompt: string,
   userPrompt: string,
-  model?: string
+  model?: string,
+  baseURL?: string
 ): Promise<TextCallResult> {
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) });
   const response = await client.messages.create(
     {
       model: model ?? env.ANTHROPIC_MODEL,
@@ -45,9 +46,10 @@ async function callOpenAI(
   apiKey: string,
   systemPrompt: string,
   userPrompt: string,
-  model?: string
+  model?: string,
+  baseURL?: string
 ): Promise<TextCallResult> {
-  const client = new OpenAI({ apiKey });
+  const client = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) });
   const response = await client.chat.completions.create(
     {
       model: model ?? env.OPENAI_MODEL,
@@ -127,7 +129,7 @@ export async function proposeFieldMappings(
   switch (provider) {
     case "anthropic": {
       const result = await withRetry(
-        () => callAnthropic(apiKey, systemPrompt, userPrompt, request.model),
+        () => callAnthropic(apiKey, systemPrompt, userPrompt, request.model, request.baseURL),
         { maxRetries: 2, operation: "mapping:anthropic" }
       );
       rawText = result.rawText;
@@ -136,7 +138,7 @@ export async function proposeFieldMappings(
     }
     case "openai": {
       const result = await withRetry(
-        () => callOpenAI(apiKey, systemPrompt, userPrompt, request.model),
+        () => callOpenAI(apiKey, systemPrompt, userPrompt, request.model, request.baseURL),
         { maxRetries: 2, operation: "mapping:openai" }
       );
       rawText = result.rawText;

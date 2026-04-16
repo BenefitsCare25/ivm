@@ -58,7 +58,10 @@ function buildContentBlocks(
 }
 
 export async function extractWithAnthropic(request: AIExtractionRequest): Promise<AIExtractionResponse> {
-  const client = new Anthropic({ apiKey: request.apiKey });
+  const client = new Anthropic({
+    apiKey: request.apiKey,
+    ...(request.baseURL ? { baseURL: request.baseURL } : {}),
+  });
   const content = buildContentBlocks(request);
 
   logger.info(

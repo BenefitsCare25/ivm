@@ -10,6 +10,20 @@ export interface ResolvedProvider {
   apiKey: string;
   visionModel: string;
   textModel: string;
+  baseURL?: string; // Set when routing through a proxy
+}
+
+async function isProxyHealthy(url: string): Promise<boolean> {
+  try {
+    // Strip /v1 suffix — health endpoint lives at server root
+    const root = url.replace(/\/v1\/?$/, "");
+    const res = await fetch(`${root}/health`, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) return false;
+    const data = await res.json() as { status?: string; claudeBinaryOk?: boolean };
+    return data?.status === "ok" && data?.claudeBinaryOk === true;
+  } catch {
+    return false;
+  }
 }
 
 export async function resolveProviderAndKey(userId: string): Promise<ResolvedProvider> {
@@ -22,6 +36,7 @@ export async function resolveProviderAndKey(userId: string): Promise<ResolvedPro
     },
   });
 
+  // 1. User's own BYOK keys take priority
   if (user?.apiKeys.length) {
     const preferred = user.preferredProvider
       ? user.apiKeys.find((k) => k.provider === user.preferredProvider)
@@ -39,7 +54,21 @@ export async function resolveProviderAndKey(userId: string): Promise<ResolvedPro
     };
   }
 
-  const systemKey = process.env.ANTHROPIC_API_KEY;
+  // 2. Claude proxy (pay plan) — used as system default when no BYOK keys
+  const proxyUrl = env.CLAUDE_PROXY_URL;
+  const proxyToken = env.CLAUDE_PROXY_TOKEN;
+  if (proxyUrl && proxyToken && await isProxyHealthy(proxyUrl)) {
+    return {
+      provider: "anthropic",
+      apiKey: proxyToken,
+      baseURL: proxyUrl,
+      visionModel: "claude-sonnet-4-6",
+      textModel: "claude-sonnet-4-6",
+    };
+  }
+
+  // 3. System Anthropic API key fallback
+  const systemKey = env.ANTHROPIC_API_KEY;
   if (systemKey) {
     return {
       provider: "anthropic",
