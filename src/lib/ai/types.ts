@@ -13,6 +13,7 @@ export interface AIExtractionRequest {
   apiKey: string;
   model?: string;
   baseURL?: string; // Custom base URL for OpenAI-compatible proxies
+  storagePath?: string; // Disk path for proxy Read-tool extraction
   textContent?: string; // Pre-extracted text for DOCX files
   knownDocumentTypes?: string[]; // Constrain AI to pick from this list when provided
 }

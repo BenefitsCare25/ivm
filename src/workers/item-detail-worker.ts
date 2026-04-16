@@ -180,6 +180,7 @@ async function processItemDetailCore(
               apiKey,
               model: visionModel,
               baseURL,
+              storagePath: file.storagePath,
               knownDocumentTypes,
             });
 

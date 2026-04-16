@@ -4,6 +4,7 @@ import { extractTextFromDocx } from "./docx-extractor";
 import { extractWithAnthropic } from "./anthropic";
 import { extractWithOpenAI } from "./openai";
 import { extractWithGemini } from "./gemini";
+import { extractWithProxyReadTool } from "./proxy-extraction";
 import type { AIExtractionRequest, AIExtractionResponse } from "./types";
 
 export type { AIExtractionRequest, AIExtractionResponse, AIProvider } from "./types";
@@ -24,6 +25,11 @@ export async function extractFieldsFromDocument(
 
   return withRetry(
     () => {
+      // CLI proxy cannot handle base64 content blocks — use Read tool approach
+      if (enrichedRequest.baseURL && enrichedRequest.storagePath && !enrichedRequest.textContent) {
+        return extractWithProxyReadTool(enrichedRequest);
+      }
+
       switch (enrichedRequest.provider) {
         case "anthropic":
           return extractWithAnthropic(enrichedRequest);

@@ -34,6 +34,7 @@ async function runExtractionInline(
       apiKey,
       model,
       baseURL,
+      storagePath: sourceAsset.storagePath,
     });
 
     durationTimer();
