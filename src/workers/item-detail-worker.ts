@@ -9,7 +9,7 @@ import { extractFieldsFromDocument } from "@/lib/ai";
 import { compareFields } from "@/lib/ai/comparison";
 import { getFullComparisonSystemPrompt, buildFullComparisonUserPrompt } from "@/lib/ai/prompt-builder";
 import { findMatchingTemplate, filterFieldsByTemplate } from "@/lib/comparison-templates";
-import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDocTypeMatch, checkDuplicate, checkTampering, checkAnomalies, checkPdfMetadata, checkVisualForensics, checkArithmeticConsistency } from "@/lib/intelligence";
+import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDocTypeMatch, checkDuplicate, checkTampering } from "@/lib/intelligence";
 import type { DocTypeRecord } from "@/lib/intelligence";
 import { emitItemEvent, emitFailureEvent, withEventTracking } from "@/lib/portal-events";
 import {
@@ -136,7 +136,7 @@ async function processItemDetailCore(
       }
 
       // ── AI extraction from downloaded files ─────────────────
-      const { provider, apiKey, visionModel, textModel } = await resolveProviderAndKey(userId);
+      const { provider, apiKey, visionModel, textModel, baseURL } = await resolveProviderAndKey(userId);
       const pdfFields: Record<string, string> = {};
       const fileExtractions: { fileName: string; documentType: string; fields: { label: string; value: string }[] }[] = [];
 
@@ -171,22 +171,17 @@ async function processItemDetailCore(
             });
             await checkTampering(trackedItemId, portalId, item.portalItemId, file.originalName, fileHash);
 
-            const [extraction] = await Promise.all([
-              extractFieldsFromDocument({
-                sourceAssetId: trackedItemId,
-                mimeType: file.mimeType,
-                fileData: fileBuffer,
-                fileName: file.originalName,
-                provider,
-                apiKey,
-                model: visionModel,
-                knownDocumentTypes,
-              }),
-              ...(file.mimeType === "application/pdf"
-                ? [checkPdfMetadata(trackedItemId, fileBuffer, file.originalName)]
-                : []),
-              checkVisualForensics(trackedItemId, fileBuffer, file.mimeType, file.originalName, provider, apiKey, visionModel),
-            ]);
+            const extraction = await extractFieldsFromDocument({
+              sourceAssetId: trackedItemId,
+              mimeType: file.mimeType,
+              fileData: fileBuffer,
+              fileName: file.originalName,
+              provider,
+              apiKey,
+              model: visionModel,
+              baseURL,
+              knownDocumentTypes,
+            });
 
             for (const field of extraction.fields) {
               pdfFields[field.label] = field.value;
@@ -262,23 +257,6 @@ async function processItemDetailCore(
         }
       }
 
-      // ── FWA: anomaly detection on scraped portal data ──────
-      try {
-        const allDataForAnomaly: Record<string, string> = {
-          ...(item.listData as Record<string, string>),
-          ...detailData,
-        };
-        await checkAnomalies(trackedItemId, portalId, allDataForAnomaly);
-      } catch (err) {
-        logger.warn({ err }, "[worker] Anomaly check error (non-fatal)");
-      }
-
-      try {
-        await checkArithmeticConsistency(trackedItemId, pdfFields);
-      } catch (err) {
-        logger.warn({ err }, "[worker] Arithmetic check error (non-fatal)");
-      }
-
       // ── Template lookup + AI field comparison ──────────────
       let comparisonResult;
       let templateId: string | null = null;
@@ -348,6 +326,7 @@ async function processItemDetailCore(
               provider,
               apiKey,
               model: textModel,
+              baseURL,
               templateFields,
               systemPromptOverride,
               userPromptOverride,

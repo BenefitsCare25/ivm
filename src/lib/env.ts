@@ -23,6 +23,8 @@ const envSchema = z.object({
   GITHUB_CLIENT_ID: z.string().optional(),
   GITHUB_CLIENT_SECRET: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  CLAUDE_PROXY_URL: z.string().url().optional(),
+  CLAUDE_PROXY_TOKEN: z.string().min(16, "CLAUDE_PROXY_TOKEN must be at least 16 characters").optional(),
   REDIS_URL: z.string().optional(),
   PLAYWRIGHT_HEADLESS: z.enum(["true", "false"]).default("true"),
   FEATURE_BROWSER_WORKSPACE: z.string().optional(),

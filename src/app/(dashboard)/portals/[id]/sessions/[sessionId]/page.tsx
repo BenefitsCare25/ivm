@@ -64,20 +64,20 @@ export default async function SessionItemsPage({
   });
   if (!scrapeSession) notFound();
 
-  // Fetch worst FWA signal per item (TAMPERING > DUPLICATE > ANOMALY, FAIL > WARNING)
+  // Fetch worst FWA signal per item (TAMPERING > DUPLICATE > DOC_TYPE_MATCH, FAIL > WARNING)
   const itemIds = scrapeSession.trackedItems.map((i) => i.id);
   const fwaResults = itemIds.length > 0
     ? await db.validationResult.findMany({
         where: {
           trackedItemId: { in: itemIds },
-          ruleType: { in: ["TAMPERING", "ANOMALY", "DUPLICATE", "DOCUMENT_METADATA", "VISUAL_FORENSICS", "ARITHMETIC_INCONSISTENCY", "DOC_TYPE_MATCH"] },
+          ruleType: { in: ["TAMPERING", "DUPLICATE", "DOC_TYPE_MATCH", "BUSINESS_RULE", "REQUIRED_DOCUMENT"] },
         },
         select: { trackedItemId: true, ruleType: true, status: true, message: true },
       })
     : [];
 
-  // Build per-item worst signal: FAIL beats WARNING; TAMPERING > DUPLICATE > ANOMALY
-  const FWA_PRIORITY: Record<string, number> = { TAMPERING: 3, DUPLICATE: 2, ANOMALY: 1, DOC_TYPE_MATCH: 1 };
+  // Build per-item worst signal: FAIL beats WARNING; TAMPERING > DUPLICATE > DOC_TYPE_MATCH
+  const FWA_PRIORITY: Record<string, number> = { TAMPERING: 3, DUPLICATE: 2, DOC_TYPE_MATCH: 1, BUSINESS_RULE: 1, REQUIRED_DOCUMENT: 1 };
   const fwaByItem = new Map<string, { ruleType: string; status: string; message: string }>();
   for (const r of fwaResults) {
     if (!r.trackedItemId) continue;

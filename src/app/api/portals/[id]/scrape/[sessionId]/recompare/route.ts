@@ -62,7 +62,7 @@ export async function POST(
       return NextResponse.json({ recompared: 0 });
     }
 
-    const { provider, apiKey, textModel } = await resolveProviderAndKey(session.user.id);
+    const { provider, apiKey, textModel, baseURL } = await resolveProviderAndKey(session.user.id);
     const templateFields = template.fields as unknown as TemplateField[];
     const templateRequiredDocuments = template.requiredDocuments as unknown as RequiredDocument[];
     const templateBusinessRules = template.businessRules as unknown as BusinessRule[];
@@ -114,6 +114,7 @@ export async function POST(
         provider,
         apiKey,
         model: textModel,
+        baseURL,
         templateFields,
         systemPromptOverride,
         userPromptOverride,

@@ -98,6 +98,8 @@ export default auth(async (req) => {
 
 export const config = {
   matcher: [
-    "/((?!api/auth/(?!register)|api/health|api/metrics|api/extension/cookies|docs|_next/static|_next/image|favicon.ico|openapi.yaml).*)",
+    // Exclude NextAuth internals but keep /api/auth/register and /api/auth/callback/credentials
+    // so authLimiter applies to both login and registration endpoints.
+    "/((?!api/auth/(?!register|callback/credentials)|api/health|api/metrics|api/extension/cookies|docs|_next/static|_next/image|favicon.ico|openapi.yaml).*)",
   ],
 };

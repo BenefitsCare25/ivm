@@ -235,7 +235,13 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
     );
   }
 
-  const previewKeys = Object.keys(items[0].listData).slice(0, 3);
+  // Skip the key whose value matches portalItemId — it's already shown in the ID column
+  const idKey = Object.keys(items[0].listData).find(
+    (k) => items[0].listData[k] === items[0].portalItemId
+  );
+  const previewKeys = Object.keys(items[0].listData)
+    .filter((k) => k !== idKey)
+    .slice(0, 3);
   const columnCount = previewKeys.length + 5; // expand + ID + Status + FWA + preview cols + Docs
 
   return (

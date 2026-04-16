@@ -86,7 +86,7 @@ export async function POST(
       );
 
       // Resolve AI provider
-      const { provider, apiKey, visionModel } = await resolveProviderAndKey(session.user.id);
+      const { provider, apiKey, visionModel, baseURL } = await resolveProviderAndKey(session.user.id);
 
       // AI page analysis
       const analysis = await analyzePageStructure({
@@ -96,6 +96,7 @@ export async function POST(
         provider,
         apiKey,
         model: visionModel,
+        baseURL,
       });
 
       logger.info(

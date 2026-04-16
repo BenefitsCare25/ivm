@@ -12,6 +12,7 @@ export interface AIExtractionRequest {
   provider: AIProvider;
   apiKey: string;
   model?: string;
+  baseURL?: string; // Custom base URL for OpenAI-compatible proxies
   textContent?: string; // Pre-extracted text for DOCX files
   knownDocumentTypes?: string[]; // Constrain AI to pick from this list when provided
 }
@@ -28,6 +29,7 @@ export interface AIMappingRequest {
   provider: AIProvider;
   apiKey: string;
   model?: string;
+  baseURL?: string; // Custom base URL for OpenAI-compatible proxies
 }
 
 export interface AIMappingResponse {

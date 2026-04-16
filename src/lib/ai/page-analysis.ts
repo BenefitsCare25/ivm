@@ -16,6 +16,7 @@ export interface PageAnalysisRequest {
   provider: AIProvider;
   apiKey: string;
   model?: string;
+  baseURL?: string; // Custom base URL for OpenAI-compatible proxies
 }
 
 export interface PageAnalysisResponse {
@@ -96,7 +97,7 @@ async function analyzeWithAnthropic(request: PageAnalysisRequest): Promise<strin
 }
 
 async function analyzeWithOpenAI(request: PageAnalysisRequest): Promise<string> {
-  const client = new OpenAI({ apiKey: request.apiKey });
+  const client = new OpenAI({ apiKey: request.apiKey, ...(request.baseURL ? { baseURL: request.baseURL } : {}) });
   const base64 = request.screenshot.toString("base64");
 
   const response = await client.chat.completions.create(

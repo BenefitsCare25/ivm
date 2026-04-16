@@ -42,7 +42,7 @@ function buildUserContent(request: AIExtractionRequest): OpenAI.ChatCompletionCo
 }
 
 export async function extractWithOpenAI(request: AIExtractionRequest): Promise<AIExtractionResponse> {
-  const client = new OpenAI({ apiKey: request.apiKey });
+  const client = new OpenAI({ apiKey: request.apiKey, ...(request.baseURL ? { baseURL: request.baseURL } : {}) });
 
   logger.info(
     { sourceAssetId: request.sourceAssetId, mimeType: request.mimeType, fileName: request.fileName, provider: "openai" },

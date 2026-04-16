@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiKeysForm } from "@/components/settings/api-keys-form";
+import { ProxyStatusCard } from "@/components/settings/proxy-status-card";
 import { ChangePasswordForm } from "@/components/settings/change-password-form";
 
 export default function SettingsPage() {
@@ -15,11 +16,12 @@ export default function SettingsPage() {
 
       <section className="space-y-4">
         <div>
-          <h2 className="text-lg font-medium text-foreground">AI Provider Keys</h2>
+          <h2 className="text-lg font-medium text-foreground">AI Provider</h2>
           <p className="text-sm text-muted-foreground">
-            Connect your own API keys for document extraction. Keys are encrypted and stored securely.
+            System default uses the Claude pay plan. Add your own key to override it.
           </p>
         </div>
+        <ProxyStatusCard />
         <ApiKeysForm />
       </section>
 

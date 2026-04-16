@@ -54,7 +54,7 @@ export async function POST(
       throw new ValidationError("Target has no detected fields to map to.");
     }
 
-    const { provider, apiKey, textModel } = await resolveProviderAndKey(session.user.id);
+    const { provider, apiKey, textModel, baseURL } = await resolveProviderAndKey(session.user.id);
 
     try {
       const result = await proposeFieldMappings({
@@ -63,6 +63,7 @@ export async function POST(
         provider,
         apiKey,
         model: textModel,
+        baseURL,
       });
 
       const [mappingSet] = await Promise.all([
