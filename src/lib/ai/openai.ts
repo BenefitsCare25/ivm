@@ -22,13 +22,15 @@ function buildUserContent(request: AIExtractionRequest): OpenAI.ChatCompletionCo
   if (IMAGE_MIME_TYPES.includes(request.mimeType as (typeof IMAGE_MIME_TYPES)[number])) {
     parts.push({
       type: "image_url",
-      image_url: { url: `data:${request.mimeType};base64,${base64Data}`, detail: "high" },
+      image_url: { url: `data:${request.mimeType};base64,${base64Data}` },
     });
   } else if (request.mimeType === PDF_MIME_TYPE) {
+    // Send PDF as base64 image_url — OpenAI-compatible Claude proxies translate this
+    // to Anthropic's native document format internally
     parts.push({
-      type: "file",
-      file: { file_data: `data:application/pdf;base64,${base64Data}`, filename: request.fileName },
-    } as OpenAI.ChatCompletionContentPart);
+      type: "image_url",
+      image_url: { url: `data:application/pdf;base64,${base64Data}` },
+    });
   } else {
     throw new AppError(
       `Extraction not supported for file type: ${request.mimeType}. Supported: PDF, PNG, JPG, WebP.`,

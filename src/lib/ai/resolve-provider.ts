@@ -59,7 +59,7 @@ export async function resolveProviderAndKey(userId: string): Promise<ResolvedPro
   const proxyToken = env.CLAUDE_PROXY_TOKEN;
   if (proxyUrl && proxyToken && await isProxyHealthy(proxyUrl)) {
     return {
-      provider: "anthropic",
+      provider: "openai",
       apiKey: proxyToken,
       baseURL: proxyUrl,
       visionModel: "claude-sonnet-4-6",
