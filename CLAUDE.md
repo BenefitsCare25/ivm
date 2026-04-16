@@ -25,7 +25,7 @@ Prisma 7 removed `url` from schema datasource. Our `prisma/schema.prisma` uses `
 Install as `next-auth@beta`, not `next-auth@5`. The session model is named `AuthSession` in Prisma to avoid conflict with `FillSession`.
 
 ### BYOK API Key Storage
-User API keys encrypted with AES-256-GCM (`src/lib/crypto.ts`) using `ENCRYPTION_KEY` env var (32-byte hex). `UserApiKey` model has `@@unique([userId, provider])` — upsert semantics. Never store plaintext keys; always use `encrypt()`/`decrypt()`. Provider + key resolved via `resolveProviderAndKey()`, falling back to system `ANTHROPIC_API_KEY`.
+User API keys encrypted with AES-256-GCM (`src/lib/crypto.ts`) using `ENCRYPTION_KEY` env var (32-byte hex). `UserApiKey` model has `@@unique([userId, provider])` — upsert semantics. Never store plaintext keys; always use `encrypt()`/`decrypt()`. Provider + key resolved via `resolveProviderAndKey()` with priority: 1) User BYOK keys, 2) CLI proxy (`CLAUDE_PROXY_URL` + `CLAUDE_PROXY_TOKEN`, sets `provider: "openai"` + `baseURL`), 3) system `ANTHROPIC_API_KEY` fallback. CLI proxy uses Claude subscription quota — OAuth tokens cannot call the Anthropic Messages API directly, so file extraction goes through the Read-tool path (see below).
 
 ### CSS Variables with RGB Channels
 All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--background: 255 255 255`) so Tailwind opacity modifiers work (e.g., `bg-background/50`). Never use hex values in token definitions.
@@ -48,12 +48,21 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 
 ### AI Extraction (BYOK Multi-Provider)
 - Entry point: `extractFieldsFromDocument()` from `src/lib/ai/index.ts`
-- Adapters: `src/lib/ai/anthropic.ts`, `openai.ts`, `gemini.ts`
+- Adapters: `src/lib/ai/anthropic.ts`, `openai.ts`, `gemini.ts`, `proxy-extraction.ts`
 - Shared parser: `src/lib/ai/parse.ts` — all providers return same JSON format
 - Prompts: `src/lib/ai/prompts.ts`; Types: `src/lib/ai/types.ts`
 - Key validation: `src/lib/ai/validate-key.ts` (minimal API call before saving)
 - Images → base64 content blocks; PDFs → base64 document blocks; DOCX → graceful error
 - **`knownDocumentTypes?: string[]`** on `AIExtractionRequest` — when provided, injected into the system prompt so the AI picks from the exact list instead of free-texting. Pass `cachedDocTypes.map(dt => dt.name)` from the worker. Falls back to free-text description when omitted (auto-form extraction path is unaffected).
+
+### AI Extraction — CLI Proxy Read-Tool Path
+- **Problem**: CLI-based proxies (e.g. `claude-max-api-proxy`) wrap Claude Code CLI as a subprocess and expose OpenAI-compatible `/v1/chat/completions`. They serialize messages to plain text — base64 `image_url` content blocks are silently dropped. Claude never sees the file.
+- **Solution**: `src/lib/ai/proxy-extraction.ts` — when `baseURL` (proxy) and `storagePath` are set, skips base64 content blocks entirely. Instead sends a text-only prompt telling Claude to use its **Read tool** to open the file from the local filesystem. Claude reads PDFs/images multimodally via the Read tool.
+- **Routing**: `index.ts` checks `baseURL && storagePath && !textContent` → routes to `extractWithProxyReadTool()` before the provider switch. BYOK users (no proxy) still use direct API adapters with native content blocks.
+- **`storagePath`** on `AIExtractionRequest` — relative storage key (e.g. `portal-files/{portalId}/{itemId}/file.pdf`). Resolved to absolute path via `path.resolve(STORAGE_LOCAL_PATH, storagePath)`. Passed from both `item-detail-worker.ts` and `sessions/[id]/extract/route.ts`.
+- **Timeout**: 120s (vs 60s for direct API) — extra time for Read tool round trip.
+- **Parser robustness**: `parse.ts` `stripMarkdownFences()` tries strict then loose regex. `extractJsonFromText()` fallback finds `{...}` containing `"documentType"` + `"fields"` in free-form agent responses.
+- **Limitation**: Slower than direct API (~20-30s vs ~10s). Agent may occasionally wrap JSON in conversational text — parser handles this.
 
 ### AI Field Mapping
 - Entry point: `proposeFieldMappings()` from `src/lib/ai/mapping.ts` (text-only, no file uploads)
