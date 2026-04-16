@@ -22,6 +22,7 @@ async function callAnthropic(
   baseURL?: string
 ): Promise<TextCallResult> {
   const client = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) });
+  const timeout = baseURL ? 120_000 : 30_000;
   const response = await client.messages.create(
     {
       model: model ?? env.ANTHROPIC_MODEL,
@@ -29,7 +30,7 @@ async function callAnthropic(
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     },
-    { signal: AbortSignal.timeout(30_000) }
+    { signal: AbortSignal.timeout(timeout) }
   );
 
   const textBlock = response.content.find((b) => b.type === "text");
@@ -50,6 +51,7 @@ async function callOpenAI(
   baseURL?: string
 ): Promise<TextCallResult> {
   const client = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) });
+  const timeout = baseURL ? 120_000 : 30_000;
   const response = await client.chat.completions.create(
     {
       model: model ?? env.OPENAI_MODEL,
@@ -59,7 +61,7 @@ async function callOpenAI(
         { role: "user", content: userPrompt },
       ],
     },
-    { signal: AbortSignal.timeout(30_000) }
+    { signal: AbortSignal.timeout(timeout) }
   );
 
   const rawText = response.choices[0]?.message?.content ?? null;

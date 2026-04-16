@@ -73,6 +73,7 @@ export async function compareFields(
 
 async function compareWithAnthropic(request: ComparisonRequest, userPrompt: string): Promise<string> {
   const client = new Anthropic({ apiKey: request.apiKey, ...(request.baseURL ? { baseURL: request.baseURL } : {}) });
+  const timeout = request.baseURL ? 120_000 : 30_000; // CLI proxy needs more time
 
   const response = await client.messages.create(
     {
@@ -81,7 +82,7 @@ async function compareWithAnthropic(request: ComparisonRequest, userPrompt: stri
       system: request.systemPromptOverride ?? getComparisonSystemPrompt(),
       messages: [{ role: "user", content: userPrompt }],
     },
-    { signal: AbortSignal.timeout(30_000) }
+    { signal: AbortSignal.timeout(timeout) }
   );
 
   const textBlock = response.content.find((b) => b.type === "text");
@@ -93,6 +94,7 @@ async function compareWithAnthropic(request: ComparisonRequest, userPrompt: stri
 
 async function compareWithOpenAI(request: ComparisonRequest, userPrompt: string): Promise<string> {
   const client = new OpenAI({ apiKey: request.apiKey, ...(request.baseURL ? { baseURL: request.baseURL } : {}) });
+  const timeout = request.baseURL ? 120_000 : 30_000; // CLI proxy needs more time
 
   const response = await client.chat.completions.create(
     {
@@ -103,7 +105,7 @@ async function compareWithOpenAI(request: ComparisonRequest, userPrompt: string)
         { role: "user", content: userPrompt },
       ],
     },
-    { signal: AbortSignal.timeout(30_000) }
+    { signal: AbortSignal.timeout(timeout) }
   );
 
   return response.choices[0]?.message?.content ?? "";
