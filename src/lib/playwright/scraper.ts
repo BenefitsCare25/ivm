@@ -387,24 +387,65 @@ function guessMimeType(fileName: string): string {
 
 /**
  * Handles pagination if a pagination selector is configured.
- * Returns true if there's a next page, false otherwise.
+ * Supports both full-navigation portals and SPA portals (client-side table updates).
+ * Returns true if navigated to a new page with different content, false if no more pages.
  */
 export async function goToNextPage(
   page: Page,
-  paginationSelector?: string
+  paginationSelector?: string,
+  tableSelector = "table",
+  rowSelector = "tbody tr"
 ): Promise<boolean> {
   if (!paginationSelector) return false;
 
   const nextBtn = await page.$(paginationSelector);
   if (!nextBtn) return false;
 
-  const isDisabled = await nextBtn.getAttribute("disabled");
-  if (isDisabled !== null) return false;
+  // Check disabled via HTML attribute OR common SPA patterns (class, aria-disabled)
+  const isDisabled = await nextBtn.evaluate((el) => {
+    if (el.hasAttribute("disabled")) return true;
+    if (el.getAttribute("aria-disabled") === "true") return true;
+    if (el.classList.contains("disabled")) return true;
+    return false;
+  });
+  if (isDisabled) return false;
 
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: "networkidle", timeout: 15_000 }).catch(() => {}),
-    nextBtn.click(),
-  ]);
+  // Capture first row text to detect if the table actually changed (SPA pagination)
+  const firstRowText = await page
+    .$eval(`${tableSelector} ${rowSelector}:first-child`, (el) => el.textContent ?? "")
+    .catch(() => "");
 
+  // Click the button
+  await nextBtn.click();
+
+  // Try full-navigation first (works for non-SPA portals)
+  const navigated = await page
+    .waitForNavigation({ waitUntil: "networkidle", timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (navigated) return true;
+
+  // SPA portal: wait for table content to change
+  const changed = await page
+    .waitForFunction(
+      ([tSel, rSel, oldText]) => {
+        const firstRow = document.querySelector(`${tSel} ${rSel}:first-child`);
+        return firstRow ? firstRow.textContent !== oldText : false;
+      },
+      [tableSelector, rowSelector, firstRowText] as const,
+      { timeout: 8_000 }
+    )
+    .then(() => true)
+    .catch(() => false);
+
+  if (!changed) {
+    // Content didn't change — we're on the last page or button did nothing
+    logger.info("[scraper] Pagination click did not change table content — no more pages");
+    return false;
+  }
+
+  // Small settle wait for SPA render to stabilise
+  await page.waitForTimeout(500);
   return true;
 }

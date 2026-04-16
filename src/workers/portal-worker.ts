@@ -62,7 +62,14 @@ async function processPortalScrape(
         const rows = await scrapeListPage(page, listSelectors);
         allRows.push(...rows);
         pageNum++;
-      } while (await goToNextPage(page, listSelectors.paginationSelector));
+        // Stop early if we've already collected enough items
+        if (portal.scrapeLimit && allRows.length >= portal.scrapeLimit) break;
+      } while (await goToNextPage(
+        page,
+        listSelectors.paginationSelector,
+        listSelectors.tableSelector,
+        listSelectors.rowSelector
+      ));
 
       const limitedRows = portal.scrapeLimit ? allRows.slice(0, portal.scrapeLimit) : allRows;
       logger.info({ portalId, totalRows: allRows.length, limited: limitedRows.length }, "[worker] List scrape complete");
