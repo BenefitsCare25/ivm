@@ -23,10 +23,17 @@ export async function scrapeListPage(
 ): Promise<ScrapedRow[]> {
   const {
     tableSelector = "table",
-    rowSelector = "tbody tr",
+    rowSelector: rawRowSelector = "tbody tr",
     columns = [],
     detailLinkSelector,
   } = selectors;
+
+  // AI analysis sometimes returns the full absolute selector as rowSelector
+  // (e.g. "#page table tbody tr" instead of just "tbody tr"). Strip the
+  // tableSelector prefix so concatenation works correctly.
+  const rowSelector = rawRowSelector.startsWith(tableSelector)
+    ? rawRowSelector.slice(tableSelector.length).trim()
+    : rawRowSelector;
 
   // Log the current URL to help diagnose auth/redirect issues
   logger.info({ url: page.url(), tableSelector }, "[scraper] Waiting for table selector");
@@ -191,10 +198,13 @@ export async function scrapeDetailPage(
     for (const row of tableRows) {
       const th = await row.$("th, td:first-child");
       const td = await row.$("td:last-child");
-      if (th && td && th !== td) {
-        const label = (await th.textContent() ?? "").trim().replace(/:$/, "");
-        const value = (await td.textContent() ?? "").trim();
-        if (label && value) fields[label] = value;
+      if (th && td) {
+        const isSame = await th.evaluate((el, other) => el === other, td);
+        if (!isSame) {
+          const label = (await th.textContent() ?? "").trim().replace(/:$/, "");
+          const value = (await td.textContent() ?? "").trim();
+          if (label && value) fields[label] = value;
+        }
       }
     }
 

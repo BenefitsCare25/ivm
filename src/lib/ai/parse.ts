@@ -17,24 +17,33 @@ export function stripMarkdownFences(text: string): string {
   return trimmed;
 }
 
-/** Try to extract a JSON object containing documentType+fields from free-form text. */
-function extractJsonFromText(text: string): string | null {
-  // Find the outermost { ... } that contains "documentType"
+/** Extract outermost JSON object from free-form text that contains all requiredKeys. */
+export function extractJsonObject(text: string, requiredKeys: string[]): string | null {
   const start = text.indexOf("{");
   if (start === -1) return null;
 
   let depth = 0;
-  for (let i = start; i < text.length; i++) {
-    if (text[i] === "{") depth++;
-    else if (text[i] === "}") {
-      depth--;
-      if (depth === 0) {
-        const candidate = text.slice(start, i + 1);
-        if (candidate.includes('"documentType"') && candidate.includes('"fields"')) {
-          return candidate;
+  let inString = false;
+  let i = start;
+  while (i < text.length) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === "\\") { i += 2; continue; } // skip escaped character
+      if (ch === '"') inString = false;
+    } else {
+      if (ch === '"') inString = true;
+      else if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          const candidate = text.slice(start, i + 1);
+          if (requiredKeys.every((k) => candidate.includes(`"${k}"`))) {
+            return candidate;
+          }
         }
       }
     }
+    i++;
   }
   return null;
 }
@@ -47,7 +56,7 @@ export function parseExtractionResponse(rawText: string): { documentType: string
     parsed = JSON.parse(cleaned);
   } catch {
     // Agent responses often wrap JSON in conversational text — extract it
-    const extracted = extractJsonFromText(rawText);
+    const extracted = extractJsonObject(rawText, ["documentType", "fields"]);
     if (!extracted) {
       log.error({ rawLength: rawText.length, first300: rawText.slice(0, 300) }, "Cannot find JSON in response");
       throw new Error("Could not parse extraction response — no valid JSON found");

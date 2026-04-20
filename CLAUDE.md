@@ -45,6 +45,10 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 ### Storage
 - Always use `getStorageAdapter()` from `@/lib/storage` — cached singleton
 - Never hardcode `fs` operations
+- **Auto-cleanup**: `src/lib/storage/cleanup.ts` runs every 24h via BullMQ in the detail worker:
+  1. **Retention cleanup** — deletes `ScrapeSession` records older than `SCRAPE_RETENTION_DAYS` (default 7). Cascade deletes items, files, events, comparisons, validations. Removes files + screenshots from disk.
+  2. **Orphan cleanup** — deletes files on disk under `portal-files/` with no DB reference, plus empty directories.
+- Set `SCRAPE_RETENTION_DAYS` env var to control retention (default: 7 days)
 
 ### AI Extraction (BYOK Multi-Provider)
 - Entry point: `extractFieldsFromDocument()` from `src/lib/ai/index.ts`
@@ -61,7 +65,7 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 - **Routing**: `index.ts` checks `baseURL && storagePath && !textContent` → routes to `extractWithProxyReadTool()` before the provider switch. BYOK users (no proxy) still use direct API adapters with native content blocks.
 - **`storagePath`** on `AIExtractionRequest` — relative storage key (e.g. `portal-files/{portalId}/{itemId}/file.pdf`). Resolved to absolute path via `path.resolve(STORAGE_LOCAL_PATH, storagePath)`. Passed from both `item-detail-worker.ts` and `sessions/[id]/extract/route.ts`.
 - **Timeout**: 120s (vs 60s for direct API) — extra time for Read tool round trip.
-- **Parser robustness**: `parse.ts` `stripMarkdownFences()` tries strict then loose regex. `extractJsonFromText()` fallback finds `{...}` containing `"documentType"` + `"fields"` in free-form agent responses.
+- **Parser robustness**: `parse.ts` `stripMarkdownFences()` tries strict then loose regex. `extractJsonObject()` fallback finds `{...}` containing `"documentType"` + `"fields"` in free-form agent responses.
 - **Limitation**: Slower than direct API (~20-30s vs ~10s). Agent may occasionally wrap JSON in conversational text — parser handles this.
 
 ### AI Field Mapping
@@ -77,9 +81,6 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 - Chrome Extension: `extension/` directory, Manifest V3. Set `NEXT_PUBLIC_IVM_EXTENSION_ID` after loading unpacked.
 - DOCX caveat: placeholders split across XML runs will fail — must be contiguous `{{placeholder}}`
 
-### Prisma JSON Fields
-Wrap typed arrays/objects with `JSON.parse(JSON.stringify(...))` to satisfy `InputJsonValue`.
-
 ### Shared Types — Never Redeclare Inline
 - `src/types/extraction.ts` — `ExtractedField`, `ExtractionState`, `SourceAssetData`
 - `src/types/target.ts` — `TargetType`, `TargetField`, `TargetAssetData`
@@ -87,11 +88,11 @@ Wrap typed arrays/objects with `JSON.parse(JSON.stringify(...))` to satisfy `Inp
 - `src/types/fill.ts` — `FillActionSummary`, `FillReport`, helpers
 - `src/types/audit.ts` — `AuditEventSummary`, display helpers
 - `src/types/session.ts` — `SessionSummary`, `SessionDetailSummary`
-- `src/types/portal.ts` — `TrackedItemStatus`, `ComparisonFieldStatus`, `COMPARISON_FIELD_STATUSES`, `FieldComparison`, `ComparisonResultSummary`, selector types, `ITEM_EVENT_TYPES`, `ItemEventType`, `ItemEventSummary`, `EVENT_TYPE_LABELS`, `EVENT_SEVERITY`
+- `src/types/portal.ts` — `TrackedItemStatus`, `ComparisonFieldStatus`, `COMPARISON_FIELD_STATUSES`, `FieldComparison`, `ComparisonResultSummary`, `ItemFile`, `ComparisonSummary`, `ValidationAlert`, `DiscoveredClaimType`, selector types, `ITEM_EVENT_TYPES`, `ItemEventType`, `ItemEventSummary`, `EVENT_TYPE_LABELS`, `EVENT_SEVERITY`, `FWA_PRIORITY`
 
 ### Shared Utilities (`src/lib/utils.ts`)
 - `cn()` — className merging; `formatDate()` — en-SG locale; `sanitizeFileName()`, `formatFieldLabel()`, `confidenceVariant()`
-- `toInputJson<T>()` — strips `undefined` via JSON round-trip for Prisma `InputJsonValue`
+- `toInputJson()` — strips `undefined` via JSON round-trip for Prisma `InputJsonValue`. Never use bare `JSON.parse(JSON.stringify(...))` directly.
 - `toggleArrayItem<T>(arr, item)` — removes item if present, appends if absent; use for checkbox array state in portal doc type selectors
 
 ### RSC Serialization — Lucide Icons
@@ -115,26 +116,50 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Detail queue**: `item-detail-queue.ts` — concurrency 3, 2 attempts, 5min lock, startup recovery for PROCESSING items stuck from crashes
 - **Session actions**: Stop (CANCELLED + drains BullMQ jobs), Delete (cascade), Retry failed, Continue unprocessed. Stop button shows only when `sessionStatus === "RUNNING"` OR `counts.PROCESSING > 0` — not shown for already-cancelled sessions with only DISCOVERED items queued. Resume (reprocess) from CANCELLED resets session back to COMPLETED.
 - **Auto-retry on error**: `SessionActions` auto-calls `reprocess("failed")` once via `useEffect` when `counts.ERROR > 0` and `inFlight === 0`. Guards: `useRef` (per mount) + `sessionStorage` key per session (survives auto-refresh reloads).
-- **Session items page**: fetches `detailData` + `comparisonResult` (including `fieldComparisons`) for up to 50 items. `TrackedItemsTable` renders expandable rows — click to see all data, files, comparison, and processing timeline inline. No horizontal scroll.
-- **Prisma models**: `Portal`, `PortalCredential`, `ScrapeSession`, `TrackedItem`, `TrackedItemFile`, `ComparisonResult`, `TrackedItemEvent`, `ComparisonTemplate`
+- **Session items page**: fetches `detailData` + `comparisonResult` (including `fieldComparisons`) + all FWA `validationResults` for up to 50 items. `TrackedItemsTable` renders expandable rows with a **3-column layout** (`src/components/portals/expanded-row/`):
+  - **Column 1 — Portal Details**: `detailData` key-value list with match indicator icons (green/red/yellow) per field based on comparison status. Falls back to `listData` if detail not scraped. Includes "Open in Portal" link.
+  - **Column 2 — Comparison & Alerts**: Full field comparison table (all rows, scrollable), match/mismatch summary + match rate %, AI summary text, and all FWA alerts.
+  - **Column 3 — Document Viewer**: File selector chips (one at a time), inline blob-based viewer (images with drag-to-pan, PDFs in iframe via `blob:` URL to bypass `X-Frame-Options: DENY`). 500px fixed height.
+  - Status line at top shows pass/fail/processing state with error message if failed. No event timeline in expanded row (available on full detail page only).
+- **Prisma models**: `Portal`, `PortalCredential`, `ScrapeSession`, `TrackedItem`, `TrackedItemFile`, `ComparisonResult`, `TrackedItemEvent`, `ComparisonConfig`, `ComparisonTemplate`
 - **Types/Validations**: `src/types/portal.ts`, `src/lib/validations/portal.ts` — all selector fields `.optional().nullable()`
 - **Status colors**: `ITEM_STATUS_COLORS` exported from `src/components/portals/portal-status-badge.tsx`
 
-### Portal Tracker — Comparison Templates
+### Portal Tracker — Comparison Configs & Templates
 - **Purpose**: Per-claim-type field selection + match rules so AI comparison is focused instead of comparing all fields
-- **Grouping fields**: Portal-level `groupingFields: string[]` — which scraped fields identify a "claim type" (e.g. `["Claim Type", "Payer"]`). Configured via `GroupingFieldConfig` on portal detail page.
-- **Template model**: `ComparisonTemplate` — `portalId`, `name`, `groupingKey` (JSONB, e.g. `{"Claim Type": "Inpatient"}`), `fields` (JSONB array of `{fieldName, mode, tolerance?}`)
+- **Multi-config support**: Each portal can have multiple `ComparisonConfig` records, each with its own `groupingFields` and set of `ComparisonTemplate` records. Allows different comparison strategies per portal (e.g. one config grouped by "Claim Type", another by "Payer").
+- **Config model**: `ComparisonConfig` — `portalId`, `name`, `groupingFields` (JSONB array). Unique on `(portalId, name)`. Portal detail page shows a card per config with "Add Claims Configuration" button.
+- **Backward compat**: `Portal.groupingFields` is synced from config-level fields (union of all configs) for use by unconfigured-types and recompare APIs. `ComparisonTemplate.comparisonConfigId` is nullable — legacy templates without a config still match via portal-level groupingFields.
+- **Config APIs**: `GET/POST /api/portals/[id]/configs`, `PATCH/DELETE /api/portals/[id]/configs/[configId]`
+- **Template model**: `ComparisonTemplate` — `portalId`, `comparisonConfigId` (nullable), `name`, `groupingKey` (JSONB), `fields` (JSONB array of `{portalFieldName, documentFieldName, mode, tolerance?}`)
 - **Match modes**: `fuzzy` (default, ignore formatting), `exact` (any difference = mismatch), `numeric` (numeric within tolerance)
-- **Template lookup**: `findMatchingTemplate(portalId, itemData)` in `src/lib/comparison-templates.ts` — fetches portal groupingFields + all templates, matches by case-insensitive key comparison. Worker calls this before every AI comparison.
-- **Template field filtering**: `filterFieldsByTemplate` only filters `pageFields` (portal fields) by template field names. `pdfFields` are passed through unfiltered — PDF field labels are document-native (e.g. "Inv. No.", "Patient Name") and must be semantically matched by the AI, not pre-filtered by portal field names. Filtering pdfFields would discard all PDF data before comparison.
-- **Fallback**: If no grouping fields configured or no template matches, falls back to full AI comparison (all fields, no mode rules)
-- **Inline prompt flow**: After a session completes, `SessionActions` fetches `/api/portals/${portalId}/scrape/${sessionId}/unconfigured-types` — items that used full comparison with no template. Prompts user to configure a template via `ComparisonTemplateModal`. On save, calls recompare API.
+- **Template lookup**: `findMatchingTemplate(portalId, itemData)` in `src/lib/comparison-templates.ts` — fetches all configs + templates, each template uses its config's grouping fields. Worker calls this before every AI comparison.
+- **Template field filtering**: `filterFieldsByTemplate` passes through ALL fields unfiltered — both `pageFields` and `pdfFields`. Business rules need access to every portal field, not just template-mapped ones. The function exists as a pass-through extension point.
+- **Fallback**: If no configs/grouping fields configured or no template matches, falls back to full AI comparison (all fields, no mode rules)
+- **Inline prompt flow**: After a session completes, `SessionActions` fetches `/api/portals/${portalId}/scrape/${sessionId}/unconfigured-types` — items that used full comparison with no template. Response includes `configId` of first matching config. Prompts user to configure a template via `ComparisonTemplateModal` (passes configId). On save, calls recompare API.
 - **Recompare API**: `POST .../recompare` with `{ templateId }` — re-runs AI comparison on matching items using template rules, replaces old `ComparisonResult`
-- **Template UI**: `GroupingFieldConfig` (set grouping fields), `TemplateList` (view/delete templates), `ComparisonTemplateModal` (configure new template inline) — all on portal detail page or session actions
+- **Templates page**: `/portals/[id]/templates?configId=xxx` — shows config-specific setup. Auto-creates default config if none exist.
+- **Template UI**: `GroupingFieldConfig` (set grouping fields per config), `TemplateList` (view/delete templates per config), `ComparisonTemplateModal` (configure new template inline), `PortalComparisonSetup` (wrapper with copy/delete config)
 - **Item detail view**: Shows template name badge or "Full comparison" badge alongside provider on the comparison result card
 - **Key helper**: `itemMatchesGroupingKey(groupingFields, itemData, templateKey)` — pure function, used in both template matching and recompare filtering
-- **Copy setup API**: `POST /api/portals/[id]/comparison-setup/import` with `{ sourcePortalId }` — copies `groupingFields` + all `ComparisonTemplate` records from source portal in a single transaction; deletes existing templates on target first. Both portals must belong to the same user.
+- **Copy setup API**: `POST /api/portals/[id]/comparison-setup/import` with `{ sourcePortalId }` — copies all `ComparisonConfig` records + their templates from source portal in a single transaction; deletes existing configs/templates on target first. Both portals must belong to the same user.
 - **Copy setup UI**: "Copy from portal" ghost button in Comparison Setup card header → fetches portal list → select source → import. Auto-refreshes on success.
+
+### Portal Tracker — Field Discovery
+- **Purpose**: Lightweight pre-scrape step that discovers claim type combinations and their detail page field labels. Users configure templates BEFORE the first full scrape — no wasted comparison runs.
+- **Flow**: Select grouping columns → click "Discover Fields" → system scrapes list page, groups by selected columns, visits ONE detail page per unique combo to extract field labels → results shown as cards with field chips → user clicks "Configure" to create templates with pre-populated `availableFields`.
+- **Backend**: `src/lib/portal-discovery.ts` — `discoverFields()` reuses `resolveAuth()`, `scrapeListPage()`, `scrapeDetailPage()`. Visits only N detail pages (one per unique grouping combo) instead of all rows. Saves results to `Portal.discoveredClaimTypes` (JSONB).
+- **API**: `POST /api/portals/[id]/discover` with `{ groupingFields: string[] }`. Validates via Zod, delegates to `discoverFields()`.
+- **UI**: `src/components/portals/field-discovery.tsx` — checkbox column picker, discover button, results cards with `FieldChips` (expandable, limit 8), "Configure" link per combo, "Re-discover" refresh.
+- **Type**: `DiscoveredClaimType` in `src/types/portal.ts` — `{ groupingKey, detailFields, sampleUrl, discoveredAt }`
+- **Template integration**: Template detail page (`templates/[templateId]/page.tsx`) matches discovery data to template's `groupingKey` and passes `availableFields` to business rules UI.
+- **Business rules UI**: `TemplateBusinessRules` shows collapsible "Available portal fields (N)" chip list from discovery data so users reference exact field names.
+
+### Portal Tracker — Cross-Item Duplicate Detection
+- **Purpose**: Post-session check that flags same-date duplicate visits across items — AI only sees one item at a time, so duplicates require cross-item logic.
+- **Backend**: `src/lib/validations/cross-item.ts` — `runCrossItemChecks(sessionId)`. Auto-detects date fields (e.g. "Incurred Date", "Admission Date") and patient fields (e.g. "Employee", "Claimant") via regex patterns. Groups items by (patient + date), creates `ValidationResult` with `ruleType: "DUPLICATE"` and `status: WARNING` for groups with 2+ items.
+- **Trigger**: `item-detail-worker.ts` fires `runCrossItemChecks()` when `itemsProcessed === itemsFound` (exact equality prevents duplicate runs under concurrency). Fire-and-forget with error logging.
+- **Batch optimization**: Pre-fetches all existing DUPLICATE validation results in one query to avoid N+1 per-item checks.
 
 ### Portal Tracker — Inline Re-authentication
 - **Problem**: Cookie-based auth expires; previously required navigating away to re-configure.
@@ -155,7 +180,7 @@ Never pass Lucide icon components as props from Server → Client Components (fu
   - `withEventTracking(trackedItemId, startType, doneType, failType, payload, fn, captureScreenshot?)` — wraps async fn, emits start/done/fail + timing automatically
 - **Worker instrumentation**: `item-detail-worker.ts` emits events at every stage; outer catch captures page screenshot if browser still open
 - **API routes**: `GET .../items/:id/events` (list), `GET .../items/:id/events/screenshot?path=...` (serve PNG, path must start with `portal-events/{itemId}/` to prevent traversal)
-- **Timeline UI**: `src/components/portals/item-event-timeline.tsx` — auto-refreshes every 3s while PROCESSING/DISCOVERED; colored dots (red/green/grey), expandable payload, screenshot lightbox; rendered inside expanded rows of `TrackedItemsTable`
+- **Timeline UI**: `src/components/portals/item-event-timeline.tsx` — auto-refreshes every 3s while PROCESSING/DISCOVERED; colored dots (red/green/grey), expandable payload, screenshot lightbox; rendered on the full item detail page only (not in expanded table rows)
 - **Screenshot path validation**: `screenshotPath` must start with `portal-events/{itemId}/` — validated in screenshot API route before storage download
 
 ### Scraper — File Downloads
@@ -200,17 +225,18 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 `fetchDocTypes` runs before extraction loop so `knownDocumentTypes` names are injected into the AI prompt. Non-fatal pipeline: classify → validate required fields → check duplicate → check doc type match. Never blocks comparison pipeline.
 
 #### FWA display
-- `FWA_RULE_TYPES` (Set) and `FWA_LABELS` (Record) in `src/types/portal.ts` — shared by `TrackedItemsTable` and `ItemDetailView`. Add new alert types here only.
+- `FWA_RULE_TYPES` (Set) and `FWA_LABELS` (Record) in `src/types/portal.ts` — shared by `TrackedItemsTable`, `ComparisonColumn`, and `ItemDetailView`. Add new alert types here only.
 - `DOC_TYPE_MATCH` → "Wrong Doc Type" badge; `BUSINESS_RULE` / `REQUIRED_DOCUMENT` → alert badges in FWA column
+- **Table row**: shows single worst FWA alert badge (priority: FAIL > WARNING, TAMPERING > DUPLICATE > others)
+- **Expanded row**: shows ALL FWA alerts per item — fetched server-side via `fwaAlertsByItem` Map built from `validationResult.findMany()` in session page
 - **Validation API**: `GET /api/portals/[id]/scrape/[sessionId]/items/[itemId]/validations`
-- **Key constraint**: `ValidationResult` has no `userId` — always scope queries via trackedItemId→TrackedItem→ScrapeSession→Portal.userId
+- **Key constraint**: `ValidationResult` has no Prisma relation to `TrackedItem` (raw FK only) — query via `where: { trackedItemId }` directly, never `include`
 
 ## Deployment
 
 - **VPS**: Hostinger VPS 2 (`72.62.75.247`), Ubuntu 24.04, 8GB RAM
 - **SSH**: `ssh -i /c/Users/huien/.ssh/id_ed25519 root@72.62.75.247`
 - **Database**: Supabase PostgreSQL in Docker on port **5433** (NOT 5432)
-- **Login**: `dev@ivm.local / password123`
 - **Database name**: `ivm` (NOT `ivm_dev`) — correct `DATABASE_URL`:
   ```
   DATABASE_URL="postgresql://ivm:ivm_dev_password@localhost:5433/ivm?schema=public"
@@ -277,7 +303,7 @@ cp .env.example .env        # set NEXTAUTH_SECRET and ENCRYPTION_KEY
 docker compose up -d         # PostgreSQL + Redis
 npx prisma generate
 npx prisma migrate dev
-npx prisma db seed           # dev@ivm.local / password123
+npx prisma db seed           # seeds dev@ivm.local / password123
 npm run dev                  # http://localhost:3000
 ```
 
@@ -293,6 +319,7 @@ src/
   components/ui/            # Reusable primitives
   components/sessions/      # Fill session components
   components/portals/       # Portal Tracker components
+    expanded-row/           # 3-column expandable detail row sub-components
   components/settings/      # Settings components
   lib/ai/                   # Multi-provider AI (extraction, mapping, comparison)
   lib/playwright/           # Browser automation (browser, auth, scraper)

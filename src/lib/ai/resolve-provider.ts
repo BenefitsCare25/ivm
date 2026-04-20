@@ -11,17 +11,30 @@ export interface ResolvedProvider {
   visionModel: string;
   textModel: string;
   baseURL?: string; // Set when routing through a proxy
+  displayProvider: string; // Human-readable name for UI (e.g. "anthropic" even when proxy uses "openai" SDK)
 }
 
+const proxyHealthCache = new Map<string, { healthy: boolean; expiresAt: number }>();
+
 async function isProxyHealthy(url: string): Promise<boolean> {
+  const now = Date.now();
+  const cached = proxyHealthCache.get(url);
+  if (cached && cached.expiresAt > now) return cached.healthy;
+
   try {
     // Strip /v1 suffix — health endpoint lives at server root
     const root = url.replace(/\/v1\/?$/, "");
     const res = await fetch(`${root}/health`, { signal: AbortSignal.timeout(2000) });
-    if (!res.ok) return false;
+    if (!res.ok) {
+      proxyHealthCache.set(url, { healthy: false, expiresAt: now + 10_000 });
+      return false;
+    }
     const data = await res.json() as { status?: string; claudeBinaryOk?: boolean };
-    return data?.status === "ok" && data?.claudeBinaryOk === true;
+    const healthy = data?.status === "ok" && data?.claudeBinaryOk === true;
+    proxyHealthCache.set(url, { healthy, expiresAt: now + 30_000 });
+    return healthy;
   } catch {
+    proxyHealthCache.set(url, { healthy: false, expiresAt: now + 10_000 });
     return false;
   }
 }
@@ -51,6 +64,7 @@ export async function resolveProviderAndKey(userId: string): Promise<ResolvedPro
       apiKey: decrypt(key.encryptedKey),
       visionModel: prefs?.visionModel ?? defaults.vision,
       textModel: prefs?.textModel ?? defaults.text,
+      displayProvider: provider,
     };
   }
 
@@ -64,6 +78,7 @@ export async function resolveProviderAndKey(userId: string): Promise<ResolvedPro
       baseURL: proxyUrl,
       visionModel: "claude-sonnet-4-6",
       textModel: "claude-sonnet-4-6",
+      displayProvider: "anthropic", // CLI proxy wraps Claude — show as Anthropic in UI
     };
   }
 
@@ -75,6 +90,7 @@ export async function resolveProviderAndKey(userId: string): Promise<ResolvedPro
       apiKey: systemKey,
       visionModel: env.ANTHROPIC_MODEL,
       textModel: PROVIDER_MODELS.anthropic.defaults.text,
+      displayProvider: "anthropic",
     };
   }
 

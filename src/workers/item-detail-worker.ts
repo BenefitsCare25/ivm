@@ -8,7 +8,7 @@ import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { extractFieldsFromDocument } from "@/lib/ai";
 import { compareFields } from "@/lib/ai/comparison";
 import { getFullComparisonSystemPrompt, buildFullComparisonUserPrompt } from "@/lib/ai/prompt-builder";
-import { findMatchingTemplate, filterFieldsByTemplate } from "@/lib/comparison-templates";
+import { findMatchingTemplate, filterFieldsByTemplate, filterComparisonsByTemplate } from "@/lib/comparison-templates";
 import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDocTypeMatch, checkDuplicate, checkTampering } from "@/lib/intelligence";
 import type { DocTypeRecord } from "@/lib/intelligence";
 import { emitItemEvent, emitFailureEvent, withEventTracking } from "@/lib/portal-events";
@@ -19,14 +19,15 @@ import {
   type ItemDetailJobResult,
 } from "@/lib/queue/item-detail-queue";
 import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-queue";
-import { runStorageCleanup } from "@/lib/storage/cleanup";
+import { runCrossItemChecks } from "@/lib/validations/cross-item";
+import { runFullCleanup } from "@/lib/storage/cleanup";
 import { createHash } from "crypto";
 import type { MatchedTemplate } from "@/lib/comparison-templates";
 import type { DetailSelectors, TemplateField, BusinessRule, RequiredDocument, BusinessRuleResult, RequiredDocumentCheck } from "@/types/portal";
 import type { BrowserContext, Page } from "playwright";
 
 // Hard cap per job — prevents hung Playwright or AI calls from blocking a slot indefinitely
-const JOB_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
+const JOB_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -46,6 +47,8 @@ async function processItemDetailCore(
     where: { id: trackedItemId },
     data: { status: "PROCESSING" },
   });
+
+  let successIncremented = false;
 
   // Declare outside try so they're accessible in catch for screenshot capture
   let context: BrowserContext | undefined;
@@ -122,6 +125,7 @@ async function processItemDetailCore(
         files: downloadedFiles.map((f) => ({ name: f.originalName, size: f.sizeBytes })),
       });
 
+      await db.trackedItemFile.deleteMany({ where: { trackedItemId } });
       if (downloadedFiles.length > 0) {
         await db.trackedItemFile.createMany({
           data: downloadedFiles.map((file) => ({
@@ -136,7 +140,7 @@ async function processItemDetailCore(
       }
 
       // ── AI extraction from downloaded files ─────────────────
-      const { provider, apiKey, visionModel, textModel, baseURL } = await resolveProviderAndKey(userId);
+      const { provider, apiKey, visionModel, textModel, baseURL, displayProvider } = await resolveProviderAndKey(userId);
       const pdfFields: Record<string, string> = {};
       const fileExtractions: { fileName: string; documentType: string; fields: { label: string; value: string }[] }[] = [];
 
@@ -155,7 +159,7 @@ async function processItemDetailCore(
           try {
             await emitItemEvent(trackedItemId, "AI_EXTRACT_START", {
               fileName: file.originalName,
-              provider,
+              provider: displayProvider,
             });
             const t0 = Date.now();
 
@@ -208,6 +212,14 @@ async function processItemDetailCore(
       }
 
       // ── Intelligence: classify, validate, deduplicate ──────
+      // Clear intelligence ValidationResults from previous attempts before re-running
+      await db.validationResult.deleteMany({
+        where: {
+          trackedItemId,
+          ruleType: { in: ["DUPLICATE", "TAMPERING", "REQUIRED_FIELD", "DOC_TYPE_MATCH"] },
+        },
+      });
+
       const classifiedDocs: { documentTypeId: string | null; documentTypeName: string | null; fileName: string }[] = [];
 
       for (const ext of fileExtractions) {
@@ -275,8 +287,7 @@ async function processItemDetailCore(
         let comparePdfFields = pdfFields;
         let templateFields: TemplateField[] | undefined;
 
-        // Collect detected document type names for required-doc checking
-        const documentTypesFound: string[] = [];
+        const documentTypesFound = fileExtractions.map((e) => e.documentType);
 
         if (template) {
           templateId = template.id;
@@ -315,7 +326,7 @@ async function processItemDetailCore(
             "AI_COMPARE_DONE",
             "AI_COMPARE_FAIL",
             {
-              provider,
+              provider: displayProvider,
               pageFieldCount: Object.keys(comparePageFields).length,
               pdfFieldCount: Object.keys(comparePdfFields).length,
               templateId: templateId ?? undefined,
@@ -337,10 +348,30 @@ async function processItemDetailCore(
       }
 
       if (comparisonResult) {
-        await db.comparisonResult.create({
-          data: {
+        // Filter out extra field comparisons the AI added beyond the template config
+        if (matchedTemplate && matchedTemplate.fields.length > 0) {
+          comparisonResult.fieldComparisons = filterComparisonsByTemplate(
+            comparisonResult.fieldComparisons,
+            matchedTemplate.fields
+          );
+          comparisonResult.matchCount = comparisonResult.fieldComparisons.filter((c) => c.status === "MATCH").length;
+          comparisonResult.mismatchCount = comparisonResult.fieldComparisons.filter((c) => c.status === "MISMATCH").length;
+        }
+
+        await db.comparisonResult.upsert({
+          where: { trackedItemId },
+          create: {
             trackedItemId,
-            provider,
+            provider: displayProvider,
+            templateId,
+            fieldComparisons: JSON.parse(JSON.stringify(comparisonResult.fieldComparisons)),
+            matchCount: comparisonResult.matchCount,
+            mismatchCount: comparisonResult.mismatchCount,
+            summary: comparisonResult.summary,
+            completedAt: new Date(),
+          },
+          update: {
+            provider: displayProvider,
             templateId,
             fieldComparisons: JSON.parse(JSON.stringify(comparisonResult.fieldComparisons)),
             matchCount: comparisonResult.matchCount,
@@ -350,10 +381,15 @@ async function processItemDetailCore(
           },
         });
 
+        // Clean up old validation results from previous attempts before re-inserting
+        await db.validationResult.deleteMany({
+          where: { trackedItemId, ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT"] } },
+        });
+
         // Save business rule results as ValidationResult records
         if (comparisonResult.businessRuleResults && matchedTemplate) {
           const brInserts = comparisonResult.businessRuleResults
-            .filter((r: BusinessRuleResult) => r.status !== "PASS")
+            .filter((r: BusinessRuleResult) => r.status === "FAIL" || r.status === "WARNING")
             .map((r: BusinessRuleResult) => {
               const matchedRule = matchedTemplate!.businessRules.find((br: BusinessRule) => br.rule === r.rule);
               const status = r.status === "FAIL" ? "FAIL" : "WARNING";
@@ -427,10 +463,17 @@ async function processItemDetailCore(
         fieldCount: Object.keys(detailData).length,
       });
 
-      await db.scrapeSession.update({
+      const updatedSession = await db.scrapeSession.update({
         where: { id: item.scrapeSessionId },
         data: { itemsProcessed: { increment: 1 } },
       });
+      successIncremented = true;
+
+      if (updatedSession.itemsProcessed === updatedSession.itemsFound && updatedSession.itemsFound > 0) {
+        runCrossItemChecks(item.scrapeSessionId).catch((err) =>
+          logger.error({ err, sessionId: item.scrapeSessionId }, "[worker] Cross-item checks failed")
+        );
+      }
 
       return { status: "COMPLETED", mismatchCount: comparisonResult?.mismatchCount ?? 0 };
     } finally {
@@ -457,10 +500,12 @@ async function processItemDetailCore(
       data: { status: "ERROR", errorMessage },
     });
 
-    await db.scrapeSession.updateMany({
-      where: { trackedItems: { some: { id: trackedItemId } } },
-      data: { itemsProcessed: { increment: 1 } },
-    });
+    if (!successIncremented) {
+      await db.scrapeSession.updateMany({
+        where: { trackedItems: { some: { id: trackedItemId } } },
+        data: { itemsProcessed: { increment: 1 } },
+      });
+    }
 
     return { status: "FAILED", mismatchCount: 0, errorMessage };
   }
@@ -540,7 +585,7 @@ scheduleStorageCleanup().catch((err) =>
   logger.error({ err }, "[worker] Failed to schedule storage cleanup")
 );
 
-const cleanupWorker = startCleanupWorker(runStorageCleanup);
+const cleanupWorker = startCleanupWorker(runFullCleanup);
 if (cleanupWorker) {
   logger.info("[worker] Storage cleanup worker started");
 }

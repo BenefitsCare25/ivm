@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-helpers";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { errorResponse, NotFoundError } from "@/lib/errors";
 import { itemMatchesGroupingKey } from "@/lib/comparison-templates";
@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string; sessionId: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    const session = await requireAuthApi();
     const { id, sessionId } = await params;
 
     const portal = await db.portal.findFirst({
@@ -18,10 +18,23 @@ export async function GET(
     });
     if (!portal) throw new NotFoundError("Portal");
 
+    const scrapeSession = await db.scrapeSession.findFirst({
+      where: { id: sessionId, portalId: id },
+      select: { id: true },
+    });
+    if (!scrapeSession) throw new NotFoundError("Session");
+
     const groupingFields = (portal.groupingFields ?? []) as string[];
     if (groupingFields.length === 0) {
       return NextResponse.json({ unconfiguredTypes: [], needsGroupingConfig: true });
     }
+
+    // Find the first config with matching grouping fields to link new templates
+    const matchingConfig = await db.comparisonConfig.findFirst({
+      where: { portalId: id },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
 
     // Fetch templates once — avoids N+1 inside the item loop
     const [items, existingTemplates] = await Promise.all([
@@ -101,6 +114,7 @@ export async function GET(
     return NextResponse.json({
       unconfiguredTypes: Array.from(seen.values()),
       needsGroupingConfig: false,
+      configId: matchingConfig?.id ?? null,
     });
   } catch (err) {
     return errorResponse(err);

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, Trash2, Loader2, Save } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, Trash2, Loader2, Save, ChevronDown, ChevronUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,10 +18,14 @@ interface Props {
   businessRules: BusinessRule[];
   saving: boolean;
   onSave: (businessRules: BusinessRule[]) => void;
+  availableFields?: string[];
 }
 
-export function TemplateBusinessRules({ businessRules: initial, saving, onSave }: Props) {
+export function TemplateBusinessRules({ businessRules: initial, saving, onSave, availableFields }: Props) {
   const [rules, setRules] = useState<BusinessRule[]>(initial);
+  const [fieldsExpanded, setFieldsExpanded] = useState(false);
+
+  useEffect(() => { setRules(initial); }, [initial]);
 
   function addRule() {
     setRules((prev) => [
@@ -62,6 +66,34 @@ export function TemplateBusinessRules({ businessRules: initial, saving, onSave }
         <p className="text-xs text-muted-foreground">
           Rules the AI evaluates against the claim data. Failures appear as BUSINESS_RULE alerts on items.
         </p>
+        {availableFields && availableFields.length > 0 && (
+          <div className="mt-2">
+            <button
+              onClick={() => setFieldsExpanded(!fieldsExpanded)}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              {fieldsExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              Available portal fields ({availableFields.length})
+            </button>
+            {fieldsExpanded && (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {availableFields.map((f) => (
+                  <span
+                    key={f}
+                    className="inline-flex items-center rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-mono text-foreground"
+                  >
+                    {f}
+                  </span>
+                ))}
+              </div>
+            )}
+            {fieldsExpanded && (
+              <p className="mt-1 text-[10px] text-muted-foreground/60">
+                Use these exact field names in your rules so the AI can match them.
+              </p>
+            )}
+          </div>
+        )}
       </CardHeader>
       <CardContent className="space-y-2">
         {rules.length === 0 ? (

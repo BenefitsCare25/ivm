@@ -1,41 +1,50 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Loader2, Pencil, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import type { DetectedClaimType } from "@/types/portal";
 
 interface GroupingFieldConfigProps {
   portalId: string;
+  configId: string;
   currentGroupingFields: string[];
   availableFields: string[];
-  detectedClaimTypes: string[];
+  detectedClaimTypes: DetectedClaimType[];
   onSaved: () => void;
 }
 
 export function GroupingFieldConfig({
   portalId,
+  configId,
   currentGroupingFields,
   availableFields,
   detectedClaimTypes,
   onSaved,
 }: GroupingFieldConfigProps) {
-  // Single field — we store as array internally for API compatibility
-  const currentField = currentGroupingFields[0] ?? "";
-  const [selected, setSelected] = useState<string>(currentField);
+  const [selected, setSelected] = useState<string[]>(currentGroupingFields);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
+
+  useEffect(() => { setSelected(currentGroupingFields); }, [currentGroupingFields]);
   const [error, setError] = useState<string | null>(null);
   const [affectedTemplateCount, setAffectedTemplateCount] = useState(0);
+
+  function toggleField(field: string) {
+    setSelected((prev) =>
+      prev.includes(field) ? prev.filter((f) => f !== field) : [...prev, field]
+    );
+  }
 
   async function handleSave() {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/portals/${portalId}/grouping-fields`, {
-        method: "PUT",
+      const res = await fetch(`/api/portals/${portalId}/configs/${configId}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groupingFields: selected ? [selected] : [] }),
+        body: JSON.stringify({ groupingFields: selected }),
       });
       if (!res.ok) throw new Error("Failed to save");
       const data = await res.json();
@@ -69,7 +78,7 @@ export function GroupingFieldConfig({
         {!editing && (
           <Button variant="ghost" size="sm" onClick={() => setEditing(true)} className="shrink-0">
             <Pencil className="mr-1.5 h-3.5 w-3.5" />
-            {currentField ? "Change" : "Configure"}
+            {currentGroupingFields.length > 0 ? "Change" : "Configure"}
           </Button>
         )}
       </div>
@@ -78,31 +87,36 @@ export function GroupingFieldConfig({
         <div className="space-y-3 pl-7">
           {availableFields.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No fields found yet. Run a scrape first — field names are discovered automatically.
+              No fields found yet. Run Field Discovery or a scrape first.
             </p>
           ) : (
             <>
               <p className="text-xs text-muted-foreground">
-                Pick the field whose value names the claim type — e.g. select{" "}
-                <span className="font-mono text-foreground">Claim Type</span> if your portal shows
-                values like <span className="italic">&ldquo;Group Outpatient Specialist&rdquo;</span>{" "}
-                or <span className="italic">&ldquo;Inpatient&rdquo;</span>. Avoid unique fields like
-                Claim ID.
+                Select the fields that identify claim categories — e.g.{" "}
+                <span className="font-mono text-foreground">Claim Type</span> and{" "}
+                <span className="font-mono text-foreground">Sub Claim Type</span>. Avoid unique
+                fields like Claim ID.
               </p>
-              <div className="relative">
-                <select
-                  value={selected}
-                  onChange={(e) => setSelected(e.target.value)}
-                  className="w-full appearance-none rounded-md border border-border bg-background px-3 py-2 pr-8 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                >
-                  <option value="">— Select a field —</option>
-                  {availableFields.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <div className="flex flex-wrap gap-2">
+                {availableFields.map((f) => (
+                  <label
+                    key={f}
+                    className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                      selected.includes(f)
+                        ? "border-accent bg-accent/10 text-foreground"
+                        : "border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(f)}
+                      onChange={() => toggleField(f)}
+                      className="sr-only"
+                    />
+                    {selected.includes(f) ? "✓ " : ""}
+                    {f}
+                  </label>
+                ))}
               </div>
             </>
           )}
@@ -110,7 +124,7 @@ export function GroupingFieldConfig({
           {error && <p className="text-sm text-destructive">{error}</p>}
 
           <div className="flex gap-2">
-            <Button size="sm" onClick={handleSave} disabled={saving || !selected}>
+            <Button size="sm" onClick={handleSave} disabled={saving || selected.length === 0}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save
             </Button>
@@ -119,7 +133,7 @@ export function GroupingFieldConfig({
               size="sm"
               onClick={() => {
                 setEditing(false);
-                setSelected(currentField);
+                setSelected(currentGroupingFields);
                 setError(null);
               }}
             >
@@ -129,41 +143,45 @@ export function GroupingFieldConfig({
         </div>
       ) : (
         <div className="pl-7 space-y-2">
-          {!currentField ? (
+          {currentGroupingFields.length === 0 ? (
             <p className="text-sm text-muted-foreground italic">
-              Not configured — run a scrape first, then pick which field identifies the claim type.
+              Not configured — run Field Discovery or pick which fields identify the claim type.
             </p>
           ) : (
             <>
               <div className="flex items-center gap-2">
-                <p className="text-xs text-muted-foreground">Field:</p>
-                <Badge variant="secondary" className="font-mono text-xs">
-                  {currentField}
-                </Badge>
+                <p className="text-xs text-muted-foreground">
+                  {currentGroupingFields.length === 1 ? "Field:" : "Fields:"}
+                </p>
+                {currentGroupingFields.map((f) => (
+                  <Badge key={f} variant="secondary" className="font-mono text-xs">
+                    {f}
+                  </Badge>
+                ))}
               </div>
 
               {detectedClaimTypes.length > 0 ? (
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">
-                    Values found in scraped data:
+                    Claim type combinations found:
                   </p>
                   <div className="flex flex-wrap gap-1.5">
-                    {detectedClaimTypes.map((v) => (
+                    {detectedClaimTypes.map((ct) => (
                       <span
-                        key={v}
+                        key={ct.label}
                         className="rounded-md bg-muted px-2 py-0.5 text-xs text-foreground"
                       >
-                        {v}
+                        {ct.label}
                       </span>
                     ))}
                   </div>
                   <p className="text-xs text-muted-foreground pt-0.5">
-                    Each value gets its own comparison rules in Step 2 below.
+                    Each combination gets its own comparison rules in Step 2 below.
                   </p>
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground italic">
-                  No values detected yet — run a scrape to discover claim types.
+                  No values detected yet — run Field Discovery to find claim types.
                 </p>
               )}
             </>
