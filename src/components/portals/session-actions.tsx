@@ -182,7 +182,9 @@ export function SessionActions({
           <span>{pct}% complete</span>
           {inFlight > 0 && (
             <span className="flex items-center gap-1">
-              <Loader2 className="h-3 w-3 animate-spin" />
+              {counts.PROCESSING > 0
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <span className="h-3 w-3 rounded-full border border-current opacity-50 inline-block" />}
               {counts.DISCOVERED ?? 0} queued · {counts.PROCESSING ?? 0} running
             </span>
           )}
