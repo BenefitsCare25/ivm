@@ -440,6 +440,7 @@ async function processItemDetailCore(
       }
 
       const noDocuments = downloadedFiles.length === 0;
+      const extractionFailed = downloadedFiles.length > 0 && Object.keys(pdfFields).length === 0;
       const hasMismatch = (comparisonResult?.mismatchCount ?? 0) > 0;
       const hasRuleFailure = comparisonResult?.businessRuleResults?.some(
         (r: BusinessRuleResult) => r.status === "FAIL"
@@ -449,11 +450,16 @@ async function processItemDetailCore(
       ) ?? false;
       const finalStatus = noDocuments
         ? "REQUIRE_DOC"
-        : (hasMismatch || hasRuleFailure || hasMissingDoc) ? "FLAGGED" : "COMPARED";
+        : extractionFailed
+          ? "ERROR"
+          : (hasMismatch || hasRuleFailure || hasMissingDoc) ? "FLAGGED" : "COMPARED";
 
       await db.trackedItem.update({
         where: { id: trackedItemId },
-        data: { status: finalStatus },
+        data: {
+          status: finalStatus,
+          errorMessage: extractionFailed ? "AI extraction failed for all files" : null,
+        },
       });
 
       await emitItemEvent(trackedItemId, "ITEM_COMPLETE", {
@@ -500,7 +506,8 @@ async function processItemDetailCore(
       data: { status: "ERROR", errorMessage },
     });
 
-    if (!successIncremented) {
+    const isFinalAttempt = job.attemptsMade >= (job.opts.attempts ?? 1);
+    if (!successIncremented && isFinalAttempt) {
       await db.scrapeSession.updateMany({
         where: { trackedItems: { some: { id: trackedItemId } } },
         data: { itemsProcessed: { increment: 1 } },
@@ -539,18 +546,41 @@ async function recoverStuckItems(): Promise<void> {
 
   logger.warn({ count: stuck.length }, "[worker] Recovering stuck PROCESSING items");
 
-  await db.trackedItem.updateMany({
-    where: { status: "PROCESSING" },
-    data: { status: "DISCOVERED", errorMessage: null },
-  });
+  const erroredItemIds = await db.trackedItemEvent.findMany({
+    where: {
+      trackedItemId: { in: stuck.map((s) => s.id) },
+      eventType: "ITEM_ERROR",
+    },
+    select: { trackedItemId: true },
+  }).then((events) => new Set(events.map((e) => e.trackedItemId)));
 
-  await enqueueItemDetailBatch(
-    stuck.map((item) => ({
-      trackedItemId: item.id,
-      portalId: item.scrapeSession.portalId,
-      userId: item.scrapeSession.portal.userId,
-    }))
-  );
+  const toRetry = stuck.filter((s) => !erroredItemIds.has(s.id));
+  const toError = stuck.filter((s) => erroredItemIds.has(s.id));
+
+  if (toError.length > 0) {
+    logger.warn({ count: toError.length, ids: toError.map((s) => s.id) },
+      "[worker] Setting previously-errored PROCESSING items to ERROR");
+    await db.trackedItem.updateMany({
+      where: { id: { in: toError.map((s) => s.id) } },
+      data: { status: "ERROR", errorMessage: "Worker restarted after error" },
+    });
+  }
+
+  if (toRetry.length > 0) {
+    logger.warn({ count: toRetry.length }, "[worker] Re-enqueuing genuinely stuck items");
+    await db.trackedItem.updateMany({
+      where: { id: { in: toRetry.map((s) => s.id) } },
+      data: { status: "DISCOVERED", errorMessage: null },
+    });
+    await enqueueItemDetailBatch(
+      toRetry.map((item) => ({
+        trackedItemId: item.id,
+        portalId: item.scrapeSession.portalId,
+        userId: item.scrapeSession.portal.userId,
+      })),
+      { reprocess: true }
+    );
+  }
 }
 
 async function handleFinalFailure(
