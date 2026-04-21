@@ -138,6 +138,7 @@ export default async function PortalDetailPage({
       excludeBySubmittedBy: ((portal.scrapeFilters as Record<string, unknown>)?.excludeBySubmittedBy as string[]) ?? [],
     },
     defaultDocumentTypeIds: portal.defaultDocumentTypeIds,
+    comparisonModel: portal.comparisonModel ?? null,
     availableFields,
     detectedClaimTypes,
     templateCount: configs.reduce((sum, c) => sum + c._count.templates, 0),

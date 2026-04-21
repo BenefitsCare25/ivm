@@ -35,6 +35,7 @@ export const updatePortalSchema = z.object({
   scrapeLimit: z.number().int().min(1).nullable().optional(),
   defaultDocumentTypeIds: z.array(z.string().cuid()).max(20).optional(),
   scrapeFilters: scrapeFiltersSchema.optional(),
+  comparisonModel: z.enum(["claude-opus-4-6", "claude-sonnet-4-6"]).nullable().optional(),
 });
 
 export type UpdatePortalInput = z.infer<typeof updatePortalSchema>;
@@ -133,6 +134,7 @@ export const businessRuleSchema = z.object({
 export const createComparisonTemplateSchema = z.object({
   name: z.string().min(1).max(200),
   comparisonConfigId: z.string().optional(),
+  providerGroupId: z.string().optional().nullable(),
   groupingKey: z.record(z.string().max(200), z.string().max(500)),
   fields: z.array(templateFieldSchema).max(100).default([]),
   requiredDocuments: z.array(requiredDocumentSchema).max(20).default([]),
@@ -143,6 +145,7 @@ export type CreateComparisonTemplateInput = z.infer<typeof createComparisonTempl
 
 export const updateComparisonTemplateSchema = z.object({
   name: z.string().min(1).max(200).optional(),
+  providerGroupId: z.string().nullable().optional(),
   fields: z.array(templateFieldSchema).max(100).optional(),
   requiredDocuments: z.array(requiredDocumentSchema).max(20).optional(),
   businessRules: z.array(businessRuleSchema).max(50).optional(),
@@ -155,3 +158,23 @@ export const updateGroupingFieldsSchema = z.object({
 });
 
 export type UpdateGroupingFieldsInput = z.infer<typeof updateGroupingFieldsSchema>;
+
+// ─── Provider Groups ──────────────────────────────────────────────
+
+export const createProviderGroupSchema = z.object({
+  name: z.string().min(1).max(200),
+  providerFieldName: z.string().min(1).max(200),
+  matchMode: z.enum(["list", "others"]),
+  members: z.array(z.string().min(1).max(500)).max(200).default([]),
+});
+
+export type CreateProviderGroupInput = z.infer<typeof createProviderGroupSchema>;
+
+export const updateProviderGroupSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  providerFieldName: z.string().min(1).max(200).optional(),
+  matchMode: z.enum(["list", "others"]).optional(),
+  members: z.array(z.string().min(1).max(500)).max(200).optional(),
+});
+
+export type UpdateProviderGroupInput = z.infer<typeof updateProviderGroupSchema>;

@@ -326,6 +326,7 @@ model Portal {
   discoveredClaimTypes Json             @default("[]")
   scrapeLimit          Int?
   scrapeFilters        Json             @default("{}")
+  comparisonModel      String?
   scheduleEnabled Boolean          @default(false)
   scheduleCron    String?
   createdAt       DateTime         @default(now())
@@ -338,6 +339,7 @@ model Portal {
   scrapeSessions      ScrapeSession[]
   comparisonTemplates ComparisonTemplate[]
   comparisonConfigs   ComparisonConfig[]
+  providerGroups      ProviderGroup[]
 
   @@index([userId])
   @@map("portals")
@@ -475,6 +477,7 @@ model ComparisonTemplate {
   id                   String   @id @default(cuid())
   portalId             String
   comparisonConfigId   String?
+  providerGroupId      String?
   name                 String
   groupingKey          Json     @default("{}")
   fields               Json     @default("[]")
@@ -485,11 +488,31 @@ model ComparisonTemplate {
 
   portal           Portal            @relation(fields: [portalId], references: [id], onDelete: Cascade)
   comparisonConfig ComparisonConfig?  @relation(fields: [comparisonConfigId], references: [id], onDelete: Cascade)
+  providerGroup    ProviderGroup?     @relation(fields: [providerGroupId], references: [id], onDelete: SetNull)
+
+  @@unique([portalId, name, providerGroupId])
+  @@index([portalId])
+  @@index([comparisonConfigId])
+  @@index([providerGroupId])
+  @@map("comparison_templates")
+}
+
+model ProviderGroup {
+  id                String   @id @default(cuid())
+  portalId          String
+  name              String
+  providerFieldName String
+  matchMode         String   @default("list")
+  members           Json     @default("[]")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  portal    Portal              @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  templates ComparisonTemplate[]
 
   @@unique([portalId, name])
   @@index([portalId])
-  @@index([comparisonConfigId])
-  @@map("comparison_templates")
+  @@map("provider_groups")
 }
 
 // ─── Intelligence Hub ────────────────────────────────────────────

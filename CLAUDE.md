@@ -133,7 +133,7 @@ Never pass Lucide icon components as props from Server → Client Components (fu
   - **Column 2 — Comparison & Alerts**: Full field comparison table (all rows, scrollable), match/mismatch summary + match rate %, AI summary text, and all FWA alerts.
   - **Column 3 — Document Viewer**: File selector chips (one at a time), inline blob-based viewer (images with drag-to-pan, PDFs in iframe via `blob:` URL to bypass `X-Frame-Options: DENY`). 500px fixed height.
   - Status line at top shows pass/fail/processing state with error message if failed. No event timeline in expanded row (available on full detail page only).
-- **Prisma models**: `Portal`, `PortalCredential`, `ScrapeSession`, `TrackedItem`, `TrackedItemFile`, `ComparisonResult`, `TrackedItemEvent`, `ComparisonConfig`, `ComparisonTemplate`
+- **Prisma models**: `Portal`, `PortalCredential`, `ScrapeSession`, `TrackedItem`, `TrackedItemFile`, `ComparisonResult`, `TrackedItemEvent`, `ComparisonConfig`, `ComparisonTemplate`, `ProviderGroup`
 - **Types/Validations**: `src/types/portal.ts`, `src/lib/validations/portal.ts` — all selector fields `.optional().nullable()`
 - **Status colors**: `ITEM_STATUS_COLORS` exported from `src/components/portals/portal-status-badge.tsx`
 
@@ -148,7 +148,9 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Comparison prompt rules** (`src/lib/ai/prompts-comparison.ts`): System prompt uses principle-based rules — no hardcoded examples. Key rules: (1) ignore leading punctuation on IDs/invoice numbers (`#C313875` = `C313875`); (2) semantic parent-brand matching for organization names — if two provider names share root brand words and one is plausibly a branch/variant, treat as MATCH (e.g. "Raffles Medical Teleconsult" vs "Raffles Medical Singapore"). Do NOT add hardcoded provider examples to the prompt — the rule is intentionally generic so the AI applies its own world knowledge.
 - **Expanded row — AI Comparison & Alerts column**: Section header is "AI Comparison & Alerts". Shows match/mismatch summary, AI narrative summary, Diagnosis pill (pulled from `pdfValue` in `fieldComparisons` — AI-extracted from document, not portal), field comparison table, FWA alerts.
 - **Template lookup**: `findMatchingTemplate(portalId, itemData)` in `src/lib/comparison-templates.ts` — fetches all configs + templates, each template uses its config's grouping fields. Worker calls this before every AI comparison.
-- **Template field filtering**: `filterFieldsByTemplate` passes through ALL fields unfiltered — both `pageFields` and `pdfFields`. Business rules need access to every portal field, not just template-mapped ones. The function exists as a pass-through extension point.
+- **Template field filtering**: `filterFieldsByTemplate` passes through ALL fields unfiltered — both `pageFields` and `pdfFields`. AI-extracted PDF labels vary too much for substring matching (e.g. "Invoice Date" vs "Bill Date"). Prompt size is controlled via compact JSON formatting in `prompt-builder.ts` instead.
+- **Prompt compaction** (`src/lib/ai/prompt-builder.ts`): `buildFullComparisonUserPrompt` uses single-line `JSON.stringify()` (no pretty-print) for both page and PDF fields. PDF field values truncated at 200 chars via `compactFields()`. This keeps prompts manageable for 130+ field items within the 180s AI timeout.
+- **Per-portal AI model override**: `Portal.comparisonModel String?` — when set, overrides the user's default text model for AI comparison in the item detail worker. Options: `null` (use user's BYOK/system setting), `"claude-sonnet-4-6"`, `"claude-opus-4-6"`. Worker resolves as `(portal.comparisonModel ?? textModel)`. UI: "AI Model" card on portal detail page (5th card in the header grid), select dropdown auto-saves on change. Saved via `PATCH /api/portals/[id]` with `comparisonModel` field — the PATCH route passes validated data directly to `updateMany` so no route changes needed. Migration: `20260421200000_add_comparison_model`.
 - **Fallback**: If no configs/grouping fields configured or no template matches, falls back to full AI comparison (all fields, no mode rules)
 - **Inline prompt flow**: After a session completes, `SessionActions` fetches `/api/portals/${portalId}/scrape/${sessionId}/unconfigured-types` — items that used full comparison with no template. Response includes `configId` of first matching config. Prompts user to configure a template via `ComparisonTemplateModal` (passes configId). On save, calls recompare API.
 - **Recompare API**: `POST .../recompare` with `{ templateId }` — re-runs AI comparison on matching items using template rules, replaces old `ComparisonResult`
@@ -156,8 +158,22 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Template UI**: `GroupingFieldConfig` (set grouping fields per config), `TemplateList` (view/delete templates per config), `ComparisonTemplateModal` (configure new template inline), `PortalComparisonSetup` (wrapper with copy/delete config)
 - **Item detail view**: Shows template name badge or "Full comparison" badge alongside provider on the comparison result card
 - **Key helper**: `itemMatchesGroupingKey(groupingFields, itemData, templateKey)` — pure function, used in both template matching and recompare filtering
-- **Copy setup API**: `POST /api/portals/[id]/comparison-setup/import` with `{ sourcePortalId }` — copies all `ComparisonConfig` records + their templates from source portal in a single transaction; deletes existing configs/templates on target first. Both portals must belong to the same user.
+- **Copy setup API**: `POST /api/portals/[id]/comparison-setup/import` with `{ sourcePortalId }` — copies all `ComparisonConfig` records + their templates + provider groups from source portal in a single transaction; deletes existing configs/templates/groups on target first. Provider group IDs are remapped so template→group FK references remain valid.
 - **Copy setup UI**: "Copy from portal" ghost button in Comparison Setup card header → fetches portal list → select source → import. Auto-refreshes on success.
+
+### Portal Tracker — Provider Groups
+- **Purpose**: Generic provider classification layer for templates. Different providers (e.g. Government Restructured vs Private hospitals) can have different comparison rules/required documents for the same claim type.
+- **Model**: `ProviderGroup` — `portalId`, `name`, `providerFieldName` (which item field to match against), `matchMode` ("list" or "others"), `members` (JSONB array of provider names for "list" mode). Unique on `(portalId, name)`.
+- **Match modes**: `list` — normalized substring fuzzy match against member names. `others` — catch-all for providers not matched by any "list" group sharing the same groupingKey.
+- **Template integration**: `ComparisonTemplate.providerGroupId` (nullable FK, ON DELETE SET NULL). Templates without a provider group apply to all providers (backward-compatible). When multiple templates match the same groupingKey, provider group disambiguates.
+- **Matching priority** (`src/lib/comparison-templates.ts`): "list" groups checked first via fuzzy match → "others" mode fallback → templates without providerGroup → null (full comparison)
+- **Fuzzy matching**: `normalizeForMatch()` lowercases, trims, collapses whitespace. `fuzzyMatchProvider()` checks if normalized item value contains any normalized member as substring, or vice versa.
+- **Cache**: Provider groups loaded alongside templates in the 60s TTL cache. All provider group mutations clear the cache.
+- **APIs**: `GET/POST /api/portals/[id]/provider-groups`, `PATCH/DELETE /api/portals/[id]/provider-groups/[groupId]`
+- **UI**: `ProviderGroupsCard` (`src/components/portals/provider-groups-card.tsx`) — self-fetching management card on portal detail page. Add/edit/delete groups inline with tag-input for members. Shows matchMode badge, member chips, template count per group.
+- **Template modal**: `ComparisonTemplateModal` shows optional provider group dropdown when groups exist. `SessionActions` fetches groups alongside unconfigured-types.
+- **Template list/detail**: Shows provider group badge next to template name when assigned.
+- **Migration**: `20260421100000_add_provider_groups`
 
 ### Portal Tracker — Field Discovery
 - **Purpose**: Lightweight pre-scrape step that discovers claim type combinations and their detail page field labels. Users configure templates BEFORE the first full scrape — no wasted comparison runs.
@@ -202,6 +218,11 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Parallel**: All href-based links fetched concurrently via `Promise.allSettled()`; `javascript:` / onclick fallback runs sequentially after (clicking navigates the page)
 - **tmpDir**: Created lazily — only when there are `javascript:` links; skipped entirely for href-only pages
 - **Click+download fallback**: Only for links with no navigable `href`. Uses `page.waitForEvent("download")` — will silently fail if portal serves file inline
+
+### Scraper — Garbage Data Filtering
+- `filterGarbageFields()` in `scraper.ts` — detects when fallback extraction (no `fieldSelectors`) grabs noise from non-claim page sections (e.g. access management panels with 150+ identical "Manage Access" values)
+- Heuristic: if >50% of field values are identical and count >5, removes those entries
+- **Worker data preservation**: `item-detail-worker.ts` uses `effectiveDetailData` pattern — on BullMQ retry, if new scrape returns significantly fewer fields than existing `detailData` (<50%), keeps the existing data instead of overwriting with garbage
 
 ### Scraper — Selector Timeout Debugging
 - `waitForSelector(tableSelector, { timeout: 30_000 })` — 30s timeout (increased from 15s)

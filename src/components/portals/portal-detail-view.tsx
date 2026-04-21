@@ -10,7 +10,7 @@ import { ScrapeSessionModal } from "./scrape-session-modal";
 import {
   ArrowLeft, Play, Loader2, Shield,
   Calendar, Settings, Trash2, AlertCircle, Hash,
-  RefreshCw, FileSliders, Plus,
+  RefreshCw, FileSliders, Plus, Brain,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import { formatDate } from "@/lib/utils";
 import type { ScrapeSessionStatus, DiscoveredClaimType, ScrapeFilters } from "@/types/portal";
 import { FieldDiscovery } from "./field-discovery";
 import { ScraperFiltersCard } from "./scraper-filters-card";
+import { ProviderGroupsCard } from "./provider-groups-card";
 
 interface SessionData {
   id: string;
@@ -54,6 +55,7 @@ interface PortalData {
   scrapeLimit: number | null;
   scrapeFilters: ScrapeFilters;
   defaultDocumentTypeIds: string[];
+  comparisonModel: string | null;
   availableFields: string[];
   detectedClaimTypes: string[];
   templateCount: number;
@@ -192,6 +194,8 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
   const [deleting, setDeleting] = useState(false);
   const [limitInput, setLimitInput] = useState(portal.scrapeLimit?.toString() ?? "");
   const [savingLimit, setSavingLimit] = useState(false);
+  const [modelValue, setModelValue] = useState<string>(portal.comparisonModel ?? "");
+  const [savingModel, setSavingModel] = useState(false);
   const [showReAuth, setShowReAuth] = useState(false);
   const [authStatus, setAuthStatus] = useState<AuthStatus>("ok");
 
@@ -234,6 +238,28 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
       setError(err instanceof Error ? err.message : "Failed to save scrape limit");
     } finally {
       setSavingLimit(false);
+    }
+  }
+
+  async function saveComparisonModel(value: string) {
+    setSavingModel(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/portals/${portal.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comparisonModel: value || null }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || "Failed to save model");
+      }
+      setModelValue(value);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save model");
+    } finally {
+      setSavingModel(false);
     }
   }
 
@@ -355,7 +381,7 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
       <FormError message={error} />
 
       {/* Status grid */}
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
         <Card
           className={
             authBad ? "ring-1 ring-status-error/40" : authWarn ? "ring-1 ring-amber-400/40" : ""
@@ -459,6 +485,27 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <Brain className="h-5 w-5 text-muted-foreground shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground mb-1.5">AI Model</p>
+                <select
+                  value={modelValue}
+                  onChange={(e) => saveComparisonModel(e.target.value)}
+                  disabled={savingModel}
+                  className="h-7 text-xs w-full rounded border border-border bg-background text-foreground px-2 disabled:opacity-50"
+                >
+                  <option value="">Default (user setting)</option>
+                  <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+                  <option value="claude-opus-4-6">Opus 4.6</option>
+                </select>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
       </div>
 
       {/* Inline re-auth panel */}
@@ -475,6 +522,11 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
       <ScraperFiltersCard
         portalId={portal.id}
         initialFilters={portal.scrapeFilters}
+      />
+
+      <ProviderGroupsCard
+        portalId={portal.id}
+        availableFields={portal.availableFields}
       />
 
       <FieldDiscovery

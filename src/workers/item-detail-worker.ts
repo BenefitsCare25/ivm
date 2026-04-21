@@ -109,10 +109,31 @@ async function processItemDetailCore(
         fields: Object.keys(detailData),
       });
 
-      await db.trackedItem.update({
-        where: { id: trackedItemId },
-        data: { detailData: JSON.parse(JSON.stringify(detailData)) },
-      });
+      // Preserve existing detailData if the new scrape returned fewer fields
+      // (protects against retries picking up garbage from non-claim page sections)
+      const existingDetailData = item.detailData as Record<string, string> | null;
+      const existingCount = existingDetailData ? Object.keys(existingDetailData).length : 0;
+      const newCount = Object.keys(detailData).length;
+
+      const useNewData = newCount === 0
+        ? false  // empty scrape — keep whatever we had
+        : existingCount === 0 || newCount >= existingCount * 0.5;
+
+      // effectiveDetailData is what we use for downstream comparison
+      let effectiveDetailData = detailData;
+
+      if (useNewData) {
+        await db.trackedItem.update({
+          where: { id: trackedItemId },
+          data: { detailData: JSON.parse(JSON.stringify(detailData)) },
+        });
+      } else {
+        logger.warn(
+          { trackedItemId, existingCount, newCount },
+          "[worker] Kept existing detailData — new scrape returned significantly fewer fields"
+        );
+        effectiveDetailData = existingDetailData!;
+      }
 
       // ── File downloads ──────────────────────────────────────
       const storagePrefix = `portal-files/${portalId}/${trackedItemId}`;
@@ -275,15 +296,15 @@ async function processItemDetailCore(
       let templateId: string | null = null;
       let matchedTemplate: MatchedTemplate | null = null;
 
-      if (Object.keys(detailData).length > 0 && Object.keys(pdfFields).length > 0) {
+      if (Object.keys(effectiveDetailData).length > 0 && Object.keys(pdfFields).length > 0) {
         const allPageData = {
           ...(item.listData as Record<string, string>),
-          ...detailData,
+          ...effectiveDetailData,
         };
         const template = await findMatchingTemplate(portalId, allPageData);
         matchedTemplate = template;
 
-        let comparePageFields = detailData;
+        let comparePageFields = effectiveDetailData;
         let comparePdfFields = pdfFields;
         let templateFields: TemplateField[] | undefined;
 
@@ -292,7 +313,7 @@ async function processItemDetailCore(
         if (template) {
           templateId = template.id;
           templateFields = template.fields;
-          const filtered = filterFieldsByTemplate(detailData, pdfFields, template.fields);
+          const filtered = filterFieldsByTemplate(effectiveDetailData, pdfFields, template.fields);
           comparePageFields = filtered.filteredPageFields;
           comparePdfFields = filtered.filteredPdfFields;
 
@@ -337,7 +358,7 @@ async function processItemDetailCore(
               pdfFields: comparePdfFields,
               provider,
               apiKey,
-              model: textModel,
+              model: (portal.comparisonModel as string | null) ?? textModel,
               baseURL,
               templateFields,
               systemPromptOverride,
@@ -466,7 +487,7 @@ async function processItemDetailCore(
         status: finalStatus,
         mismatchCount: comparisonResult?.mismatchCount ?? 0,
         fileCount: downloadedFiles.length,
-        fieldCount: Object.keys(detailData).length,
+        fieldCount: Object.keys(effectiveDetailData).length,
       });
 
       const updatedSession = await db.scrapeSession.update({
