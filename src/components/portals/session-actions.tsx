@@ -16,6 +16,8 @@ interface SessionActionsProps {
     PROCESSING: number;
     DISCOVERED: number;
     SKIPPED?: number;
+    VERIFIED?: number;
+    REQUIRE_DOC?: number;
   };
   sessionStatus: string;
 }
@@ -28,6 +30,7 @@ export function SessionActions({
 }: SessionActionsProps) {
   const router = useRouter();
   const [loading, setLoading] = useState<"failed" | "unprocessed" | "skip" | "stop" | "delete" | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const autoRetriedRef = useRef(false);
   const [unconfiguredTypes, setUnconfiguredTypes] = useState<Array<{
     groupingKey: Record<string, string>;
@@ -38,9 +41,10 @@ export function SessionActions({
   const [currentTypeIndex, setCurrentTypeIndex] = useState(0);
   const checkedUnconfiguredRef = useRef(false);
   const [recompareError, setRecompareError] = useState<string | null>(null);
+  const [unconfiguredConfigId, setUnconfiguredConfigId] = useState<string | null>(null);
 
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  const done = (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) + (counts.ERROR ?? 0) + (counts.SKIPPED ?? 0);
+  const done = (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) + (counts.ERROR ?? 0) + (counts.SKIPPED ?? 0) + (counts.VERIFIED ?? 0) + (counts.REQUIRE_DOC ?? 0);
   const inFlight = (counts.PROCESSING ?? 0) + (counts.DISCOVERED ?? 0);
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   const isComplete = total > 0 && inFlight === 0;
@@ -66,6 +70,7 @@ export function SessionActions({
       .then((data) => {
         if (Array.isArray(data.unconfiguredTypes) && data.unconfiguredTypes.length > 0) {
           setUnconfiguredTypes(data.unconfiguredTypes);
+          setUnconfiguredConfigId(data.configId ?? null);
           setCurrentTypeIndex(0);
           setShowTemplateModal(true);
         }
@@ -89,12 +94,16 @@ export function SessionActions({
 
   async function skipFailed() {
     setLoading("skip");
+    setActionError(null);
     try {
       const res = await fetch(
         `/api/portals/${portalId}/scrape/${sessionId}/reprocess`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "skip" }) }
       );
       if (res.ok) router.refresh();
+      else setActionError("Failed to skip items — please try again");
+    } catch {
+      setActionError("Network error — please check your connection");
     } finally {
       setLoading(null);
     }
@@ -102,12 +111,19 @@ export function SessionActions({
 
   async function reprocess(type: "failed" | "unprocessed") {
     setLoading(type);
+    setActionError(null);
     try {
       const res = await fetch(
         `/api/portals/${portalId}/scrape/${sessionId}/reprocess`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type }) }
       );
       if (res.ok) router.refresh();
+      else {
+        const body = await res.json().catch(() => ({}));
+        setActionError(body.message ?? "Failed to queue items — please try again");
+      }
+    } catch {
+      setActionError("Network error — please check your connection");
     } finally {
       setLoading(null);
     }
@@ -142,7 +158,13 @@ export function SessionActions({
       <div className="space-y-1.5">
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium text-foreground">
-            {isComplete ? "All items processed" : `Processing items…`}
+            {isComplete
+              ? "All items processed"
+              : counts.PROCESSING > 0
+                ? "Processing items…"
+                : (counts.DISCOVERED ?? 0) > 0
+                  ? `${counts.DISCOVERED} item${counts.DISCOVERED === 1 ? "" : "s"} queued`
+                  : "Processing items…"}
           </span>
           <span className="text-muted-foreground tabular-nums">
             {done} / {total}
@@ -193,6 +215,14 @@ export function SessionActions({
               Configure Templates
             </Button>
           )}
+        </div>
+      )}
+
+      {/* Action error banner */}
+      {actionError && (
+        <div className="flex items-center gap-2 rounded-md bg-status-error/10 px-3 py-2 text-xs text-status-error">
+          <span className="flex-1">{actionError}</span>
+          <button onClick={() => setActionError(null)} className="text-status-error hover:opacity-70">✕</button>
         </div>
       )}
 
@@ -327,6 +357,7 @@ export function SessionActions({
       {showTemplateModal && unconfiguredTypes[currentTypeIndex] && (
         <ComparisonTemplateModal
           portalId={portalId}
+          configId={unconfiguredConfigId ?? undefined}
           groupingKey={unconfiguredTypes[currentTypeIndex].groupingKey}
           suggestedName={Object.values(unconfiguredTypes[currentTypeIndex].groupingKey).join(" / ")}
           availableFields={unconfiguredTypes[currentTypeIndex].fieldOptions}

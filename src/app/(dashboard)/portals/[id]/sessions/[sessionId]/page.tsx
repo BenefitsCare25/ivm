@@ -10,6 +10,7 @@ import { TrackedItemsTable } from "@/components/portals/tracked-items-table";
 import { ScrapeStatusBadge, ITEM_STATUS_COLORS } from "@/components/portals/portal-status-badge";
 import { AutoRefresh } from "@/components/portals/auto-refresh";
 import { SessionActions } from "@/components/portals/session-actions";
+import { FWA_PRIORITY } from "@/types/portal";
 import type { ScrapeSessionStatus, FieldComparison } from "@/types/portal";
 
 
@@ -31,7 +32,7 @@ export default async function SessionItemsPage({
     where: { id: sessionId, portalId: id },
     include: {
       trackedItems: {
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         take: 50,
         select: {
           id: true,
@@ -64,7 +65,7 @@ export default async function SessionItemsPage({
   });
   if (!scrapeSession) notFound();
 
-  // Fetch worst FWA signal per item (TAMPERING > DUPLICATE > DOC_TYPE_MATCH, FAIL > WARNING)
+  // Fetch all FWA validation results per item
   const itemIds = scrapeSession.trackedItems.map((i) => i.id);
   const fwaResults = itemIds.length > 0
     ? await db.validationResult.findMany({
@@ -72,15 +73,20 @@ export default async function SessionItemsPage({
           trackedItemId: { in: itemIds },
           ruleType: { in: ["TAMPERING", "DUPLICATE", "DOC_TYPE_MATCH", "BUSINESS_RULE", "REQUIRED_DOCUMENT"] },
         },
-        select: { trackedItemId: true, ruleType: true, status: true, message: true },
+        select: { id: true, trackedItemId: true, ruleType: true, status: true, message: true },
       })
     : [];
 
-  // Build per-item worst signal: FAIL beats WARNING; TAMPERING > DUPLICATE > DOC_TYPE_MATCH
-  const FWA_PRIORITY: Record<string, number> = { TAMPERING: 3, DUPLICATE: 2, DOC_TYPE_MATCH: 1, BUSINESS_RULE: 1, REQUIRED_DOCUMENT: 1 };
+  // Build per-item arrays of all FWA alerts + worst signal for table badge
   const fwaByItem = new Map<string, { ruleType: string; status: string; message: string }>();
+  const fwaAlertsByItem = new Map<string, { id: string; ruleType: string; status: string; message: string }[]>();
   for (const r of fwaResults) {
     if (!r.trackedItemId) continue;
+    // All alerts array
+    const arr = fwaAlertsByItem.get(r.trackedItemId) ?? [];
+    arr.push({ id: r.id, ruleType: r.ruleType, status: r.status, message: r.message });
+    fwaAlertsByItem.set(r.trackedItemId, arr);
+    // Worst signal for table badge
     const existing = fwaByItem.get(r.trackedItemId);
     const newScore = (r.status === "FAIL" ? 100 : 0) + (FWA_PRIORITY[r.ruleType] ?? 0);
     const exScore = existing
@@ -99,13 +105,15 @@ export default async function SessionItemsPage({
     statusCounts.map((s) => [s.status, s._count.id])
   );
 
+  // Only auto-refresh when the worker is actively running jobs.
+  // DISCOVERED items on a COMPLETED/CANCELLED session won't self-start —
+  // the user must click "Continue" to re-enqueue them.
   const isActive =
     scrapeSession.status === "RUNNING" ||
     scrapeSession.status === "PENDING" ||
-    (breakdown["DISCOVERED"] ?? 0) > 0 ||
     (breakdown["PROCESSING"] ?? 0) > 0;
 
-  const statusOrder = ["COMPARED", "FLAGGED", "SKIPPED", "ERROR", "PROCESSING", "DISCOVERED"];
+  const statusOrder = ["COMPARED", "FLAGGED", "VERIFIED", "REQUIRE_DOC", "SKIPPED", "ERROR", "PROCESSING", "DISCOVERED"];
 
   return (
     <div className="space-y-6">
@@ -149,12 +157,14 @@ export default async function SessionItemsPage({
         portalId={id}
         sessionId={sessionId}
         counts={{
-          COMPARED:   breakdown["COMPARED"]   ?? 0,
-          FLAGGED:    breakdown["FLAGGED"]     ?? 0,
-          ERROR:      breakdown["ERROR"]       ?? 0,
-          PROCESSING: breakdown["PROCESSING"]  ?? 0,
-          DISCOVERED: breakdown["DISCOVERED"]  ?? 0,
-          SKIPPED:    breakdown["SKIPPED"]     ?? 0,
+          COMPARED:    breakdown["COMPARED"]    ?? 0,
+          FLAGGED:     breakdown["FLAGGED"]     ?? 0,
+          ERROR:       breakdown["ERROR"]       ?? 0,
+          PROCESSING:  breakdown["PROCESSING"]  ?? 0,
+          DISCOVERED:  breakdown["DISCOVERED"]  ?? 0,
+          SKIPPED:     breakdown["SKIPPED"]     ?? 0,
+          VERIFIED:    breakdown["VERIFIED"]    ?? 0,
+          REQUIRE_DOC: breakdown["REQUIRE_DOC"] ?? 0,
         }}
         sessionStatus={scrapeSession.status}
       />
@@ -195,6 +205,7 @@ export default async function SessionItemsPage({
           createdAt: item.createdAt.toISOString(),
           updatedAt: item.updatedAt.toISOString(),
           fwaAlert: fwaByItem.get(item.id) ?? null,
+          fwaAlerts: fwaAlertsByItem.get(item.id) ?? [],
         }))}
         portalId={id}
         sessionId={sessionId}

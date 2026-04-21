@@ -56,22 +56,42 @@ export async function enqueueItemDetail(
 }
 
 export async function enqueueItemDetailBatch(
-  items: ItemDetailJobData[]
+  items: ItemDetailJobData[],
+  opts?: { reprocess?: boolean }
 ): Promise<number> {
   const queue = getItemDetailQueue();
   if (!queue) return 0;
+
+  // For reprocess (retry/continue), remove any existing terminal jobs with the
+  // same stable ID first. BullMQ silently drops addBulk entries whose jobId
+  // already exists (even in completed/failed state), so without removal the
+  // re-enqueue would be a no-op.
+  if (opts?.reprocess) {
+    await Promise.allSettled(
+      items.map(async (data) => {
+        const existing = await queue.getJob(`item_${data.trackedItemId}`);
+        if (existing) {
+          const state = await existing.getState();
+          if (state === "completed" || state === "failed" || state === "unknown") {
+            await existing.remove();
+          }
+        }
+      })
+    );
+  }
 
   const jobs = items.map((data) => ({
     name: "process-item",
     data,
     opts: {
-      // Stable jobId — BullMQ ignores duplicate IDs, so safe to re-enqueue
+      // Stable jobId deduplicates concurrent initial enqueues.
+      // For reprocess runs the old job has been removed above.
       jobId: `item_${data.trackedItemId}`,
     },
   }));
 
   await queue.addBulk(jobs);
-  logger.info({ count: items.length }, "[queue] Item detail jobs enqueued in batch");
+  logger.info({ count: items.length, reprocess: !!opts?.reprocess }, "[queue] Item detail jobs enqueued in batch");
   return items.length;
 }
 

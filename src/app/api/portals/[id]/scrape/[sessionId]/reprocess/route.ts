@@ -74,7 +74,8 @@ export async function POST(
         trackedItemId: item.id,
         portalId: item.scrapeSession.portalId,
         userId: item.scrapeSession.portal.userId,
-      }))
+      })),
+      { reprocess: true }
     );
 
     // If session was stopped (CANCELLED), restore it to COMPLETED so the
