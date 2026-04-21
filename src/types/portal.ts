@@ -1,3 +1,15 @@
+// ─── Scrape Filters ──────────────────────────────────────────────
+
+export interface ScrapeFilters {
+  excludeByStatus: string[];
+  excludeBySubmittedBy: string[];
+}
+
+export const DEFAULT_SCRAPE_FILTERS: ScrapeFilters = {
+  excludeByStatus: [],
+  excludeBySubmittedBy: [],
+};
+
 // ─── Enums (mirror Prisma enums for client use) ─────────────────
 
 export const PORTAL_AUTH_METHODS = ["COOKIES", "CREDENTIALS"] as const;
@@ -28,6 +40,10 @@ export const FWA_RULE_TYPES = new Set([
   "TAMPERING", "DUPLICATE", "DOC_TYPE_MATCH",
   "BUSINESS_RULE", "REQUIRED_DOCUMENT",
 ]);
+
+export const FWA_PRIORITY: Record<string, number> = {
+  TAMPERING: 3, DUPLICATE: 2, DOC_TYPE_MATCH: 1, BUSINESS_RULE: 1, REQUIRED_DOCUMENT: 1,
+};
 
 export const FWA_LABELS: Record<string, string> = {
   TAMPERING: "Tampering",
@@ -214,6 +230,7 @@ export interface RequiredDocumentCheck {
 export interface ComparisonTemplateSummary {
   id: string;
   portalId: string;
+  comparisonConfigId: string | null;
   name: string;
   groupingKey: Record<string, string>;
   fields: TemplateField[];
@@ -221,6 +238,30 @@ export interface ComparisonTemplateSummary {
   businessRules: BusinessRule[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ComparisonConfigSummary {
+  id: string;
+  portalId: string;
+  name: string;
+  groupingFields: string[];
+  templateCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ─── Field Discovery ──────────────────────────────────────────
+
+export interface DiscoveredClaimType {
+  groupingKey: Record<string, string>;
+  detailFields: string[];
+  sampleUrl: string;
+  discoveredAt: string;
+}
+
+export interface DetectedClaimType {
+  label: string;
+  groupingKey: Record<string, string>;
 }
 
 // ─── Comparison Result ──────────────────────────────────────────
@@ -245,6 +286,28 @@ export interface ComparisonResultSummary {
   errorMessage: string | null;
   templateId: string | null;
   templateName: string | null;
+}
+
+// ─── Shared UI types (used by tracked-items-table + expanded-row) ──
+
+export interface ItemFile {
+  id: string;
+  fileName: string;
+  mimeType: string;
+}
+
+export interface ComparisonSummary {
+  matchCount: number;
+  mismatchCount: number;
+  summary: string | null;
+  fieldComparisons: FieldComparison[];
+}
+
+export interface ValidationAlert {
+  id: string;
+  ruleType: string;
+  status: string;
+  message: string;
 }
 
 // ─── Status helpers ─────────────────────────────────────────────

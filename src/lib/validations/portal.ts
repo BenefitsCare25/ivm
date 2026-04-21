@@ -20,6 +20,13 @@ export const createPortalSchema = z.object({
 
 export type CreatePortalInput = z.infer<typeof createPortalSchema>;
 
+export const scrapeFiltersSchema = z.object({
+  excludeByStatus: z.array(z.string().min(1).max(200)).max(50).default([]),
+  excludeBySubmittedBy: z.array(z.string().min(1).max(200)).max(50).default([]),
+});
+
+export type ScrapeFiltersInput = z.infer<typeof scrapeFiltersSchema>;
+
 export const updatePortalSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   baseUrl: z.string().url().max(2000).optional(),
@@ -27,6 +34,7 @@ export const updatePortalSchema = z.object({
   listPageUrl: z.string().url().max(2000).optional().nullable(),
   scrapeLimit: z.number().int().min(1).nullable().optional(),
   defaultDocumentTypeIds: z.array(z.string().cuid()).max(20).optional(),
+  scrapeFilters: scrapeFiltersSchema.optional(),
 });
 
 export type UpdatePortalInput = z.infer<typeof updatePortalSchema>;
@@ -124,6 +132,7 @@ export const businessRuleSchema = z.object({
 
 export const createComparisonTemplateSchema = z.object({
   name: z.string().min(1).max(200),
+  comparisonConfigId: z.string().optional(),
   groupingKey: z.record(z.string().max(200), z.string().max(500)),
   fields: z.array(templateFieldSchema).max(100).default([]),
   requiredDocuments: z.array(requiredDocumentSchema).max(20).default([]),

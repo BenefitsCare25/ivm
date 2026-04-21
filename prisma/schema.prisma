@@ -322,8 +322,10 @@ model Portal {
   listPageUrl     String?
   listSelectors   Json             @default("{}")
   detailSelectors Json             @default("{}")
-  groupingFields  Json             @default("[]")
-  scrapeLimit     Int?
+  groupingFields       Json             @default("[]")
+  discoveredClaimTypes Json             @default("[]")
+  scrapeLimit          Int?
+  scrapeFilters        Json             @default("{}")
   scheduleEnabled Boolean          @default(false)
   scheduleCron    String?
   createdAt       DateTime         @default(now())
@@ -335,6 +337,7 @@ model Portal {
   credential          PortalCredential?
   scrapeSessions      ScrapeSession[]
   comparisonTemplates ComparisonTemplate[]
+  comparisonConfigs   ComparisonConfig[]
 
   @@index([userId])
   @@map("portals")
@@ -452,21 +455,40 @@ model ComparisonResult {
   @@map("comparison_results")
 }
 
-model ComparisonTemplate {
-  id                String   @id @default(cuid())
-  portalId          String
-  name              String
-  groupingKey       Json     @default("{}")
-  fields            Json     @default("[]")
-  requiredDocuments Json     @default("[]")
-  businessRules     Json     @default("[]")
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+model ComparisonConfig {
+  id             String   @id @default(cuid())
+  portalId       String
+  name           String
+  groupingFields Json     @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  portal Portal @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  portal    Portal              @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  templates ComparisonTemplate[]
 
   @@unique([portalId, name])
   @@index([portalId])
+  @@map("comparison_configs")
+}
+
+model ComparisonTemplate {
+  id                   String   @id @default(cuid())
+  portalId             String
+  comparisonConfigId   String?
+  name                 String
+  groupingKey          Json     @default("{}")
+  fields               Json     @default("[]")
+  requiredDocuments    Json     @default("[]")
+  businessRules        Json     @default("[]")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  portal           Portal            @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  comparisonConfig ComparisonConfig?  @relation(fields: [comparisonConfigId], references: [id], onDelete: Cascade)
+
+  @@unique([portalId, name])
+  @@index([portalId])
+  @@index([comparisonConfigId])
   @@map("comparison_templates")
 }
 

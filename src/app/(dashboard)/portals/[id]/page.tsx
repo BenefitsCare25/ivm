@@ -43,8 +43,8 @@ export default async function PortalDetailPage({
 
   if (!portal) notFound();
 
-  // Parallelise three independent queries
-  const [sessionItemCounts, recentItems, templateCount] = await Promise.all([
+  // Parallelise independent queries
+  const [sessionItemCounts, recentItems, configs] = await Promise.all([
     db.trackedItem.groupBy({
       by: ["scrapeSessionId", "status"],
       where: { scrapeSession: { portalId: id } },
@@ -56,7 +56,11 @@ export default async function PortalDetailPage({
       orderBy: { createdAt: "desc" },
       take: 20,
     }),
-    db.comparisonTemplate.count({ where: { portalId: id } }),
+    db.comparisonConfig.findMany({
+      where: { portalId: id },
+      orderBy: { createdAt: "asc" },
+      include: { _count: { select: { templates: true } } },
+    }),
   ]);
 
   const itemCountsMap = sessionItemCounts.reduce<
@@ -122,11 +126,27 @@ export default async function PortalDetailPage({
     createdAt: portal.createdAt.toISOString(),
     updatedAt: portal.updatedAt.toISOString(),
     groupingFields: (portal.groupingFields ?? []) as string[],
+    discoveredClaimTypes: (portal.discoveredClaimTypes ?? []) as Array<{
+      groupingKey: Record<string, string>;
+      detailFields: string[];
+      sampleUrl: string;
+      discoveredAt: string;
+    }>,
     scrapeLimit: portal.scrapeLimit,
+    scrapeFilters: {
+      excludeByStatus: ((portal.scrapeFilters as Record<string, unknown>)?.excludeByStatus as string[]) ?? [],
+      excludeBySubmittedBy: ((portal.scrapeFilters as Record<string, unknown>)?.excludeBySubmittedBy as string[]) ?? [],
+    },
     defaultDocumentTypeIds: portal.defaultDocumentTypeIds,
     availableFields,
     detectedClaimTypes,
-    templateCount,
+    templateCount: configs.reduce((sum, c) => sum + c._count.templates, 0),
+    configs: configs.map((c) => ({
+      id: c.id,
+      name: c.name,
+      groupingFields: (c.groupingFields ?? []) as string[],
+      templateCount: c._count.templates,
+    })),
     sessions: portal.scrapeSessions.map((s) => ({
       ...s,
       startedAt: s.startedAt?.toISOString() ?? null,

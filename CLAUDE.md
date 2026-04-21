@@ -105,6 +105,15 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **AI timeouts**: 60s extraction, 30s mapping, 15s key validation
 - **Health check**: `GET /api/health` — pings DB + Redis; excluded from auth middleware
 
+### Portal Tracker — Scrape Filters
+- **Purpose**: Per-portal exclusion rules applied at scrape time — matched rows are never written to `TrackedItem` or processed by AI
+- **Storage**: `Portal.scrapeFilters` (JSONB, default `{}`). Shape: `{ excludeByStatus: string[], excludeBySubmittedBy: string[] }`
+- **Type**: `ScrapeFilters` interface + `DEFAULT_SCRAPE_FILTERS` in `src/types/portal.ts`
+- **Validation**: `scrapeFiltersSchema` in `src/lib/validations/portal.ts`; added to `updatePortalSchema` — saved via `PATCH /api/portals/[id]`
+- **Worker filtering** (`src/workers/portal-worker.ts`): after full list scrape, rows are filtered using case-insensitive trim match on `row.fields["Status"]` and `row.fields["Submitted By"]`. `scrapeLimit` is applied to the already-filtered list
+- **UI**: `ScraperFiltersCard` (`src/components/portals/scraper-filters-card.tsx`) — two tag-inputs (type + Enter to add, × to remove). Sits between the 4-column grid and Field Discovery on the portal detail page. Shows **Active** badge on header when any filter is configured
+- **Migration**: `20260421000000_add_scrape_filters`
+
 ### Portal Tracker (RPA + Comparison Engine)
 - **Purpose**: Scrape authenticated portals, download files, AI-compare portal data vs PDF data
 - **Browser automation**: Playwright in BullMQ workers only. Singleton browser via `src/lib/playwright/browser.ts`
@@ -133,6 +142,8 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Config APIs**: `GET/POST /api/portals/[id]/configs`, `PATCH/DELETE /api/portals/[id]/configs/[configId]`
 - **Template model**: `ComparisonTemplate` — `portalId`, `comparisonConfigId` (nullable), `name`, `groupingKey` (JSONB), `fields` (JSONB array of `{portalFieldName, documentFieldName, mode, tolerance?}`)
 - **Match modes**: `fuzzy` (default, ignore formatting), `exact` (any difference = mismatch), `numeric` (numeric within tolerance)
+- **Comparison prompt rules** (`src/lib/ai/prompts-comparison.ts`): System prompt uses principle-based rules — no hardcoded examples. Key rules: (1) ignore leading punctuation on IDs/invoice numbers (`#C313875` = `C313875`); (2) semantic parent-brand matching for organization names — if two provider names share root brand words and one is plausibly a branch/variant, treat as MATCH (e.g. "Raffles Medical Teleconsult" vs "Raffles Medical Singapore"). Do NOT add hardcoded provider examples to the prompt — the rule is intentionally generic so the AI applies its own world knowledge.
+- **Expanded row — AI Comparison & Alerts column**: Section header is "AI Comparison & Alerts". Shows match/mismatch summary, AI narrative summary, Diagnosis pill (pulled from `pdfValue` in `fieldComparisons` — AI-extracted from document, not portal), field comparison table, FWA alerts.
 - **Template lookup**: `findMatchingTemplate(portalId, itemData)` in `src/lib/comparison-templates.ts` — fetches all configs + templates, each template uses its config's grouping fields. Worker calls this before every AI comparison.
 - **Template field filtering**: `filterFieldsByTemplate` passes through ALL fields unfiltered — both `pageFields` and `pdfFields`. Business rules need access to every portal field, not just template-mapped ones. The function exists as a pass-through extension point.
 - **Fallback**: If no configs/grouping fields configured or no template matches, falls back to full AI comparison (all fields, no mode rules)

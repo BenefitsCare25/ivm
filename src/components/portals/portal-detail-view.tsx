@@ -10,14 +10,16 @@ import { ScrapeSessionModal } from "./scrape-session-modal";
 import {
   ArrowLeft, Play, Loader2, Shield,
   Calendar, Settings, Trash2, AlertCircle, Hash,
-  RefreshCw, FileSliders,
+  RefreshCw, FileSliders, Plus,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormError } from "@/components/ui/form-error";
 import { formatDate } from "@/lib/utils";
-import type { ScrapeSessionStatus } from "@/types/portal";
+import type { ScrapeSessionStatus, DiscoveredClaimType, ScrapeFilters } from "@/types/portal";
+import { FieldDiscovery } from "./field-discovery";
+import { ScraperFiltersCard } from "./scraper-filters-card";
 
 interface SessionData {
   id: string;
@@ -48,43 +50,134 @@ interface PortalData {
   createdAt: string;
   updatedAt: string;
   groupingFields: string[];
+  discoveredClaimTypes: DiscoveredClaimType[];
   scrapeLimit: number | null;
+  scrapeFilters: ScrapeFilters;
   defaultDocumentTypeIds: string[];
   availableFields: string[];
   detectedClaimTypes: string[];
   templateCount: number;
+  configs: Array<{
+    id: string;
+    name: string;
+    groupingFields: string[];
+    templateCount: number;
+  }>;
   sessions: SessionData[];
 }
 
 function ClaimsConfigCard({
   portalId,
-  groupingFields,
-  templateCount,
+  config,
 }: {
   portalId: string;
-  groupingFields: string[];
-  templateCount: number;
+  config: { id: string; name: string; groupingFields: string[]; templateCount: number };
 }) {
-  const claimField = groupingFields[0] ?? null;
+  const claimField = config.groupingFields[0] ?? null;
   return (
     <Card>
       <CardContent className="flex items-center justify-between gap-4 py-4">
         <div className="flex items-center gap-3">
           <FileSliders className="h-5 w-5 shrink-0 text-muted-foreground" />
           <div>
-            <p className="text-sm font-medium text-foreground">Claims Configuration</p>
+            <p className="text-sm font-medium text-foreground">{config.name}</p>
             <p className="text-xs text-muted-foreground">
               {claimField
-                ? <>Grouped by <span className="font-mono text-foreground">{claimField}</span> · {templateCount} template{templateCount !== 1 ? "s" : ""} configured</>
+                ? <>Grouped by <span className="font-mono text-foreground">{claimField}</span> · {config.templateCount} template{config.templateCount !== 1 ? "s" : ""} configured</>
                 : "Configure AI comparison rules per claim type"}
             </p>
           </div>
         </div>
         <Button variant="outline" size="sm" asChild className="shrink-0">
-          <Link href={`/portals/${portalId}/templates`}>Configure</Link>
+          <Link href={`/portals/${portalId}/templates?configId=${config.id}`}>Configure</Link>
         </Button>
       </CardContent>
     </Card>
+  );
+}
+
+function ClaimsConfigSection({
+  portalId,
+  configs,
+}: {
+  portalId: string;
+  configs: Array<{ id: string; name: string; groupingFields: string[]; templateCount: number }>;
+}) {
+  const router = useRouter();
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  async function handleAdd() {
+    const name = newName.trim();
+    if (!name) return;
+    setSaving(true);
+    setAddError(null);
+    try {
+      const res = await fetch(`/api/portals/${portalId}/configs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || "Failed to create");
+      }
+      setAdding(false);
+      setNewName("");
+      router.refresh();
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : "Failed to create");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {configs.map((config) => (
+        <ClaimsConfigCard key={config.id} portalId={portalId} config={config} />
+      ))}
+
+      {adding ? (
+        <Card>
+          <CardContent className="py-4 space-y-3">
+            <p className="text-sm font-medium text-foreground">New Claims Configuration</p>
+            <div className="flex items-center gap-2">
+              <Input
+                autoFocus
+                placeholder="e.g. Outpatient Claims"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAdd();
+                  if (e.key === "Escape") { setAdding(false); setNewName(""); }
+                }}
+                className="h-8 text-sm flex-1"
+              />
+              <Button size="sm" onClick={handleAdd} disabled={!newName.trim() || saving} className="h-8">
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Create"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setAdding(false); setNewName(""); setAddError(null); }} className="h-8">
+                Cancel
+              </Button>
+            </div>
+            {addError && <p className="text-xs text-status-error">{addError}</p>}
+          </CardContent>
+        </Card>
+      ) : (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setAdding(true)}
+          className="w-full border-dashed text-muted-foreground hover:text-foreground"
+        >
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          Add Claims Configuration
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -379,10 +472,23 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
         />
       )}
 
-      <ClaimsConfigCard
+      <ScraperFiltersCard
         portalId={portal.id}
+        initialFilters={portal.scrapeFilters}
+      />
+
+      <FieldDiscovery
+        portalId={portal.id}
+        listColumns={
+          ((portal.listSelectors as Record<string, unknown>).columns as Array<{ name: string }> | undefined)?.map((c) => c.name) ?? []
+        }
+        discoveredClaimTypes={portal.discoveredClaimTypes}
         groupingFields={portal.groupingFields}
-        templateCount={portal.templateCount}
+      />
+
+      <ClaimsConfigSection
+        portalId={portal.id}
+        configs={portal.configs}
       />
 
       <PortalSessionList portalId={portal.id} sessions={portal.sessions} />

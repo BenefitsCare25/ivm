@@ -10,7 +10,7 @@ import {
   type PortalScrapeJobResult,
 } from "@/lib/queue/portal-scrape-queue";
 import { enqueueItemDetailBatch } from "@/lib/queue/item-detail-queue";
-import type { ListSelectors } from "@/types/portal";
+import type { ListSelectors, ScrapeFilters } from "@/types/portal";
 
 async function processPortalScrape(
   job: Job<PortalScrapeJobData>
@@ -71,8 +71,29 @@ async function processPortalScrape(
         listSelectors.rowSelector
       ));
 
-      const limitedRows = portal.scrapeLimit ? allRows.slice(0, portal.scrapeLimit) : allRows;
-      logger.info({ portalId, totalRows: allRows.length, limited: limitedRows.length }, "[worker] List scrape complete");
+      // Apply scrape filters — exclude rows matching configured field values
+      const filters = (portal.scrapeFilters ?? {}) as Partial<ScrapeFilters>;
+      const excludeStatuses = new Set(
+        (filters.excludeByStatus ?? []).map((s) => s.trim().toLowerCase())
+      );
+      const excludeSubmitters = new Set(
+        (filters.excludeBySubmittedBy ?? []).map((s) => s.trim().toLowerCase())
+      );
+
+      const filteredRows = allRows.filter((row) => {
+        const fields = row.fields as Record<string, string>;
+        const statusVal = (fields["Status"] ?? "").trim().toLowerCase();
+        const submitterVal = (fields["Submitted By"] ?? "").trim().toLowerCase();
+        if (excludeStatuses.size > 0 && excludeStatuses.has(statusVal)) return false;
+        if (excludeSubmitters.size > 0 && excludeSubmitters.has(submitterVal)) return false;
+        return true;
+      });
+
+      const limitedRows = portal.scrapeLimit ? filteredRows.slice(0, portal.scrapeLimit) : filteredRows;
+      logger.info(
+        { portalId, totalRows: allRows.length, afterFilter: filteredRows.length, limited: limitedRows.length },
+        "[worker] List scrape complete"
+      );
 
       // Create TrackedItem records in bulk
       await db.trackedItem.createMany({
