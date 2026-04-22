@@ -3,8 +3,16 @@
 # Env source of truth: /etc/ivm/.env (never overwritten by deploys)
 set -e
 
-VPS="root@72.62.75.247"
-KEY="$HOME/.ssh/id_ed25519"
+# Deploy target: "azure" (default) or "hostinger"
+TARGET="${1:-azure}"
+
+if [ "$TARGET" = "azure" ]; then
+  VPS="azureuser@20.198.253.167"
+  KEY="$HOME/Downloads/ivm-vm_key.pem"
+else
+  VPS="root@72.62.75.247"
+  KEY="$HOME/.ssh/id_ed25519"
+fi
 
 echo "Creating tarball..."
 tar czf /tmp/ivm-deploy.tar.gz \
@@ -34,8 +42,8 @@ ssh -i "$KEY" "$VPS" "
 
   # Verify correct DB config before continuing
   DB_URL=\$(grep '^DATABASE_URL' /etc/ivm/.env | cut -d= -f2- | tr -d '\"')
-  if echo \"\$DB_URL\" | grep -qE ':5432[^3]|/ivm_dev'; then
-    echo 'ERROR: /etc/ivm/.env has wrong DATABASE_URL (port 5432 or db ivm_dev)'
+  if echo \"\$DB_URL\" | grep -q '/ivm_dev'; then
+    echo 'ERROR: /etc/ivm/.env has wrong DATABASE_URL (db ivm_dev)'
     echo \"Current: \$DB_URL\"
     exit 1
   fi

@@ -275,13 +275,12 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 
 ## Deployment
 
-- **VPS**: Hostinger VPS 2 (`72.62.75.247`), Ubuntu 24.04, 8GB RAM
-- **SSH**: `ssh -i /c/Users/huien/.ssh/id_ed25519 root@72.62.75.247`
-- **Database**: Supabase PostgreSQL in Docker on port **5433** (NOT 5432)
-- **Database name**: `ivm` (NOT `ivm_dev`) — correct `DATABASE_URL`:
-  ```
-  DATABASE_URL="postgresql://ivm:ivm_dev_password@localhost:5433/ivm?schema=public"
-  ```
+- **Primary VPS**: Azure VM (`ivm-vm`), `20.198.253.167`, Ubuntu 24.04, 8GB RAM
+- **SSH**: `ssh -i /c/Users/huien/Downloads/ivm-vm_key.pem azureuser@20.198.253.167`
+- **SSH key**: `C:\Users\huien\Downloads\ivm-vm_key.pem`
+- **App URL**: `http://20.198.253.167`
+- **Database**: PostgreSQL on port **5432** (standard, no Docker wrapper)
+- **Legacy VPS**: Hostinger `72.62.75.247` — no longer primary, do not deploy there
 
 ### Environment Source of Truth: `/etc/ivm/.env`
 
@@ -293,7 +292,7 @@ All production env vars live in **`/etc/ivm/.env`** — outside the deploy direc
 
 ### Deploy
 
-Use `scripts/deploy.sh` — it handles tar (excluding `.env`), upload, extraction, symlink restore, build, and restart:
+Use `scripts/deploy.sh` — defaults to Azure VM:
 
 ```bash
 bash scripts/deploy.sh
@@ -301,16 +300,17 @@ bash scripts/deploy.sh
 
 The script:
 1. Tars source (excludes `.env`, `node_modules`, `.next`, `uploads`)
-2. SCPs to VPS → extracts
+2. SCPs to Azure VM → extracts
 3. Re-creates `.env` symlink → `/etc/ivm/.env`
-4. Validates DATABASE_URL has correct port/db before proceeding
-5. `npm ci` → `prisma generate` → `prisma migrate deploy` → `npm run build`
-6. `pm2 restart ivm ivm-worker ivm-detail-worker`
-7. Hits health check to confirm
+4. `npm ci` → `prisma generate` → `prisma migrate deploy` → `npm run build`
+5. `pm2 restart ivm ivm-worker ivm-detail-worker`
+6. Hits health check to confirm
 
-**Never manually tar + deploy without `--exclude=.env`** — that was the historical cause of port 5432/ivm_dev overwrite bugs.
+### Azure AI Foundry Endpoint Format
 
-- **Schema migrations**: `prisma migrate deploy` requires `DATABASE_URL` pointing to port 5433. If the `ivm` user lacks DDL privileges, run migration SQL directly: `docker exec supabase-db psql -U postgres -d ivm -f migration.sql`, then insert into `_prisma_migrations` manually
+The Anthropic SDK appends `/v1/messages` to `baseURL`. Azure requires the `/anthropic/` prefix path:
+- **Correct**: `https://<resource>.services.ai.azure.com/anthropic/`
+- **Wrong**: `https://<resource>.services.ai.azure.com/api/projects/...`
 
 ### PM2 Processes
 
