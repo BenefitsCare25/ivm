@@ -1,79 +1,16 @@
 "use client";
 
-import { useState, useRef, KeyboardEvent } from "react";
-import { Filter, X, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { Filter, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { FormError } from "@/components/ui/form-error";
+import { TagInput } from "@/components/ui/tag-input";
 import type { ScrapeFilters } from "@/types/portal";
 
 interface Props {
   portalId: string;
   initialFilters: ScrapeFilters;
-}
-
-function TagInput({
-  tags,
-  placeholder,
-  onAdd,
-  onRemove,
-}: {
-  tags: string[];
-  placeholder: string;
-  onAdd: (value: string) => void;
-  onRemove: (index: number) => void;
-}) {
-  const [input, setInput] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  function commit() {
-    const val = input.trim();
-    if (!val) return;
-    onAdd(val);
-    setInput("");
-  }
-
-  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      commit();
-    } else if (e.key === "Backspace" && input === "" && tags.length > 0) {
-      onRemove(tags.length - 1);
-    }
-  }
-
-  return (
-    <div
-      className="min-h-9 flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5 cursor-text"
-      onClick={() => inputRef.current?.focus()}
-    >
-      {tags.map((tag, i) => (
-        <span
-          key={i}
-          className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs font-medium text-foreground"
-        >
-          {tag}
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onRemove(i); }}
-            className="text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <X className="h-3 w-3" />
-          </button>
-        </span>
-      ))}
-      <Input
-        ref={inputRef}
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onBlur={commit}
-        placeholder={tags.length === 0 ? placeholder : ""}
-        className="h-auto flex-1 min-w-24 border-none bg-transparent p-0 text-xs shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/60"
-      />
-    </div>
-  );
 }
 
 export function ScraperFiltersCard({ portalId, initialFilters }: Props) {

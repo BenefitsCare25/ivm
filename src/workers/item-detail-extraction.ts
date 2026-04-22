@@ -6,16 +6,9 @@ import type { DocTypeRecord } from "@/lib/intelligence";
 import { emitItemEvent, emitFailureEvent } from "@/lib/portal-events";
 import { checkForeignCurrency } from "@/lib/validations/currency";
 import type { AIProvider } from "@/lib/ai/types";
+import type { DownloadedFile } from "@/lib/playwright/scraper";
 import { toInputJson } from "@/lib/utils";
 import { createHash } from "crypto";
-
-interface DownloadedFile {
-  fileName: string;
-  originalName: string;
-  mimeType: string;
-  sizeBytes: number;
-  storagePath: string;
-}
 
 export interface ExtractionResult {
   pdfFields: Record<string, string>;
