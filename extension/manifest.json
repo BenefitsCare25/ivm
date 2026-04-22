@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "IVM Auto-Fill",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Fill web forms with data extracted by IVM (Intelligent Value Mapper)",
   "permissions": ["activeTab", "scripting", "storage", "cookies", "tabs"],
   "host_permissions": [
     "http://localhost:3000/*",
     "http://localhost:3001/*",
     "http://20.198.253.167/*",
+    "https://20.198.253.167.nip.io/*",
     "<all_urls>"
   ],
   "background": {
@@ -18,7 +19,8 @@
       "matches": [
         "http://localhost:3000/*",
         "http://localhost:3001/*",
-        "http://20.198.253.167/*"
+        "http://20.198.253.167/*",
+        "https://20.198.253.167.nip.io/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"
@@ -28,7 +30,8 @@
     "matches": [
       "http://localhost:3000/*",
       "http://localhost:3001/*",
-      "http://20.198.253.167/*"
+      "http://20.198.253.167/*",
+      "https://20.198.253.167.nip.io/*"
     ]
   },
   "action": {
