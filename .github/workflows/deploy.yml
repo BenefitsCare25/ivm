@@ -107,12 +107,10 @@ jobs:
 
             OLD_LOCK=$(md5sum package-lock.json 2>/dev/null | cut -d" " -f1 || echo none)
 
-            # Wipe replaced dirs so deleted/renamed files don't accumulate
-            rm -rf .next src prisma/migrations public scripts
+            # Wipe only the dirs we're replacing (avoid slow rm -rf of full .next/)
+            rm -rf .next/standalone .next/static src prisma/migrations public scripts
 
             tar xzf /tmp/ivm-deploy.tar.gz
-
-            ln -sf /etc/ivm/.env /var/www/ivm/.env
 
             DB_URL=$(grep "^DATABASE_URL" /etc/ivm/.env | cut -d= -f2- | tr -d "\"")
             if echo "$DB_URL" | grep -q "/ivm_dev"; then
