@@ -89,12 +89,14 @@ async function validateGeminiKey(apiKey: string): Promise<boolean> {
   }
 }
 
-async function validateAzureFoundryKey(apiKey: string, endpoint: string): Promise<boolean> {
+async function validateAzureFoundryKey(apiKey: string, endpoint: string, model?: string): Promise<boolean> {
+  // Strip /v1/messages suffix — SDK appends it automatically; users often paste the full URL
+  const normalizedEndpoint = endpoint.replace(/\/v1\/messages\/?$/, "").replace(/\/?$/, "/");
   try {
-    const client = new Anthropic({ apiKey, baseURL: endpoint });
+    const client = new Anthropic({ apiKey, baseURL: normalizedEndpoint });
     await client.messages.create(
       {
-        model: "claude-haiku-4-5",
+        model: model ?? env.ANTHROPIC_MODEL,
         max_tokens: 1,
         messages: [{ role: "user", content: "Hi" }],
       },
@@ -113,13 +115,13 @@ async function validateAzureFoundryKey(apiKey: string, endpoint: string): Promis
       throw new ValidationError("Azure AI Foundry API key does not have permission. Check your resource access.");
     }
     if (error.status === 404) {
-      throw new ValidationError("Azure AI Foundry endpoint not found. Check your endpoint URL.");
+      throw new ValidationError("Azure AI Foundry endpoint not found. URL should end with /anthropic/ — do not include /v1/messages.");
     }
     throw new ValidationError(`Failed to validate Azure Foundry key: ${error.message || "Unknown error"}`);
   }
 }
 
-export async function validateApiKey(provider: AIProvider, apiKey: string, endpoint?: string): Promise<boolean> {
+export async function validateApiKey(provider: AIProvider, apiKey: string, endpoint?: string, model?: string): Promise<boolean> {
   switch (provider) {
     case "anthropic":
       return validateAnthropicKey(apiKey);
@@ -129,6 +131,6 @@ export async function validateApiKey(provider: AIProvider, apiKey: string, endpo
       return validateGeminiKey(apiKey);
     case "azure-foundry":
       if (!endpoint) throw new ValidationError("Endpoint URL is required for Azure AI Foundry.");
-      return validateAzureFoundryKey(apiKey, endpoint);
+      return validateAzureFoundryKey(apiKey, endpoint, model);
   }
 }

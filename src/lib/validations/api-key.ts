@@ -7,6 +7,7 @@ export const saveApiKeySchema = z.object({
   provider: z.enum(AI_PROVIDERS),
   apiKey: z.string().min(1, "API key is required"),
   endpoint: z.string().url("Must be a valid URL").optional(),
+  validationModel: z.string().optional(),
 }).refine(
   (data) => data.provider !== "azure-foundry" || (data.endpoint && data.endpoint.length > 0),
   { message: "Endpoint URL is required for Azure AI Foundry", path: ["endpoint"] }
@@ -36,7 +37,7 @@ export const PROVIDER_INFO: Record<AIProvider, { name: string; description: stri
     name: "Azure AI Foundry (Claude)",
     description: "Claude via Microsoft Azure AI Foundry — data not used for training",
     placeholder: "your-azure-api-key",
-    endpointPlaceholder: "https://your-resource.services.ai.azure.com/anthropic/",
+    endpointPlaceholder: "https://your-resource.services.ai.azure.com/anthropic/  (do not add /v1/messages)",
   },
 };
 
@@ -85,11 +86,12 @@ export const PROVIDER_MODELS: Record<AIProvider, ProviderModels> = {
   },
   "azure-foundry": {
     models: [
+      { id: "claude-opus-4-7", label: "Claude Opus 4.7", tier: ["vision", "text"], costLabel: "$15 / $75" },
       { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", tier: ["vision", "text"], costLabel: "$3 / $15" },
-      { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", tier: ["vision", "text"], costLabel: "$1 / $5" },
       { id: "claude-opus-4-6", label: "Claude Opus 4.6", tier: ["vision", "text"], costLabel: "$5 / $25" },
+      { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", tier: ["vision", "text"], costLabel: "$1 / $5" },
     ],
-    defaults: { vision: "claude-sonnet-4-6", text: "claude-haiku-4-5" },
+    defaults: { vision: "claude-opus-4-7", text: "claude-opus-4-7" },
   },
 };
 

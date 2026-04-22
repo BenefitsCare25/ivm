@@ -45,9 +45,14 @@ export async function POST(req: Request) {
       throw new ValidationError("Invalid input", { provider: ["Invalid provider or missing API key"] });
     }
 
-    const { provider, apiKey, endpoint } = parsed.data;
+    const { provider, apiKey, endpoint, validationModel } = parsed.data;
 
-    await validateApiKey(provider, apiKey, endpoint);
+    // Normalize Azure endpoint: strip /v1/messages suffix users commonly paste
+    const normalizedEndpoint = endpoint
+      ? endpoint.replace(/\/v1\/messages\/?$/, "").replace(/\/?$/, "/")
+      : undefined;
+
+    await validateApiKey(provider, apiKey, normalizedEndpoint, validationModel);
 
     const encryptedKey = encrypt(apiKey);
     const keyPrefix = maskApiKey(apiKey);
@@ -59,13 +64,13 @@ export async function POST(req: Request) {
         provider,
         encryptedKey,
         keyPrefix,
-        endpoint: endpoint ?? null,
+        endpoint: normalizedEndpoint ?? null,
       },
       update: {
         encryptedKey,
         keyPrefix,
         isActive: true,
-        endpoint: endpoint ?? null,
+        endpoint: normalizedEndpoint ?? null,
       },
       select: { provider: true, keyPrefix: true, isActive: true, updatedAt: true, endpoint: true },
     });
