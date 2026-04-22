@@ -107,6 +107,9 @@ jobs:
 
             OLD_LOCK=$(md5sum package-lock.json 2>/dev/null | cut -d" " -f1 || echo none)
 
+            # Wipe replaced dirs so deleted/renamed files don't accumulate
+            rm -rf .next src prisma/migrations public scripts
+
             tar xzf /tmp/ivm-deploy.tar.gz
 
             ln -sf /etc/ivm/.env /var/www/ivm/.env
