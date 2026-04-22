@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getStorageAdapter } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import { toInputJson } from "@/lib/utils";
 import {
   errorResponse,
   UnauthorizedError,
@@ -121,7 +122,7 @@ export async function POST(req: Request, { params }: RouteContext) {
           fillSessionId: id,
           targetType: "WEBPAGE",
           url: parsed.data.url,
-          detectedFields: JSON.parse(JSON.stringify(result.fields)),
+          detectedFields: toInputJson(result.fields),
           isSupported: result.isSupported,
           unsupportedReason: result.unsupportedReason ?? null,
           inspectedAt: new Date(),
@@ -162,7 +163,7 @@ export async function POST(req: Request, { params }: RouteContext) {
           targetType,
           fileName: file.name,
           storagePath: storageKey,
-          detectedFields: JSON.parse(JSON.stringify(result.fields)),
+          detectedFields: toInputJson(result.fields),
           isSupported: result.isSupported,
           unsupportedReason: result.unsupportedReason ?? null,
           inspectedAt: new Date(),

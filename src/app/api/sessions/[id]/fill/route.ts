@@ -18,6 +18,8 @@ import type { FieldMapping } from "@/types/mapping";
 import type { TargetField, TargetType } from "@/types/target";
 import type { FillActionSummary } from "@/types/fill";
 import { getFillCounter, getFillFieldCounter } from "@/lib/metrics";
+import { globalLimiter } from "@/lib/rate-limit";
+import { toInputJson } from "@/lib/utils";
 
 export async function POST(
   req: Request,
@@ -26,6 +28,9 @@ export async function POST(
   try {
     const session = await auth();
     if (!session?.user?.id) throw new UnauthorizedError();
+
+    const rl = await globalLimiter(session.user.id);
+    if (!rl.allowed) return new Response("Too Many Requests", { status: 429 });
 
     const { id } = await params;
 
@@ -155,9 +160,7 @@ export async function POST(
           fillSessionId: id,
           eventType: "FILL_EXECUTED",
           actor: session.user.id,
-          payload: JSON.parse(
-            JSON.stringify({ targetType: targetAsset.targetType, report })
-          ),
+          payload: toInputJson({ targetType: targetAsset.targetType, report }),
         },
       })
     );

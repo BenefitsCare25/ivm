@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-helpers";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { errorResponse, ValidationError } from "@/lib/errors";
 import { discoverFields } from "@/lib/portal-discovery";
 import { z } from "zod";
@@ -13,7 +13,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    const session = await requireAuthApi();
     const { id } = await params;
 
     const body = await req.json();

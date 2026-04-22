@@ -9,6 +9,8 @@ import { errorResponse, UnauthorizedError, NotFoundError, ValidationError, AppEr
 import { enqueueAndWaitExtraction } from "@/lib/queue/extraction-queue";
 import type { AIProvider } from "@/lib/ai/types";
 import { getExtractionCounter, getExtractionDuration } from "@/lib/metrics";
+import { aiLimiter } from "@/lib/rate-limit";
+import { toInputJson } from "@/lib/utils";
 
 async function runExtractionInline(
   sessionId: string,
@@ -48,8 +50,8 @@ async function runExtractionInline(
         data: {
           status: "COMPLETED",
           documentType: result.documentType,
-          fields: JSON.parse(JSON.stringify(result.fields)),
-          rawResponse: JSON.parse(JSON.stringify(result.rawResponse)),
+          fields: toInputJson(result.fields),
+          rawResponse: toInputJson(result.rawResponse),
           completedAt: new Date(),
         },
       }),
@@ -112,6 +114,9 @@ export async function POST(
   try {
     const session = await auth();
     if (!session?.user?.id) throw new UnauthorizedError();
+
+    const rl = await aiLimiter(session.user.id);
+    if (!rl.allowed) return new Response("Too Many Requests", { status: 429 });
 
     const { id } = await params;
 

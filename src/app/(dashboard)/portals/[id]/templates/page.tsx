@@ -119,7 +119,10 @@ export default async function PortalTemplatesPage({
   let initialGroupingKey: Record<string, string> | null = null;
   if (groupingKeyParam) {
     try {
-      initialGroupingKey = JSON.parse(groupingKeyParam);
+      const parsed = JSON.parse(groupingKeyParam);
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        initialGroupingKey = parsed as Record<string, string>;
+      }
     } catch { /* ignore invalid JSON */ }
   }
 

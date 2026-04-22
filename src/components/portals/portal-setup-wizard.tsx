@@ -15,6 +15,7 @@ import type { ListSelectors, DetailSelectors } from "@/types/portal";
 
 function normalizeUrl(url: string): string {
   const trimmed = url.trim();
+  if (/^(javascript|data|vbscript):/i.test(trimmed)) return "";
   if (trimmed && !/^https?:\/\//i.test(trimmed)) return `https://${trimmed}`;
   return trimmed;
 }
@@ -35,7 +36,8 @@ function loadWizard() {
   try {
     const raw = sessionStorage.getItem(WIZARD_KEY);
     return raw ? JSON.parse(raw) : null;
-  } catch {
+  } catch (err) {
+    console.warn("[portal-wizard] Failed to restore wizard state from sessionStorage", err);
     return null;
   }
 }

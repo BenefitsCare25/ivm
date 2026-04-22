@@ -4,6 +4,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { saveCookiesSchema } from "@/lib/validations/portal";
 import { errorResponse, UnauthorizedError, NotFoundError, ValidationError } from "@/lib/errors";
+import { authLimiter } from "@/lib/rate-limit";
+import { toInputJson } from "@/lib/utils";
 
 const extensionCookieSchema = z.object({
   url: z.string().url(),
@@ -23,6 +25,10 @@ const extensionCookieSchema = z.object({
  */
 export async function POST(req: Request) {
   try {
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    const rl = await authLimiter(ip);
+    if (!rl.allowed) return new Response("Too Many Requests", { status: 429 });
+
     const session = await auth();
     let userId = session?.user?.id;
 
@@ -75,11 +81,11 @@ export async function POST(req: Request) {
       where: { portalId: portal.id },
       create: {
         portalId: portal.id,
-        cookieData: JSON.parse(JSON.stringify(cookies)),
+        cookieData: toInputJson(cookies),
         cookieExpiresAt: expiresAt,
       },
       update: {
-        cookieData: JSON.parse(JSON.stringify(cookies)),
+        cookieData: toInputJson(cookies),
         cookieExpiresAt: expiresAt,
       },
     });

@@ -49,7 +49,7 @@ export function TemplateList({
         if (Array.isArray(tData)) setTemplates(tData);
         if (Array.isArray(pgData)) setProviderGroups(pgData);
       })
-      .catch(() => {})
+      .catch((err) => { console.error("[template-list] Failed to load data", err); })
       .finally(() => setLoading(false));
   }, [portalId, configId, refreshKey]);
 

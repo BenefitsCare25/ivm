@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-helpers";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { errorResponse, NotFoundError } from "@/lib/errors";
 import { buildPromptPreview } from "@/lib/ai/prompt-builder";
@@ -10,7 +10,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string; templateId: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    const session = await requireAuthApi();
     const { id, templateId } = await params;
 
     const [, template] = await Promise.all([

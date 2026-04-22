@@ -7,6 +7,8 @@ import { logger } from "@/lib/logger";
 import { errorResponse, UnauthorizedError, NotFoundError, ValidationError, AppError } from "@/lib/errors";
 import type { ExtractedField } from "@/types/extraction";
 import type { TargetField } from "@/types/target";
+import { aiLimiter } from "@/lib/rate-limit";
+import { toInputJson } from "@/lib/utils";
 
 export async function POST(
   _req: Request,
@@ -15,6 +17,9 @@ export async function POST(
   try {
     const session = await auth();
     if (!session?.user?.id) throw new UnauthorizedError();
+
+    const rl = await aiLimiter(session.user.id);
+    if (!rl.allowed) return new Response("Too Many Requests", { status: 429 });
 
     const { id } = await params;
 
@@ -72,7 +77,7 @@ export async function POST(
             fillSessionId: id,
             extractionResultId: extraction.id,
             targetAssetId: targetAsset.id,
-            mappings: JSON.parse(JSON.stringify(result.mappings)),
+            mappings: toInputJson(result.mappings),
             status: "PROPOSED",
             proposedAt: new Date(),
           },

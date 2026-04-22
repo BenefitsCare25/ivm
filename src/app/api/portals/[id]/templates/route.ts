@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-helpers";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { errorResponse, NotFoundError } from "@/lib/errors";
 import { createComparisonTemplateSchema } from "@/lib/validations/portal";
@@ -11,7 +11,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    const session = await requireAuthApi();
     const { id } = await params;
 
     const portal = await db.portal.findFirst({
@@ -48,7 +48,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    const session = await requireAuthApi();
     const { id } = await params;
 
     const portal = await db.portal.findFirst({

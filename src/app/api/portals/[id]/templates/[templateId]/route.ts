@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-helpers";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { errorResponse, NotFoundError } from "@/lib/errors";
 import { updateComparisonTemplateSchema } from "@/lib/validations/portal";
@@ -11,7 +11,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string; templateId: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    const session = await requireAuthApi();
     const { id, templateId } = await params;
 
     const [, template] = await Promise.all([
@@ -31,7 +31,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string; templateId: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    const session = await requireAuthApi();
     const { id, templateId } = await params;
 
     const [, body] = await Promise.all([
@@ -63,7 +63,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string; templateId: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    const session = await requireAuthApi();
     const { id, templateId } = await params;
 
     await db.portal.findFirstOrThrow({ where: { id, userId: session.user.id }, select: { id: true } });

@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-helpers";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { errorResponse, NotFoundError } from "@/lib/errors";
 import { updateGroupingFieldsSchema } from "@/lib/validations/portal";
 import { clearTemplateCache } from "@/lib/comparison-templates";
+import { toInputJson } from "@/lib/utils";
 
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    const session = await requireAuthApi();
     const { id } = await params;
 
     const portal = await db.portal.findFirst({
@@ -29,7 +30,7 @@ export async function PUT(
       }),
       db.portal.update({
         where: { id },
-        data: { groupingFields: JSON.parse(JSON.stringify(data.groupingFields)) },
+        data: { groupingFields: toInputJson(data.groupingFields) },
       }),
     ]);
 

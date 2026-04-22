@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { updateSelectorsSchema } from "@/lib/validations/portal";
 import { errorResponse, UnauthorizedError, NotFoundError, ValidationError } from "@/lib/errors";
+import { toInputJson } from "@/lib/utils";
 
 export async function PUT(
   req: Request,
@@ -22,10 +23,10 @@ export async function PUT(
 
     const data: Record<string, unknown> = {};
     if (parsed.data.listSelectors) {
-      data.listSelectors = JSON.parse(JSON.stringify(parsed.data.listSelectors));
+      data.listSelectors = toInputJson(parsed.data.listSelectors);
     }
     if (parsed.data.detailSelectors) {
-      data.detailSelectors = JSON.parse(JSON.stringify(parsed.data.detailSelectors));
+      data.detailSelectors = toInputJson(parsed.data.detailSelectors);
     }
 
     const updated = await db.portal.updateMany({

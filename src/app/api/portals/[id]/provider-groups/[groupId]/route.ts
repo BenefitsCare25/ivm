@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-helpers";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { errorResponse, NotFoundError } from "@/lib/errors";
 import { updateProviderGroupSchema } from "@/lib/validations/portal";
@@ -11,7 +11,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string; groupId: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    const session = await requireAuthApi();
     const { id, groupId } = await params;
 
     const portal = await db.portal.findFirst({
@@ -49,7 +49,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string; groupId: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    const session = await requireAuthApi();
     const { id, groupId } = await params;
 
     const portal = await db.portal.findFirst({

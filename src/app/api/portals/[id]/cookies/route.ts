@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { saveCookiesSchema } from "@/lib/validations/portal";
 import { errorResponse, UnauthorizedError, NotFoundError, ValidationError } from "@/lib/errors";
+import { toInputJson } from "@/lib/utils";
 
 export async function POST(
   req: Request,
@@ -33,11 +34,11 @@ export async function POST(
       where: { portalId: id },
       create: {
         portalId: id,
-        cookieData: JSON.parse(JSON.stringify(parsed.data.cookies)),
+        cookieData: toInputJson(parsed.data.cookies),
         cookieExpiresAt: expiresAt,
       },
       update: {
-        cookieData: JSON.parse(JSON.stringify(parsed.data.cookies)),
+        cookieData: toInputJson(parsed.data.cookies),
         cookieExpiresAt: expiresAt,
       },
     });

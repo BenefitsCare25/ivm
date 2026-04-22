@@ -293,11 +293,14 @@ async function processItemDetailCore(
       });
 
       // Run tampering checks after the delete so results are not immediately wiped
-      await Promise.all(
+      const tamperingResults = await Promise.allSettled(
         tamperingTargets.map(({ fileName, fileHash }) =>
           checkTampering(trackedItemId, portalId, item.portalItemId, fileName, fileHash)
         )
       );
+      for (const r of tamperingResults) {
+        if (r.status === "rejected") logger.warn({ err: r.reason, trackedItemId }, "[worker] Tampering check failed (non-fatal)");
+      }
 
       const classifiedDocs: { documentTypeId: string | null; documentTypeName: string | null; fileName: string }[] = [];
 
@@ -314,7 +317,7 @@ async function processItemDetailCore(
             const matchedDocType = docTypeById?.get(classification.documentTypeId);
             const keyFields = (matchedDocType?.requiredFields as string[]) ?? [];
 
-            await Promise.all([
+            const intelligenceResults = await Promise.allSettled([
               validateRequiredFields(
                 { name: matchedDocType?.name ?? ext.documentType, requiredFields: matchedDocType?.requiredFields },
                 ext.fields,
@@ -324,6 +327,9 @@ async function processItemDetailCore(
                 trackedItemId,
               }),
             ]);
+            for (const r of intelligenceResults) {
+              if (r.status === "rejected") logger.warn({ err: r.reason, trackedItemId }, "[worker] Intelligence check failed (non-fatal)");
+            }
           }
         } catch (intErr) {
           logger.warn({ err: intErr, fileName: ext.fileName }, "[worker] Intelligence pipeline error (non-fatal)");

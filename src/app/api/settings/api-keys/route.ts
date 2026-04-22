@@ -6,6 +6,7 @@ import { validateApiKey } from "@/lib/ai/validate-key";
 import { saveApiKeySchema } from "@/lib/validations/api-key";
 import { errorResponse, UnauthorizedError, ValidationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
+import { authLimiter } from "@/lib/rate-limit";
 
 export async function GET() {
   try {
@@ -36,6 +37,10 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    const rl = await authLimiter(ip);
+    if (!rl.allowed) return new Response("Too Many Requests", { status: 429 });
+
     const session = await auth();
     if (!session?.user?.id) throw new UnauthorizedError();
 

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { errorResponse, UnauthorizedError, NotFoundError, ValidationError } from "@/lib/errors";
 import { reviewMappingSchema } from "@/lib/validations/mapping";
+import { toInputJson } from "@/lib/utils";
 import type { FieldMapping } from "@/types/mapping";
 
 export async function PATCH(
@@ -59,7 +60,7 @@ export async function PATCH(
       db.mappingSet.update({
         where: { id: mappingSetId },
         data: {
-          mappings: JSON.parse(JSON.stringify(updatedMappings)),
+          mappings: toInputJson(updatedMappings),
           status: "ACCEPTED",
           reviewedAt: new Date(),
         },

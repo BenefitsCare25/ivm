@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-helpers";
+import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { errorResponse, NotFoundError } from "@/lib/errors";
 import { z } from "zod";
 import { clearTemplateCache } from "@/lib/comparison-templates";
+import { toInputJson } from "@/lib/utils";
 
 const updateConfigSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -15,7 +16,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string; configId: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    const session = await requireAuthApi();
     const { id, configId } = await params;
 
     const portal = await db.portal.findFirst({
@@ -30,7 +31,7 @@ export async function PATCH(
     const updateData: Record<string, unknown> = {};
     if (data.name !== undefined) updateData.name = data.name;
     if (data.groupingFields !== undefined) {
-      updateData.groupingFields = JSON.parse(JSON.stringify(data.groupingFields));
+      updateData.groupingFields = toInputJson(data.groupingFields);
     }
 
     const updated = await db.comparisonConfig.updateMany({
@@ -52,7 +53,7 @@ export async function PATCH(
       }
       await db.portal.update({
         where: { id },
-        data: { groupingFields: JSON.parse(JSON.stringify([...merged])) },
+        data: { groupingFields: toInputJson([...merged]) },
       });
     }
 
@@ -69,7 +70,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string; configId: string }> }
 ) {
   try {
-    const session = await requireAuth();
+    const session = await requireAuthApi();
     const { id, configId } = await params;
 
     const portal = await db.portal.findFirst({
