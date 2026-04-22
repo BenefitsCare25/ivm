@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, XCircle, AlertTriangle, ShieldAlert } from "lucide-react";
+import { CheckCircle2, XCircle, ShieldAlert, TrendingUp } from "lucide-react";
 import { ComparisonStatusBadge } from "../portal-status-badge";
 import type { FieldComparison, ComparisonFieldStatus, ValidationAlert, ComparisonSummary } from "@/types/portal";
 import { FWA_LABELS } from "@/types/portal";
@@ -22,6 +22,9 @@ function findAiDiagnosis(fieldComparisons: FieldComparison[]): string | null {
 
 export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColumnProps) {
   const diagnosis = comparisonResult ? findAiDiagnosis(comparisonResult.fieldComparisons) : null;
+
+  const currencyAlerts = fwaAlerts.filter((a) => a.ruleType === "CURRENCY_CONVERSION");
+  const otherAlerts = fwaAlerts.filter((a) => a.ruleType !== "CURRENCY_CONVERSION");
 
   if (!comparisonResult && fwaAlerts.length === 0) {
     return (
@@ -118,14 +121,62 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
         </>
       )}
 
-      {/* FWA Alerts */}
-      {fwaAlerts.length > 0 && (
+      {/* Currency Conversion Notices */}
+      {currencyAlerts.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            FWA Alerts ({fwaAlerts.length})
+            Currency Conversion
           </p>
           <div className="space-y-1.5">
-            {fwaAlerts.map((alert) => (
+            {currencyAlerts.map((alert) => {
+              const meta = alert.metadata as {
+                originalCurrency?: string;
+                originalAmount?: number;
+                sgdAmount?: number;
+                rate?: number;
+                rateDate?: string;
+                fieldLabel?: string;
+              } | null;
+              return (
+                <div
+                  key={alert.id}
+                  className="flex items-start gap-2 rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs"
+                >
+                  <TrendingUp className="h-3.5 w-3.5 shrink-0 mt-0.5 text-blue-400" />
+                  <div className="flex-1 min-w-0">
+                    <span className="inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium mb-1 bg-blue-500/20 text-blue-400">
+                      Foreign Currency
+                    </span>
+                    {meta ? (
+                      <div className="space-y-0.5">
+                        <p className="text-foreground/80 font-medium">
+                          {meta.fieldLabel}: {meta.originalCurrency} {meta.originalAmount?.toFixed(2)}
+                          {" → "}
+                          <span className="text-blue-300">SGD {meta.sgdAmount?.toFixed(2)}</span>
+                        </p>
+                        <p className="text-muted-foreground">
+                          Rate: 1 {meta.originalCurrency} = SGD {meta.rate?.toFixed(4)} &nbsp;·&nbsp; {meta.rateDate}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-foreground/80">{alert.message}</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* FWA Alerts */}
+      {otherAlerts.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            FWA Alerts ({otherAlerts.length})
+          </p>
+          <div className="space-y-1.5">
+            {otherAlerts.map((alert) => (
               <div
                 key={alert.id}
                 className={`flex items-start gap-2 rounded-md px-3 py-2 text-xs ${

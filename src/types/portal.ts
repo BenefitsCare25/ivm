@@ -38,11 +38,12 @@ export type ComparisonFieldStatus = (typeof COMPARISON_FIELD_STATUSES)[number];
 
 export const FWA_RULE_TYPES = new Set([
   "TAMPERING", "DUPLICATE", "DOC_TYPE_MATCH",
-  "BUSINESS_RULE", "REQUIRED_DOCUMENT",
+  "BUSINESS_RULE", "REQUIRED_DOCUMENT", "CURRENCY_CONVERSION",
 ]);
 
 export const FWA_PRIORITY: Record<string, number> = {
   TAMPERING: 3, DUPLICATE: 2, DOC_TYPE_MATCH: 1, BUSINESS_RULE: 1, REQUIRED_DOCUMENT: 1,
+  CURRENCY_CONVERSION: 0,
 };
 
 export const FWA_LABELS: Record<string, string> = {
@@ -51,7 +52,16 @@ export const FWA_LABELS: Record<string, string> = {
   DOC_TYPE_MATCH: "Wrong Doc Type",
   BUSINESS_RULE: "Rule Violation",
   REQUIRED_DOCUMENT: "Missing Document",
+  CURRENCY_CONVERSION: "Foreign Currency",
 };
+
+export interface ValidationAlert {
+  id: string;
+  ruleType: string;
+  status: string;
+  message: string;
+  metadata?: Record<string, unknown> | null;
+}
 
 // ─── Selector Configurations (stored as JSON on Portal) ─────────
 
@@ -324,13 +334,6 @@ export interface ComparisonSummary {
   mismatchCount: number;
   summary: string | null;
   fieldComparisons: FieldComparison[];
-}
-
-export interface ValidationAlert {
-  id: string;
-  ruleType: string;
-  status: string;
-  message: string;
 }
 
 // ─── Status helpers ─────────────────────────────────────────────

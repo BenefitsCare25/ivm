@@ -71,20 +71,20 @@ export default async function SessionItemsPage({
     ? await db.validationResult.findMany({
         where: {
           trackedItemId: { in: itemIds },
-          ruleType: { in: ["TAMPERING", "DUPLICATE", "DOC_TYPE_MATCH", "BUSINESS_RULE", "REQUIRED_DOCUMENT"] },
+          ruleType: { in: ["TAMPERING", "DUPLICATE", "DOC_TYPE_MATCH", "BUSINESS_RULE", "REQUIRED_DOCUMENT", "CURRENCY_CONVERSION"] },
         },
-        select: { id: true, trackedItemId: true, ruleType: true, status: true, message: true },
+        select: { id: true, trackedItemId: true, ruleType: true, status: true, message: true, metadata: true },
       })
     : [];
 
   // Build per-item arrays of all FWA alerts + worst signal for table badge
   const fwaByItem = new Map<string, { ruleType: string; status: string; message: string }>();
-  const fwaAlertsByItem = new Map<string, { id: string; ruleType: string; status: string; message: string }[]>();
+  const fwaAlertsByItem = new Map<string, { id: string; ruleType: string; status: string; message: string; metadata?: Record<string, unknown> | null }[]>();
   for (const r of fwaResults) {
     if (!r.trackedItemId) continue;
     // All alerts array
     const arr = fwaAlertsByItem.get(r.trackedItemId) ?? [];
-    arr.push({ id: r.id, ruleType: r.ruleType, status: r.status, message: r.message });
+    arr.push({ id: r.id, ruleType: r.ruleType, status: r.status, message: r.message, metadata: r.metadata as Record<string, unknown> | null });
     fwaAlertsByItem.set(r.trackedItemId, arr);
     // Worst signal for table badge
     const existing = fwaByItem.get(r.trackedItemId);

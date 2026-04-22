@@ -20,6 +20,7 @@ import {
 } from "@/lib/queue/item-detail-queue";
 import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-queue";
 import { runCrossItemChecks } from "@/lib/validations/cross-item";
+import { checkForeignCurrency } from "@/lib/validations/currency";
 import { runFullCleanup } from "@/lib/storage/cleanup";
 import { createHash } from "crypto";
 import type { MatchedTemplate } from "@/lib/comparison-templates";
@@ -316,6 +317,13 @@ async function processItemDetailCore(
         } catch (intErr) {
           logger.warn({ err: intErr }, "[worker] Doc type match check error (non-fatal)");
         }
+      }
+
+      // ── Foreign currency detection + SGD conversion ────────
+      if (Object.keys(pdfFields).length > 0) {
+        checkForeignCurrency(trackedItemId, pdfFields, effectiveDetailData).catch((err) =>
+          logger.warn({ err, trackedItemId }, "[worker] Currency check failed (non-fatal)")
+        );
       }
 
       // ── Template lookup + AI field comparison ──────────────
