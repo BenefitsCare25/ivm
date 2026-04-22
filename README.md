@@ -202,25 +202,17 @@ Full interactive docs available at `/docs` (Swagger UI) or `/docs/openapi.json` 
 
 ---
 
-## Deployment (VPS)
+## Deployment
 
-- **VPS**: Hostinger VPS 2 (`72.62.75.247`), Ubuntu 24.04, 8GB RAM
-- **Database**: Supabase PostgreSQL 15.8 in Docker on port 5433
-- **Process**: PM2 (`ivm`) on port 3001
-- **Proxy**: nginx → 443 → 3001 (self-signed SSL)
+- **VPS**: Azure VM (`ivm-vm`), `20.198.253.167`, Ubuntu 24.04, 8GB RAM
+- **SSH**: `ssh -i ~/Downloads/ivm-vm_key.pem azureuser@20.198.253.167`
+- **Database**: PostgreSQL on port 5432 (standard, no Docker wrapper)
+- **Processes**: PM2 — `ivm` (port 3001), `ivm-worker`, `ivm-detail-worker`
+- **Env**: `/etc/ivm/.env` (never overwritten by deploys)
 
 ```bash
-# Deploy
-tar czf /tmp/ivm-deploy.tar.gz \
-  --exclude='node_modules' --exclude='.next' \
-  --exclude='uploads' --exclude='.env' --exclude='.git' .
-
-scp -i ~/.ssh/id_ed25519 /tmp/ivm-deploy.tar.gz root@72.62.75.247:/tmp/
-
-ssh -i ~/.ssh/id_ed25519 root@72.62.75.247 \
-  "cd /var/www/ivm && tar xzf /tmp/ivm-deploy.tar.gz \
-   && npm ci && npx prisma generate && rm -rf .next && npm run build \
-   && pm2 restart ivm --update-env"
+# Deploy (defaults to Azure VM)
+bash scripts/deploy.sh
 ```
 
 ---
