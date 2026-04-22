@@ -1,4 +1,4 @@
-import { auth, signOut } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import { LogOut, User } from "lucide-react";
 import {
   DropdownMenu,
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./theme-toggle";
+import { SignOutButton } from "./sign-out-button";
 
 export async function Header() {
   const session = await auth();
@@ -36,19 +37,9 @@ export async function Header() {
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <form
-            action={async () => {
-              "use server";
-              await signOut({ redirectTo: "/sign-in" });
-            }}
-          >
-            <DropdownMenuItem asChild>
-              <button type="submit" className="w-full cursor-pointer">
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign out
-              </button>
-            </DropdownMenuItem>
-          </form>
+          <DropdownMenuItem asChild>
+            <SignOutButton />
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </header>
