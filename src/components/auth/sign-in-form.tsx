@@ -1,38 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { credentialsLogin } from "@/app/(auth)/sign-in/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormError } from "@/components/ui/form-error";
 
 export function SignInForm() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [isPending, startTransition] = useTransition();
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
     setError("");
-
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
+    startTransition(async () => {
+      const result = await credentialsLogin(email, password);
+      if (result?.error) {
+        setError(result.error);
+      }
+      // On success, server action throws NEXT_REDIRECT which Next.js handles
     });
-
-    if (result?.error) {
-      setError("Invalid email or password");
-      setLoading(false);
-      return;
-    }
-
-    router.push("/");
-    router.refresh();
   }
 
   async function handleGitHub() {
@@ -69,8 +59,8 @@ export function SignInForm() {
             required
           />
         </div>
-        <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? "Signing in..." : "Sign in"}
+        <Button type="submit" className="w-full" disabled={isPending}>
+          {isPending ? "Signing in..." : "Sign in"}
         </Button>
       </form>
 
