@@ -7,7 +7,7 @@
   "host_permissions": [
     "http://localhost:3000/*",
     "http://localhost:3001/*",
-    "https://72.62.75.247/*",
+    "http://20.198.253.167/*",
     "<all_urls>"
   ],
   "background": {
@@ -18,7 +18,7 @@
       "matches": [
         "http://localhost:3000/*",
         "http://localhost:3001/*",
-        "https://72.62.75.247/*"
+        "http://20.198.253.167/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"
@@ -28,7 +28,7 @@
     "matches": [
       "http://localhost:3000/*",
       "http://localhost:3001/*",
-      "https://72.62.75.247/*"
+      "http://20.198.253.167/*"
     ]
   },
   "action": {

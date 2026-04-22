@@ -117,9 +117,8 @@ function sendMessageToExtension<T>(message: Record<string, unknown>): Promise<T>
 
 export async function detectExtension(): Promise<boolean> {
   if (typeof window === "undefined") return false;
-  if (!EXTENSION_ID) return false;
 
-  // Try content script first (most reliable)
+  // Try content script first — works without EXTENSION_ID (uses window.postMessage)
   try {
     const response = await sendViaContentScript<ExtensionPingResponse>({
       type: "IVM_PING",
@@ -129,8 +128,8 @@ export async function detectExtension(): Promise<boolean> {
     // Content script not available, try external messaging
   }
 
-  // Fallback: external messaging
-  if (!window.chrome?.runtime?.sendMessage) return false;
+  // Fallback: external messaging (requires EXTENSION_ID)
+  if (!EXTENSION_ID || !window.chrome?.runtime?.sendMessage) return false;
   try {
     const response = await sendMessageToExtension<ExtensionPingResponse>({
       type: "IVM_PING",
