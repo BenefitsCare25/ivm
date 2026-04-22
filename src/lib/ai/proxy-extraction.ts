@@ -62,10 +62,10 @@ ${systemPrompt}`;
   const response = await client.chat.completions.create(
     {
       model: request.model ?? "claude-sonnet-4-6",
-      max_tokens: 8192,
+      max_tokens: 64000,
       messages: [{ role: "user", content: userPrompt }],
     },
-    { signal: AbortSignal.timeout(120_000) }
+    { signal: AbortSignal.timeout(180_000) }
   );
 
   const text = response.choices[0]?.message?.content;

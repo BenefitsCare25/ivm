@@ -54,13 +54,13 @@ export async function extractWithOpenAI(request: AIExtractionRequest): Promise<A
   const response = await client.chat.completions.create(
     {
       model: request.model ?? env.OPENAI_MODEL,
-      max_tokens: 8192,
+      max_tokens: 16384,
       messages: [
         { role: "system", content: getExtractionSystemPrompt(request.knownDocumentTypes) },
         { role: "user", content: buildUserContent(request) },
       ],
     },
-    { signal: AbortSignal.timeout(90_000) }
+    { signal: AbortSignal.timeout(180_000) }
   );
 
   if (response.choices[0]?.finish_reason === "length") {
