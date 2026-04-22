@@ -198,7 +198,17 @@ Runs in `item-detail-worker.ts` only. No sidebar link, no management UI.
 ### Environment: `/etc/ivm/.env`
 Production env vars live in `/etc/ivm/.env` — never overwritten by deploys. `/var/www/ivm/.env` is a symlink to it (recreated by deploy script). To edit: `nano /etc/ivm/.env` then `pm2 restart ivm --update-env`.
 
-### Deploy
+### Deploy (CI/CD — primary)
+Push to `main` triggers GitHub Actions automatically:
+```bash
+git push origin main  # or merge a PR to main
+```
+**Pipeline** (`.github/workflows/deploy.yml`): build on runner (npm ci + prisma generate + next build) → tar artifact → SCP to VM → extract → `npm ci --omit=dev` (skipped if lockfile unchanged) → `prisma migrate deploy` → `pm2 restart` → health check.
+- **Secrets** (repo settings): `VM_HOST=20.198.253.167`, `VM_SSH_KEY=<contents of ivm-vm_key.pem>`
+- **Blocks deploy** if active scrape sessions or PROCESSING items exist
+- **Total time**: ~4-5 min (code-only), ~9 min (new packages)
+
+### Deploy (manual fallback)
 ```bash
 bash scripts/deploy.sh
 ```
