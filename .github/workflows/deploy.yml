@@ -101,45 +101,45 @@ jobs:
         run: |
           scp -i ~/.ssh/deploy_key /tmp/ivm-deploy.tar.gz azureuser@${{ secrets.VM_HOST }}:/tmp/ivm-deploy.tar.gz
 
-          ssh -i ~/.ssh/deploy_key azureuser@${{ secrets.VM_HOST }} '
-            set -e
-            cd /var/www/ivm
+          ssh -i ~/.ssh/deploy_key azureuser@${{ secrets.VM_HOST }} bash << 'SSHEOF'
+          set -e
+          cd /var/www/ivm
 
-            OLD_LOCK=$(md5sum package-lock.json 2>/dev/null | cut -d" " -f1 || echo none)
+          OLD_LOCK=$(md5sum package-lock.json 2>/dev/null | cut -d" " -f1 || echo none)
 
-            # Wipe only the dirs we're replacing (avoid slow rm -rf of full .next/)
-            rm -rf .next/standalone .next/static src prisma/migrations public scripts
+          rm -rf .next/standalone .next/static src prisma/migrations public scripts
+          tar xzf /tmp/ivm-deploy.tar.gz
 
-            tar xzf /tmp/ivm-deploy.tar.gz
+          ln -sf /etc/ivm/.env /var/www/ivm/.env
 
-            DB_URL=$(grep "^DATABASE_URL" /etc/ivm/.env | cut -d= -f2- | tr -d "\"")
-            if echo "$DB_URL" | grep -q "/ivm_dev"; then
-              echo "ERROR: wrong DATABASE_URL (ivm_dev)"
-              exit 1
-            fi
-            echo "DB: $DB_URL"
+          DB_URL=$(grep "^DATABASE_URL" /etc/ivm/.env | cut -d= -f2- | tr -d '"')
+          if echo "$DB_URL" | grep -q "/ivm_dev"; then
+            echo "ERROR: wrong DATABASE_URL (ivm_dev)"
+            exit 1
+          fi
+          echo "DB: $DB_URL"
 
-            NEW_LOCK=$(md5sum package-lock.json 2>/dev/null | cut -d" " -f1 || echo changed)
-            if [ "$OLD_LOCK" != "$NEW_LOCK" ] || [ ! -d node_modules ]; then
-              echo "Dependencies changed, running npm ci..."
-              npm ci --omit=dev 2>&1 | tail -3
-            else
-              echo "Dependencies unchanged, skipping npm ci."
-            fi
+          NEW_LOCK=$(md5sum package-lock.json 2>/dev/null | cut -d" " -f1 || echo changed)
+          if [ "$OLD_LOCK" != "$NEW_LOCK" ] || [ ! -d node_modules ]; then
+            echo "Dependencies changed, running npm ci..."
+            npm ci --omit=dev 2>&1 | tail -3
+          else
+            echo "Dependencies unchanged, skipping npm ci."
+          fi
 
-            npx prisma generate 2>&1 | tail -1
-            npx prisma migrate deploy 2>&1 | tail -3
+          npx prisma generate 2>&1 | tail -1
+          npx prisma migrate deploy 2>&1 | tail -3
 
-            mkdir -p .next/standalone/.next
-            ln -sfn /var/www/ivm/.next/static .next/standalone/.next/static
-            ln -sfn /var/www/ivm/public .next/standalone/public
+          mkdir -p .next/standalone/.next
+          ln -sfn /var/www/ivm/.next/static .next/standalone/.next/static
+          ln -sfn /var/www/ivm/public .next/standalone/public
 
-            rm -f /tmp/ivm-deploy.tar.gz
+          rm -f /tmp/ivm-deploy.tar.gz
 
-            pm2 restart ivm ivm-worker ivm-detail-worker
-            sleep 3
-            curl -sf http://localhost:3001/api/health || echo "Health check failed"
-          '
+          pm2 restart ivm ivm-worker ivm-detail-worker
+          sleep 3
+          curl -sf http://localhost:3001/api/health || echo "Health check failed"
+          SSHEOF
 
       - name: Verify deployment
         run: |
