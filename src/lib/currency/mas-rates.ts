@@ -31,6 +31,8 @@ export interface RateResult {
   isFallback: boolean;
   /** True if the requested date was after today — rate is an estimate only. */
   isFuture: boolean;
+  /** Which API sourced this rate. */
+  source: "mas" | "exchangerate-api";
 }
 
 // In-memory cache: "${code}:${requestedDate}" → RateResult
@@ -91,6 +93,7 @@ export async function getSgdRate(currencyCode: string, date: string): Promise<Ra
         actualDate,
         isFallback: actualDate !== date,
         isFuture,
+        source: "mas",
       };
 
       rateCache.set(cacheKey, result);
