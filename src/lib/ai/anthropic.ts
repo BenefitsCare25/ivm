@@ -69,24 +69,29 @@ export async function extractWithAnthropic(request: AIExtractionRequest): Promis
     "Starting AI extraction"
   );
 
-  const response = await client.messages.create(
-    {
-      model: request.model ?? env.ANTHROPIC_MODEL,
-      max_tokens: 64000,
-      system: getExtractionSystemPrompt(request.knownDocumentTypes),
-      messages: [{ role: "user", content }],
-    },
-    { signal: AbortSignal.timeout(180_000) }
-  );
+  // Use streaming for large max_tokens — Anthropic SDK blocks non-streaming
+  // requests it estimates could exceed 10 minutes. stream().finalMessage()
+  // collects the full response identically to messages.create().
+  const response = await client.messages
+    .stream(
+      {
+        model: request.model ?? env.ANTHROPIC_MODEL,
+        max_tokens: 64000,
+        system: getExtractionSystemPrompt(request.knownDocumentTypes),
+        messages: [{ role: "user", content }],
+      },
+      { signal: AbortSignal.timeout(180_000) }
+    )
+    .finalMessage();
 
-  if (response.stop_reason === "max_tokens") {
+  const truncated = response.stop_reason === "max_tokens";
+
+  if (truncated) {
     logger.warn(
       { sourceAssetId: request.sourceAssetId, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
       "AI extraction response was truncated (max_tokens reached)"
     );
   }
-
-  const truncated = response.stop_reason === "max_tokens";
 
   const textBlock = response.content.find((block) => block.type === "text");
   if (!textBlock || textBlock.type !== "text") {
