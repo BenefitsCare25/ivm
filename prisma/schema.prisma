@@ -64,6 +64,7 @@ model AuthSession {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("auth_sessions")
 }
 
@@ -402,6 +403,7 @@ model TrackedItem {
   events           TrackedItemEvent[]
 
   @@index([scrapeSessionId])
+  @@index([scrapeSessionId, status])
   @@index([portalItemId])
   @@index([status])
   @@index([createdAt])
@@ -744,6 +746,7 @@ model EscalationConfig {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("escalation_configs")
 }
 

@@ -32,7 +32,10 @@ export async function checkForeignCurrency(
   const incurredDate = findIncurredDate(pageFields ?? {}) ?? findIncurredDate(pdfFields);
   const dateToUse = incurredDate ?? new Date().toISOString().split("T")[0];
 
-  const conversions: CurrencyConversionMetadata[] = [];
+  // Collect unique (currency, amount) pairs — multiple fields with the same value
+  // (e.g. "Amount in Figures" and "Acknowledgement Receipt - Amount in Figures") would
+  // otherwise produce duplicate conversion alerts for the same underlying amount.
+  const seen = new Map<string, { labels: string[]; parsed: ReturnType<typeof parseCurrencyAmount> }>();
 
   for (const [label, value] of Object.entries(pdfFields)) {
     if (!isAmountField(label)) continue;
@@ -40,6 +43,20 @@ export async function checkForeignCurrency(
     const parsed = parseCurrencyAmount(value);
     if (!parsed) continue;
 
+    const key = `${parsed.code}:${parsed.amount}`;
+    const existing = seen.get(key);
+    if (existing) {
+      existing.labels.push(label);
+    } else {
+      seen.set(key, { labels: [label], parsed });
+    }
+  }
+
+  const conversions: CurrencyConversionMetadata[] = [];
+
+  for (const { labels, parsed } of seen.values()) {
+    if (!parsed) continue;
+    const label = labels.join(" / ");
     try {
       const result = await resolveSgdRate(parsed.code, dateToUse);
       if (result === null) continue;
@@ -58,7 +75,7 @@ export async function checkForeignCurrency(
         source: result.source,
       });
     } catch (err) {
-      logger.warn({ err, trackedItemId, label, currency: parsed.code }, "[currency] Rate fetch failed (non-fatal)");
+      logger.warn({ err, trackedItemId, label: labels[0], currency: parsed.code }, "[currency] Rate fetch failed (non-fatal)");
     }
   }
 

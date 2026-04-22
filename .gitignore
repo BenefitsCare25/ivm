@@ -10,3 +10,7 @@ next-env.d.ts
 uploads/
 *.log
 .DS_Store
+portal-files/
+portal-events/
+*.tar.gz
+*.pem

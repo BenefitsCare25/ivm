@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { errorResponse, UnauthorizedError, NotFoundError } from "@/lib/errors";
+import type { TrackedItemStatus } from "@prisma/client";
 
 export async function GET(
   req: Request,
@@ -32,7 +33,7 @@ export async function GET(
 
     const where = {
       scrapeSessionId: sessionId,
-      ...(status ? { status: status as never } : {}),
+      ...(status ? { status: status as TrackedItemStatus } : {}),
     };
 
     const [items, total] = await Promise.all([

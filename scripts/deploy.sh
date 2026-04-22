@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy IVM to VPS
+# Deploy IVM to Azure VM
 # Env source of truth: /etc/ivm/.env (never overwritten by deploys)
 set -e
 
@@ -67,12 +67,17 @@ echo "Uploading..."
 scp -i "$KEY" /tmp/ivm-deploy.tar.gz "$VPS":/tmp/ivm-deploy.tar.gz
 
 echo "Deploying on VPS..."
-ssh -i "$KEY" "$VPS" "
+# MSYS_NO_PATHCONV=1 prevents git bash on Windows from translating Unix paths
+# (e.g. /var/www/ivm/public) inside the SSH command string before sending to remote.
+MSYS_NO_PATHCONV=1 ssh -i "$KEY" "$VPS" "
   set -e
   cd /var/www/ivm
 
   # Remove pages that no longer exist locally (tar extract won't delete old files)
   rm -rf src/app/\(dashboard\)/intelligence/document-sets
+
+  # Capture lock hash before extract to detect dependency changes
+  OLD_LOCK_HASH=\$(md5sum /var/www/ivm/package-lock.json 2>/dev/null | cut -d' ' -f1 || echo 'none')
 
   tar xzf /tmp/ivm-deploy.tar.gz
 
@@ -88,9 +93,18 @@ ssh -i "$KEY" "$VPS" "
   fi
   echo \"DB: \$DB_URL\"
 
-  npm ci --omit=dev 2>&1 | tail -1
+  NEW_LOCK_HASH=\$(md5sum /var/www/ivm/package-lock.json 2>/dev/null | cut -d' ' -f1 || echo 'changed')
+  if [ \"\$OLD_LOCK_HASH\" != \"\$NEW_LOCK_HASH\" ] || [ ! -d /var/www/ivm/node_modules ]; then
+    echo 'Dependencies changed, running npm ci...'
+    npm ci --omit=dev 2>&1 | tail -1
+  else
+    echo 'Dependencies unchanged, skipping npm ci.'
+  fi
   npx prisma generate 2>&1 | tail -1
   npx prisma migrate deploy 2>&1 | tail -3
+
+  # Stop workers before build so they don't compete for CPU on the 2-core VM
+  pm2 stop ivm-worker ivm-detail-worker 2>/dev/null || true
 
   # Build on VPS using correct env
   npm run build 2>&1 | tail -5
@@ -100,10 +114,12 @@ ssh -i "$KEY" "$VPS" "
   ln -sfn /var/www/ivm/.next/static .next/standalone/.next/static
   ln -sfn /var/www/ivm/public .next/standalone/public
 
+  rm -f /tmp/ivm-deploy.tar.gz
+
   pm2 restart ivm ivm-worker ivm-detail-worker
   sleep 3
   curl -s http://localhost:3001/api/health
 "
 
-rm /tmp/ivm-deploy.tar.gz
+rm -f /tmp/ivm-deploy.tar.gz
 echo "Done."

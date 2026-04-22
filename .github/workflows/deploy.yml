@@ -1,0 +1,130 @@
+name: Deploy to Azure VM
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build Next.js
+        run: npm run build
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          NEXTAUTH_URL: http://localhost:3000
+          NEXTAUTH_SECRET: ci-build-secret-minimum-32-characters-long
+          ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+      - name: Create deploy artifact
+        run: |
+          tar czf /tmp/ivm-deploy.tar.gz \
+            .next/standalone/ \
+            .next/static/ \
+            public/ \
+            prisma/ \
+            scripts/ \
+            src/ \
+            package.json \
+            package-lock.json \
+            tsconfig.json \
+            next.config.ts
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Check for active scrape jobs
+        run: |
+          scp -i ~/.ssh/deploy_key scripts/check-active-jobs.js azureuser@${{ secrets.VM_HOST }}:/tmp/check-active-jobs.js
+          RESULT=$(ssh -i ~/.ssh/deploy_key azureuser@${{ secrets.VM_HOST }} "
+            cd /var/www/ivm
+            source /etc/ivm/.env 2>/dev/null
+            cp /tmp/check-active-jobs.js /var/www/ivm/_check.js
+            node _check.js
+            rm -f _check.js /tmp/check-active-jobs.js
+          ")
+          RUNNING=$(echo "$RESULT" | cut -d'|' -f1 | tr -d '[:space:]')
+          PROCESSING=$(echo "$RESULT" | cut -d'|' -f2 | tr -d '[:space:]')
+          if [ "$RUNNING" != "0" ] || [ "$PROCESSING" != "0" ]; then
+            echo "::warning::Active scrape jobs: $RUNNING sessions, $PROCESSING items processing"
+            echo "Deploy blocked — wait for jobs to finish or use workflow_dispatch with force"
+            exit 1
+          fi
+          echo "No active jobs. Safe to deploy."
+
+      - name: Upload and deploy
+        run: |
+          scp -i ~/.ssh/deploy_key /tmp/ivm-deploy.tar.gz azureuser@${{ secrets.VM_HOST }}:/tmp/ivm-deploy.tar.gz
+
+          ssh -i ~/.ssh/deploy_key azureuser@${{ secrets.VM_HOST }} '
+            set -e
+            cd /var/www/ivm
+
+            OLD_LOCK=$(md5sum package-lock.json 2>/dev/null | cut -d" " -f1 || echo none)
+
+            tar xzf /tmp/ivm-deploy.tar.gz
+
+            ln -sf /etc/ivm/.env /var/www/ivm/.env
+
+            DB_URL=$(grep "^DATABASE_URL" /etc/ivm/.env | cut -d= -f2- | tr -d "\"")
+            if echo "$DB_URL" | grep -q "/ivm_dev"; then
+              echo "ERROR: wrong DATABASE_URL (ivm_dev)"
+              exit 1
+            fi
+            echo "DB: $DB_URL"
+
+            NEW_LOCK=$(md5sum package-lock.json 2>/dev/null | cut -d" " -f1 || echo changed)
+            if [ "$OLD_LOCK" != "$NEW_LOCK" ] || [ ! -d node_modules ]; then
+              echo "Dependencies changed, running npm ci..."
+              npm ci --omit=dev 2>&1 | tail -3
+            else
+              echo "Dependencies unchanged, skipping npm ci."
+            fi
+
+            npx prisma generate 2>&1 | tail -1
+            npx prisma migrate deploy 2>&1 | tail -3
+
+            mkdir -p .next/standalone/.next
+            ln -sfn /var/www/ivm/.next/static .next/standalone/.next/static
+            ln -sfn /var/www/ivm/public .next/standalone/public
+
+            rm -f /tmp/ivm-deploy.tar.gz
+
+            pm2 restart ivm ivm-worker ivm-detail-worker
+            sleep 3
+            curl -sf http://localhost:3001/api/health || echo "Health check failed"
+          '
+
+      - name: Verify deployment
+        run: |
+          STATUS=$(ssh -i ~/.ssh/deploy_key azureuser@${{ secrets.VM_HOST }} "curl -sf http://localhost:3001/api/health | node -e \"process.stdin.on('data',d=>{const j=JSON.parse(d);console.log(j.status)})\"")
+          if [ "$STATUS" = "healthy" ]; then
+            echo "Deployment verified: healthy"
+          else
+            echo "::error::Health check returned: $STATUS"
+            exit 1
+          fi

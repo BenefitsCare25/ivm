@@ -200,8 +200,10 @@ async function processItemDetailCore(
       // Fetch doc types before extraction so the AI receives the constrained list,
       // eliminating fuzzy-match ambiguity during classification.
       let cachedDocTypes: DocTypeRecord[] | undefined;
+      let docTypeById: Map<string, DocTypeRecord> | undefined;
       try {
         cachedDocTypes = await fetchDocTypes(userId);
+        docTypeById = new Map(cachedDocTypes.map((dt) => [dt.id, dt]));
       } catch (intErr) {
         logger.warn({ err: intErr }, "[worker] Failed to fetch doc types (non-fatal)");
       }
@@ -226,7 +228,16 @@ async function processItemDetailCore(
               where: { trackedItemId, storagePath: file.storagePath },
               data: { fileHash },
             });
-            tamperingTargets.push({ fileName: file.originalName, fileHash });
+            // Only PDF files are hash-stable across downloads — images (JPEG/PNG) are
+            // often re-encoded server-side on each request, causing hash false positives.
+            // Deduplicate by fileName so multiple files sharing the same originalName
+            // don't produce duplicate tampering alerts.
+            if (
+              file.mimeType === "application/pdf" &&
+              !tamperingTargets.some((t) => t.fileName === file.originalName)
+            ) {
+              tamperingTargets.push({ fileName: file.originalName, fileHash });
+            }
 
             const extraction = await extractFieldsFromDocument({
               sourceAssetId: trackedItemId,
@@ -300,7 +311,7 @@ async function processItemDetailCore(
           });
 
           if (classification.documentTypeId) {
-            const matchedDocType = cachedDocTypes?.find((dt) => dt.id === classification.documentTypeId);
+            const matchedDocType = docTypeById?.get(classification.documentTypeId);
             const keyFields = (matchedDocType?.requiredFields as string[]) ?? [];
 
             await Promise.all([
@@ -323,7 +334,7 @@ async function processItemDetailCore(
       const acceptableTypeIds = item.scrapeSession.acceptableDocumentTypeIds;
       if (acceptableTypeIds.length > 0) {
         const acceptableTypeNames = acceptableTypeIds
-          .map((tid) => cachedDocTypes?.find((dt) => dt.id === tid)?.name ?? "Unknown");
+          .map((tid) => docTypeById?.get(tid)?.name ?? "Unknown");
         const primary = classifiedDocs[0];
         try {
           await checkDocTypeMatch(
@@ -461,10 +472,11 @@ async function processItemDetailCore(
 
         // Save business rule results as ValidationResult records
         if (comparisonResult.businessRuleResults && matchedTemplate) {
+          const brByRule = new Map(matchedTemplate.businessRules.map((br: BusinessRule) => [br.rule, br]));
           const brInserts = comparisonResult.businessRuleResults
             .filter((r: BusinessRuleResult) => r.status === "FAIL" || r.status === "WARNING")
             .map((r: BusinessRuleResult) => {
-              const matchedRule = matchedTemplate!.businessRules.find((br: BusinessRule) => br.rule === r.rule);
+              const matchedRule = brByRule.get(r.rule);
               const status = r.status === "FAIL" ? "FAIL" : "WARNING";
               return db.validationResult.create({
                 data: {
@@ -487,13 +499,12 @@ async function processItemDetailCore(
         }
 
         // Save required document failures as ValidationResult records
-        if (comparisonResult.requiredDocumentsCheck) {
+        if (comparisonResult.requiredDocumentsCheck && matchedTemplate) {
+          const rdByName = new Map(matchedTemplate.requiredDocuments.map((rd: RequiredDocument) => [rd.documentTypeName, rd]));
           const rdInserts = comparisonResult.requiredDocumentsCheck
             .filter((d: RequiredDocumentCheck) => !d.found)
             .map((d: RequiredDocumentCheck) => {
-              const matchedReqDoc = matchedTemplate?.requiredDocuments.find(
-                (rd: RequiredDocument) => rd.documentTypeName === d.documentTypeName
-              );
+              const matchedReqDoc = rdByName.get(d.documentTypeName);
               return db.validationResult.create({
                 data: {
                   trackedItemId,

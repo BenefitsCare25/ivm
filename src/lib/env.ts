@@ -30,6 +30,7 @@ const envSchema = z.object({
   FEATURE_BROWSER_WORKSPACE: z.string().optional(),
   FEATURE_PDF_FILL: z.string().optional(),
   FEATURE_DOCX_FILL: z.string().optional(),
+  METRICS_TOKEN: z.string().min(16).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

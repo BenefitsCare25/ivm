@@ -82,6 +82,8 @@ export async function POST(
     const resolvedTemplateId = template.id;
     const useFullPrompt = templateBusinessRules.length > 0 || templateRequiredDocuments.length > 0;
 
+    const brByRuleMap = new Map(templateBusinessRules.map((br) => [br.rule, br]));
+    const rdByNameMap = new Map(templateRequiredDocuments.map((rd) => [rd.documentTypeName, rd]));
     const CONCURRENCY = 5;
     let recompared = 0;
 
@@ -168,7 +170,7 @@ export async function POST(
         ...(result.businessRuleResults ?? [])
           .filter((r: BusinessRuleResult) => r.status !== "PASS")
           .map((r: BusinessRuleResult) => {
-            const matchedRule = templateBusinessRules.find((br) => br.rule === r.rule);
+            const matchedRule = brByRuleMap.get(r.rule);
             return db.validationResult.create({
               data: {
                 trackedItemId: item.id,
@@ -189,9 +191,7 @@ export async function POST(
         ...(result.requiredDocumentsCheck ?? [])
           .filter((d: RequiredDocumentCheck) => !d.found)
           .map((d: RequiredDocumentCheck) => {
-            const matchedReqDoc = templateRequiredDocuments.find(
-              (rd) => rd.documentTypeName === d.documentTypeName
-            );
+            const matchedReqDoc = rdByNameMap.get(d.documentTypeName);
             return db.validationResult.create({
               data: {
                 trackedItemId: item.id,
