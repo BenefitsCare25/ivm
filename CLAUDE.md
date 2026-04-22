@@ -110,7 +110,10 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Storage**: `Portal.scrapeFilters` (JSONB, default `{}`). Shape: `{ excludeByStatus: string[], excludeBySubmittedBy: string[] }`
 - **Type**: `ScrapeFilters` interface + `DEFAULT_SCRAPE_FILTERS` in `src/types/portal.ts`
 - **Validation**: `scrapeFiltersSchema` in `src/lib/validations/portal.ts`; added to `updatePortalSchema` — saved via `PATCH /api/portals/[id]`
-- **Worker filtering** (`src/workers/portal-worker.ts`): after full list scrape, rows are filtered using case-insensitive trim match on `row.fields["Status"]` and `row.fields["Submitted By"]`. `scrapeLimit` is applied to the already-filtered list
+- **Worker filtering — two-stage**:
+  - `excludeByStatus` — applied at **list scrape time** (`portal-worker.ts`): case-insensitive match on `row.fields["Status"]`. Matching rows are never written to `TrackedItem`.
+  - `excludeBySubmittedBy` — applied at **detail scrape time** (`item-detail-worker.ts`): "Submitted By" is only available on the detail page, so it is checked after detail scrape. On match the `TrackedItem` is **deleted** (not set to SKIPPED) and `itemsFound` is decremented — the item never appears in the session table.
+  - **Do NOT add `excludeBySubmittedBy` to the portal-worker list filter** — the field is absent from list page data and the check would always be a no-op.
 - **UI**: `ScraperFiltersCard` (`src/components/portals/scraper-filters-card.tsx`) — two tag-inputs (type + Enter to add, × to remove). Sits between the 4-column grid and Field Discovery on the portal detail page. Shows **Active** badge on header when any filter is configured
 - **Migration**: `20260421000000_add_scrape_filters`
 

@@ -135,6 +135,33 @@ async function processItemDetailCore(
         effectiveDetailData = existingDetailData!;
       }
 
+      // ── Submitted By filter (detail-time) ──────────────────
+      // "Submitted By" isn't on the list page so it must be checked here
+      const detailFilters = (portal.scrapeFilters ?? {}) as Partial<{ excludeBySubmittedBy: string[] }>;
+      const excludeSubmitters = new Set(
+        (detailFilters.excludeBySubmittedBy ?? []).map((s) => s.trim().toLowerCase())
+      );
+      if (excludeSubmitters.size > 0) {
+        const submitterVal = (effectiveDetailData["Submitted By"] ?? "").trim().toLowerCase();
+        if (submitterVal && excludeSubmitters.has(submitterVal)) {
+          logger.info({ trackedItemId, submitterVal }, "[worker] Item excluded by Submitted By filter — deleting");
+          // Delete the item so it never appears in the session table.
+          // Decrement itemsFound so session completion arithmetic stays correct.
+          await db.trackedItem.delete({ where: { id: trackedItemId } });
+          const updatedSession = await db.scrapeSession.update({
+            where: { id: item.scrapeSessionId },
+            data: { itemsFound: { decrement: 1 } },
+          });
+          successIncremented = true;
+          if (updatedSession.itemsProcessed === updatedSession.itemsFound && updatedSession.itemsFound > 0) {
+            runCrossItemChecks(item.scrapeSessionId).catch((err) =>
+              logger.error({ err, sessionId: item.scrapeSessionId }, "[worker] Cross-item checks failed")
+            );
+          }
+          return { status: "COMPLETED", mismatchCount: 0 };
+        }
+      }
+
       // ── File downloads ──────────────────────────────────────
       const storagePrefix = `portal-files/${portalId}/${trackedItemId}`;
       await emitItemEvent(trackedItemId, "DOWNLOAD_START", { storagePrefix });
