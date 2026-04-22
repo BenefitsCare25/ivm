@@ -51,7 +51,7 @@ export async function compareFields(
 
   let rawText: string;
 
-  if (provider === "anthropic") {
+  if (provider === "anthropic" || provider === "azure-foundry") {
     rawText = await compareWithAnthropic(request, userPrompt);
   } else if (provider === "openai") {
     rawText = await compareWithOpenAI(request, userPrompt);
@@ -73,7 +73,7 @@ export async function compareFields(
 
 async function compareWithAnthropic(request: ComparisonRequest, userPrompt: string): Promise<string> {
   const client = new Anthropic({ apiKey: request.apiKey, ...(request.baseURL ? { baseURL: request.baseURL } : {}) });
-  const timeout = request.baseURL ? 120_000 : 30_000; // CLI proxy needs more time
+  const timeout = request.baseURL ? 180_000 : 60_000; // CLI proxy needs more time; full prompts with business rules can be large
 
   const response = await client.messages.create(
     {
@@ -94,7 +94,7 @@ async function compareWithAnthropic(request: ComparisonRequest, userPrompt: stri
 
 async function compareWithOpenAI(request: ComparisonRequest, userPrompt: string): Promise<string> {
   const client = new OpenAI({ apiKey: request.apiKey, ...(request.baseURL ? { baseURL: request.baseURL } : {}) });
-  const timeout = request.baseURL ? 120_000 : 30_000; // CLI proxy needs more time
+  const timeout = request.baseURL ? 180_000 : 60_000; // CLI proxy needs more time; full prompts with business rules can be large
 
   const response = await client.chat.completions.create(
     {

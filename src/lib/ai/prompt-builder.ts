@@ -1,6 +1,21 @@
 import type { TemplateField, RequiredDocument, BusinessRule } from "@/types/portal";
 import { BUSINESS_RULE_SEVERITY_LABELS } from "@/types/portal";
 
+const MAX_VALUE_LENGTH = 200;
+
+function compactFields(fields: Record<string, string>): string {
+  let needsTruncation = false;
+  for (const v of Object.values(fields)) {
+    if (v.length > MAX_VALUE_LENGTH) { needsTruncation = true; break; }
+  }
+  if (!needsTruncation) return JSON.stringify(fields);
+  const truncated: Record<string, string> = {};
+  for (const [k, v] of Object.entries(fields)) {
+    truncated[k] = v.length > MAX_VALUE_LENGTH ? v.slice(0, MAX_VALUE_LENGTH) + "…" : v;
+  }
+  return JSON.stringify(truncated);
+}
+
 interface FullPromptConfig {
   fields: TemplateField[];
   businessRules: BusinessRule[];
@@ -55,7 +70,7 @@ FIELD COMPARISON RULES:
 3. MISSING_IN_PDF: Field exists on portal but no corresponding value in PDF data.
 4. MISSING_ON_PAGE: Field exists in PDF but no corresponding field on portal.
 5. UNCERTAIN: Cannot determine with reasonable confidence.
-6. Match fields by the explicit pairs provided — use the portal↔document field name mapping.
+6. ONLY compare the explicit field pairs provided in the Field Mappings section. Do NOT add extra field comparisons beyond those pairs.
 7. For monetary amounts, compare numerical values regardless of currency symbols.
 8. For dates, compare actual date regardless of format.
 9. Confidence: 0.95+ for clear match/mismatch, 0.7-0.94 for probable, below 0.7 for uncertain.
@@ -103,7 +118,7 @@ export function buildFullComparisonUserPrompt(config: FullPromptConfig): string 
   let prompt = `Compare the following portal claim record against submitted documents.\n`;
 
   if (fields.length > 0) {
-    prompt += `\n## 1. Field Mappings (compare these pairs)\n${fieldMappingLines.join("\n")}\n`;
+    prompt += `\n## 1. Field Mappings (compare ONLY these pairs)\nIMPORTANT: Only compare the field pairs listed below. Do NOT compare any other fields — ignore all fields not listed here.\n${fieldMappingLines.join("\n")}\n`;
   }
 
   if (businessRules.length > 0) {
@@ -114,8 +129,8 @@ export function buildFullComparisonUserPrompt(config: FullPromptConfig): string 
     prompt += `\n## 3. Required Documents (check presence)\n${requiredDocLines.join("\n")}\nDocuments found: ${JSON.stringify(documentTypesFound)}\n`;
   }
 
-  prompt += `\n## Portal Page Fields\n${JSON.stringify(pageFields, null, 2)}\n`;
-  prompt += `\n## PDF Extracted Fields\n${JSON.stringify(pdfFields, null, 2)}\n`;
+  prompt += `\n## Portal Page Fields\n${JSON.stringify(pageFields)}\n`;
+  prompt += `\n## PDF Extracted Fields\n${compactFields(pdfFields)}\n`;
   prompt += `\nReturn the JSON comparison result with fieldComparisons${businessRules.length > 0 ? ", businessRuleResults" : ""}${requiredDocuments.length > 0 ? ", requiredDocumentsCheck" : ""}, and summary.`;
 
   return prompt;

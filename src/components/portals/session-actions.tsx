@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { RefreshCw, RotateCcw, Play, CheckCircle2, Square, Trash2, Loader2, SkipForward, FileSliders } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ComparisonTemplateModal } from "./comparison-template-modal";
+import type { ProviderGroupSummary } from "@/types/portal";
 
 interface SessionActionsProps {
   portalId: string;
@@ -42,6 +43,7 @@ export function SessionActions({
   const checkedUnconfiguredRef = useRef(false);
   const [recompareError, setRecompareError] = useState<string | null>(null);
   const [unconfiguredConfigId, setUnconfiguredConfigId] = useState<string | null>(null);
+  const [providerGroups, setProviderGroups] = useState<ProviderGroupSummary[]>([]);
 
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const done = (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) + (counts.ERROR ?? 0) + (counts.SKIPPED ?? 0) + (counts.VERIFIED ?? 0) + (counts.REQUIRE_DOC ?? 0);
@@ -65,9 +67,12 @@ export function SessionActions({
   }, [counts.ERROR, inFlight, sessionId]);
 
   function fetchUnconfiguredTypes() {
-    fetch(`/api/portals/${portalId}/scrape/${sessionId}/unconfigured-types`)
-      .then((r) => r.json())
-      .then((data) => {
+    Promise.all([
+      fetch(`/api/portals/${portalId}/scrape/${sessionId}/unconfigured-types`).then((r) => r.json()),
+      fetch(`/api/portals/${portalId}/provider-groups`).then((r) => r.json()).catch(() => []),
+    ])
+      .then(([data, groups]) => {
+        if (Array.isArray(groups)) setProviderGroups(groups);
         if (Array.isArray(data.unconfiguredTypes) && data.unconfiguredTypes.length > 0) {
           setUnconfiguredTypes(data.unconfiguredTypes);
           setUnconfiguredConfigId(data.configId ?? null);
@@ -355,7 +360,6 @@ export function SessionActions({
         </div>
       </div>
 
-      {/* Inline template configuration modal */}
       {showTemplateModal && unconfiguredTypes[currentTypeIndex] && (
         <ComparisonTemplateModal
           portalId={portalId}
@@ -363,6 +367,7 @@ export function SessionActions({
           groupingKey={unconfiguredTypes[currentTypeIndex].groupingKey}
           suggestedName={Object.values(unconfiguredTypes[currentTypeIndex].groupingKey).join(" / ")}
           availableFields={unconfiguredTypes[currentTypeIndex].fieldOptions}
+          providerGroups={providerGroups.length > 0 ? providerGroups : undefined}
           onSaved={async (templateId) => {
             setShowTemplateModal(false);
             setRecompareError(null);

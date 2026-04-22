@@ -11,7 +11,7 @@ AI-powered document-to-form autofill platform. Users upload a source document, A
 - **Auth**: NextAuth v5 (`next-auth@beta`), JWT strategy, Credentials + GitHub OAuth
 - **Logging**: Pino (pino-pretty in dev, JSON in prod)
 - **Storage**: Abstracted via `StorageAdapter` interface (local/S3)
-- **AI**: Multi-provider BYOK — Anthropic Claude, OpenAI GPT-4o, Google Gemini 2.0 Flash
+- **AI**: Multi-provider BYOK — Anthropic Claude, OpenAI GPT-4o, Google Gemini 2.0 Flash, Azure AI Foundry (Claude via Azure)
 - **Browser automation**: Playwright (Chromium, headless, BullMQ workers only)
 - **Job queues**: BullMQ + Redis 7 (extraction, portal scrape, item detail)
 - **Dev infra**: Docker Compose (PostgreSQL 16 + Redis 7)
@@ -26,6 +26,9 @@ Install as `next-auth@beta`, not `next-auth@5`. The session model is named `Auth
 
 ### BYOK API Key Storage
 User API keys encrypted with AES-256-GCM (`src/lib/crypto.ts`) using `ENCRYPTION_KEY` env var (32-byte hex). `UserApiKey` model has `@@unique([userId, provider])` — upsert semantics. Never store plaintext keys; always use `encrypt()`/`decrypt()`. Provider + key resolved via `resolveProviderAndKey()` with priority: 1) User BYOK keys, 2) CLI proxy (`CLAUDE_PROXY_URL` + `CLAUDE_PROXY_TOKEN`, sets `provider: "openai"` + `baseURL`), 3) system `ANTHROPIC_API_KEY` fallback. CLI proxy uses Claude subscription quota — OAuth tokens cannot call the Anthropic Messages API directly, so file extraction goes through the Read-tool path (see below).
+
+### Azure AI Foundry Provider
+Azure AI Foundry exposes Claude models via the native Anthropic Messages API at a custom endpoint URL. Uses the same `@anthropic-ai/sdk` with `baseURL` override — no separate SDK. `UserApiKey.endpoint` (nullable) stores the per-user endpoint URL. Key differences from the CLI proxy: Azure Foundry handles base64 content blocks natively (no Read-tool fallback needed), and resolves as `provider: "azure-foundry"` (not `"openai"`). Proxy detection in `index.ts` and `page-analysis.ts` checks `provider === "openai"` to avoid misrouting Azure Foundry through the proxy Read-tool path. All AI routing files (`index.ts`, `comparison.ts`, `mapping.ts`, `page-analysis.ts`) fall through `"azure-foundry"` to the Anthropic adapter. Validation (`validate-key.ts`) uses `claude-haiku-4-5` with 15s timeout and includes 404 handling for bad endpoint URLs.
 
 ### CSS Variables with RGB Channels
 All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--background: 255 255 255`) so Tailwind opacity modifiers work (e.g., `bg-background/50`). Never use hex values in token definitions.

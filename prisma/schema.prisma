@@ -252,6 +252,7 @@ model UserApiKey {
   provider     String
   encryptedKey String   @db.Text
   keyPrefix    String
+  endpoint     String?
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

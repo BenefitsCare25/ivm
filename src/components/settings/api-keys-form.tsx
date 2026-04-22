@@ -14,6 +14,7 @@ interface SavedKey {
   keyPrefix: string;
   isActive: boolean;
   updatedAt: string;
+  endpoint?: string | null;
 }
 
 interface ApiKeysState {
@@ -87,6 +88,7 @@ export function ApiKeysForm() {
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
   const [removingProvider, setRemovingProvider] = useState<string | null>(null);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
+  const [endpointInputs, setEndpointInputs] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [successes, setSuccesses] = useState<Record<string, string>>({});
   const modelSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -112,6 +114,13 @@ export function ApiKeysForm() {
       return;
     }
 
+    const needsEndpoint = provider === "azure-foundry";
+    const endpoint = endpointInputs[provider]?.trim();
+    if (needsEndpoint && !endpoint) {
+      setErrors((prev) => ({ ...prev, [provider]: "Please enter the Azure Foundry endpoint URL" }));
+      return;
+    }
+
     setSavingProvider(provider);
     setErrors((prev) => ({ ...prev, [provider]: "" }));
     setSuccesses((prev) => ({ ...prev, [provider]: "" }));
@@ -120,7 +129,7 @@ export function ApiKeysForm() {
       const res = await fetch("/api/settings/api-keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, apiKey }),
+        body: JSON.stringify({ provider, apiKey, ...(endpoint ? { endpoint } : {}) }),
       });
 
       const data = await res.json();
@@ -131,6 +140,7 @@ export function ApiKeysForm() {
       }
 
       setKeyInputs((prev) => ({ ...prev, [provider]: "" }));
+      setEndpointInputs((prev) => ({ ...prev, [provider]: "" }));
       setSuccesses((prev) => ({ ...prev, [provider]: "Key validated and saved" }));
       await fetchKeys();
 
@@ -216,6 +226,7 @@ export function ApiKeysForm() {
         const isPreferred = state.preferredProvider === provider;
         const isSaving = savingProvider === provider;
         const isRemoving = removingProvider === provider;
+        const needsEndpoint = provider === "azure-foundry";
 
         return (
           <Card key={provider}>
@@ -249,6 +260,11 @@ export function ApiKeysForm() {
                       <code className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
                         {savedKey.keyPrefix}
                       </code>
+                      {savedKey.endpoint && (
+                        <code className="rounded bg-muted px-2 py-1 text-[10px] text-muted-foreground/60 max-w-[200px] truncate" title={savedKey.endpoint}>
+                          {savedKey.endpoint}
+                        </code>
+                      )}
                       <CheckCircle className="h-4 w-4 text-emerald-500" />
                     </div>
                     <Button
@@ -272,28 +288,42 @@ export function ApiKeysForm() {
                   />
                 </div>
               ) : (
-                <div className="flex gap-2">
-                  <Input
-                    type="password"
-                    placeholder={info.placeholder}
-                    value={keyInputs[provider] || ""}
-                    onChange={(e) => {
-                      setKeyInputs((prev) => ({ ...prev, [provider]: e.target.value }));
-                      setErrors((prev) => ({ ...prev, [provider]: "" }));
-                    }}
-                    onKeyDown={(e) => { if (e.key === "Enter") handleSave(provider); }}
-                    disabled={isSaving}
-                  />
-                  <Button onClick={() => handleSave(provider)} disabled={isSaving} className="shrink-0">
-                    {isSaving ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Validating...
-                      </>
-                    ) : (
-                      "Save Key"
-                    )}
-                  </Button>
+                <div className="space-y-2">
+                  {needsEndpoint && (
+                    <Input
+                      type="url"
+                      placeholder={info.endpointPlaceholder}
+                      value={endpointInputs[provider] || ""}
+                      onChange={(e) => {
+                        setEndpointInputs((prev) => ({ ...prev, [provider]: e.target.value }));
+                        setErrors((prev) => ({ ...prev, [provider]: "" }));
+                      }}
+                      disabled={isSaving}
+                    />
+                  )}
+                  <div className="flex gap-2">
+                    <Input
+                      type="password"
+                      placeholder={info.placeholder}
+                      value={keyInputs[provider] || ""}
+                      onChange={(e) => {
+                        setKeyInputs((prev) => ({ ...prev, [provider]: e.target.value }));
+                        setErrors((prev) => ({ ...prev, [provider]: "" }));
+                      }}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleSave(provider); }}
+                      disabled={isSaving}
+                    />
+                    <Button onClick={() => handleSave(provider)} disabled={isSaving} className="shrink-0">
+                      {isSaving ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Validating...
+                        </>
+                      ) : (
+                        "Save Key"
+                      )}
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardContent>

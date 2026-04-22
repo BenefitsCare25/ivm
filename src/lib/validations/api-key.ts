@@ -1,18 +1,22 @@
 import { z } from "zod";
 
-export const AI_PROVIDERS = ["anthropic", "openai", "gemini"] as const;
+export const AI_PROVIDERS = ["anthropic", "openai", "gemini", "azure-foundry"] as const;
 export type AIProvider = (typeof AI_PROVIDERS)[number];
 
 export const saveApiKeySchema = z.object({
   provider: z.enum(AI_PROVIDERS),
   apiKey: z.string().min(1, "API key is required"),
-});
+  endpoint: z.string().url("Must be a valid URL").optional(),
+}).refine(
+  (data) => data.provider !== "azure-foundry" || (data.endpoint && data.endpoint.length > 0),
+  { message: "Endpoint URL is required for Azure AI Foundry", path: ["endpoint"] }
+);
 
 export const preferredProviderSchema = z.object({
   provider: z.enum(AI_PROVIDERS),
 });
 
-export const PROVIDER_INFO: Record<AIProvider, { name: string; description: string; placeholder: string }> = {
+export const PROVIDER_INFO: Record<AIProvider, { name: string; description: string; placeholder: string; endpointPlaceholder?: string }> = {
   anthropic: {
     name: "Claude (Anthropic)",
     description: "Claude for document extraction and analysis",
@@ -27,6 +31,12 @@ export const PROVIDER_INFO: Record<AIProvider, { name: string; description: stri
     name: "Google Gemini",
     description: "Gemini 2.5 for document extraction and analysis",
     placeholder: "AIzaSy...",
+  },
+  "azure-foundry": {
+    name: "Azure AI Foundry (Claude)",
+    description: "Claude via Microsoft Azure AI Foundry — data not used for training",
+    placeholder: "your-azure-api-key",
+    endpointPlaceholder: "https://your-resource.services.ai.azure.com/anthropic/",
   },
 };
 
@@ -73,11 +83,20 @@ export const PROVIDER_MODELS: Record<AIProvider, ProviderModels> = {
     ],
     defaults: { vision: "gemini-2.5-flash", text: "gemini-2.5-flash" },
   },
+  "azure-foundry": {
+    models: [
+      { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", tier: ["vision", "text"], costLabel: "$3 / $15" },
+      { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", tier: ["vision", "text"], costLabel: "$1 / $5" },
+      { id: "claude-opus-4-6", label: "Claude Opus 4.6", tier: ["vision", "text"], costLabel: "$5 / $25" },
+    ],
+    defaults: { vision: "claude-sonnet-4-6", text: "claude-haiku-4-5" },
+  },
 };
 
 export const modelPreferencesSchema = z.object({
   anthropic: z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
   openai: z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
   gemini: z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
+  "azure-foundry": z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
 });
 export type ModelPreferences = z.infer<typeof modelPreferencesSchema>;

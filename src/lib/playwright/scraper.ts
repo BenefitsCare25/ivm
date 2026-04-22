@@ -234,7 +234,43 @@ export async function scrapeDetailPage(
     }
   }
 
-  logger.info({ fieldCount: Object.keys(fields).length, url }, "[scraper] Scraped detail page");
+  const cleaned = filterGarbageFields(fields);
+
+  logger.info({ fieldCount: Object.keys(cleaned).length, rawFieldCount: Object.keys(fields).length, url }, "[scraper] Scraped detail page");
+
+  return cleaned;
+}
+
+/**
+ * Detects and filters out garbage data patterns from fallback extraction.
+ * When the page renders non-claim sections (e.g. access management panels),
+ * the scraper picks up hundreds of repetitive entries like "CompanyX: Manage Access".
+ */
+function filterGarbageFields(fields: Record<string, string>): Record<string, string> {
+  const entries = Object.entries(fields);
+  if (entries.length <= 5) return fields;
+
+  const valueCounts: Record<string, number> = {};
+  for (const [, v] of entries) {
+    valueCounts[v] = (valueCounts[v] ?? 0) + 1;
+  }
+
+  const mostCommonCount = Math.max(...Object.values(valueCounts));
+  const mostCommonRatio = mostCommonCount / entries.length;
+
+  // If >50% of values are identical, those entries are noise — remove them
+  if (mostCommonRatio > 0.5 && mostCommonCount > 5) {
+    const noiseValue = Object.entries(valueCounts).find(([, c]) => c === mostCommonCount)![0];
+    const cleaned: Record<string, string> = {};
+    for (const [k, v] of entries) {
+      if (v !== noiseValue) cleaned[k] = v;
+    }
+    logger.warn(
+      { removedCount: mostCommonCount, noiseValue, remaining: Object.keys(cleaned).length },
+      "[scraper] Filtered garbage fields from detail page"
+    );
+    return cleaned;
+  }
 
   return fields;
 }

@@ -26,12 +26,14 @@ export async function extractFieldsFromDocument(
   return withRetry(
     () => {
       // CLI proxy cannot handle base64 content blocks — use Read tool approach
-      if (enrichedRequest.baseURL && enrichedRequest.storagePath && !enrichedRequest.textContent) {
+      // Only applies to the OpenAI-compatible proxy, not Azure Foundry (which handles base64 natively)
+      if (enrichedRequest.baseURL && enrichedRequest.storagePath && !enrichedRequest.textContent && enrichedRequest.provider === "openai") {
         return extractWithProxyReadTool(enrichedRequest);
       }
 
       switch (enrichedRequest.provider) {
         case "anthropic":
+        case "azure-foundry":
           return extractWithAnthropic(enrichedRequest);
         case "openai":
           return extractWithOpenAI(enrichedRequest);

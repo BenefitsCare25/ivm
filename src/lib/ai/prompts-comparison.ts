@@ -23,8 +23,10 @@ You must return a JSON object with this exact structure:
 }
 
 COMPARISON RULES:
-1. MATCH: Values are semantically equivalent, even if formatted differently. "27 Mar 2026" and "2026-03-27" are a MATCH. "$169.60" and "169.60" are a MATCH. Ignore trailing whitespace.
-2. MISMATCH: Values clearly differ in meaning or amount. "SGH" vs "NUH" is MISMATCH. "169.60" vs "196.00" is MISMATCH.
+1. MATCH: Values are semantically equivalent, even if formatted differently. Ignore formatting differences such as date formats, currency symbols, whitespace, and punctuation. For invoice numbers, reference numbers, and IDs, ignore leading punctuation characters (e.g. "#").
+   For organization names (providers, clinics, hospitals): apply semantic parent-brand matching. If one name is plausibly a branch, division, or location variant of the same organization as the other — inferred from shared root brand words — treat as MATCH. Only mark MISMATCH if the two names clearly refer to entirely different organizations with no shared brand identity.
+   For fields containing MULTIPLE identifiers joined by "&", "/", ",", or similar delimiters (e.g. "2026800011 & PS00126000689-1"): split into individual values and check whether each one appears in ANY document field (including Case Number, Invoice Number, Reference Number, etc.). If ALL individual values are found somewhere in the document fields, treat as MATCH. If only some are found, treat as UNCERTAIN with a note explaining which were found and which were not.
+2. MISMATCH: Values differ in meaning or amount with no plausible semantic equivalence. Numeric values that differ in magnitude are always MISMATCH regardless of formatting.
 3. MISSING_IN_PDF: The field exists on the portal page but has no corresponding value in the PDF data.
 4. MISSING_ON_PAGE: The field exists in the PDF but has no corresponding field on the portal page.
 5. UNCERTAIN: You cannot determine with reasonable confidence whether values match (e.g., abbreviation vs full name that could be different entity).
@@ -51,7 +53,7 @@ export function getTemplatedComparisonUserPrompt(
       const tol = f.tolerance ?? 0;
       return `- Portal "${portalName}" ↔ Document "${docName}": NUMERIC comparison — values within ${tol} tolerance are MATCH`;
     }
-    return `- Portal "${portalName}" ↔ Document "${docName}": FUZZY match — ignore formatting differences (dates, names, whitespace, currency symbols)`;
+    return `- Portal "${portalName}" ↔ Document "${docName}": FUZZY match — ignore formatting differences (dates, names, whitespace, currency symbols, leading punctuation on reference numbers). For organization names, apply semantic parent-brand matching: treat as MATCH if the names share the same root brand and one is plausibly a branch or variant of the other. For fields containing multiple identifiers joined by "&", "/", or "," — split them and check each against ALL document fields; treat as MATCH only if every individual value is found somewhere in the documents.`;
   }).join("\n");
 
   return `Compare the following data from a web portal page against data extracted from associated PDF documents.

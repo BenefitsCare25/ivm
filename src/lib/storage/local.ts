@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { StorageAdapter } from "./index";
 
-const BASE_DIR = process.env.STORAGE_LOCAL_PATH ?? "./uploads";
+const BASE_DIR = path.resolve(process.env.STORAGE_LOCAL_PATH ?? "./uploads");
 
 /** Reject keys that could escape BASE_DIR via path traversal. */
 function validateKey(key: string): void {

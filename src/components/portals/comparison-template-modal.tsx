@@ -5,7 +5,7 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { MatchMode, TemplateField } from "@/types/portal";
+import type { MatchMode, TemplateField, ProviderGroupSummary } from "@/types/portal";
 import { MATCH_MODE_LABELS } from "@/types/portal";
 
 interface FieldOption {
@@ -15,29 +15,29 @@ interface FieldOption {
   pdfValue?: string;
 }
 
-function fieldSourceLabel(f: FieldOption): string {
-  const src = f.source ?? (f.pageValue != null && f.pdfValue != null ? "both" : f.pageValue != null ? "page" : "pdf");
-  return src === "both" ? "(page+pdf)" : `(${src})`;
-}
-
 interface ComparisonTemplateModalProps {
   portalId: string;
+  configId?: string;
   groupingKey: Record<string, string>;
   suggestedName: string;
   availableFields: FieldOption[];
+  providerGroups?: ProviderGroupSummary[];
   onSaved: (templateId: string) => void;
   onSkip: () => void;
 }
 
 export function ComparisonTemplateModal({
   portalId,
+  configId,
   groupingKey,
   suggestedName,
   availableFields,
+  providerGroups,
   onSaved,
   onSkip,
 }: ComparisonTemplateModalProps) {
   const [selectedFields, setSelectedFields] = useState<TemplateField[]>([]);
+  const [selectedProviderGroupId, setSelectedProviderGroupId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,6 +76,8 @@ export function ComparisonTemplateModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: suggestedName,
+          comparisonConfigId: configId,
+          providerGroupId: selectedProviderGroupId,
           groupingKey,
           fields: selectedFields,
         }),
@@ -108,7 +110,6 @@ export function ComparisonTemplateModal({
         </CardHeader>
 
         <CardContent className="overflow-y-auto flex-1 space-y-4">
-          {/* Grouping key display */}
           <div className="flex flex-wrap gap-2">
             {Object.entries(groupingKey).map(([key, value]) => (
               <Badge key={key} variant="secondary">
@@ -117,7 +118,29 @@ export function ComparisonTemplateModal({
             ))}
           </div>
 
-          {/* Available fields to add */}
+          {providerGroups && providerGroups.length > 0 && (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                Provider Group (optional)
+              </label>
+              <select
+                value={selectedProviderGroupId ?? ""}
+                onChange={(e) => setSelectedProviderGroupId(e.target.value || null)}
+                className="flex h-8 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground"
+              >
+                <option value="">None — apply to all providers</option>
+                {providerGroups.map((pg) => (
+                  <option key={pg.id} value={pg.id}>
+                    {pg.name} ({pg.matchMode === "list" ? `${pg.members.length} members` : "all others"})
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-muted-foreground">
+                Assign this template to a provider group to apply different rules per provider type.
+              </p>
+            </div>
+          )}
+
           {unselected.length > 0 && (
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-2">Available Fields</p>
@@ -142,7 +165,6 @@ export function ComparisonTemplateModal({
             </div>
           )}
 
-          {/* Selected fields with rules */}
           {selectedFields.length > 0 && (
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-2">

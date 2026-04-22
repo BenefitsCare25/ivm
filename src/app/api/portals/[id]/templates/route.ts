@@ -4,9 +4,10 @@ import { db } from "@/lib/db";
 import { errorResponse, NotFoundError } from "@/lib/errors";
 import { createComparisonTemplateSchema } from "@/lib/validations/portal";
 import { clearTemplateCache } from "@/lib/comparison-templates";
+import { toInputJson } from "@/lib/utils";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -19,12 +20,24 @@ export async function GET(
     });
     if (!portal) throw new NotFoundError("Portal");
 
+    const configId = req.nextUrl.searchParams.get("configId");
+    const where: Record<string, unknown> = { portalId: id };
+    if (configId) where.comparisonConfigId = configId;
+
     const templates = await db.comparisonTemplate.findMany({
-      where: { portalId: id },
+      where,
       orderBy: { createdAt: "asc" },
+      include: { providerGroup: { select: { id: true, name: true } } },
     });
 
-    return NextResponse.json(templates);
+    return NextResponse.json(
+      templates.map((t) => ({
+        ...t,
+        providerGroupId: t.providerGroupId ?? null,
+        providerGroupName: t.providerGroup?.name ?? null,
+        providerGroup: undefined,
+      }))
+    );
   } catch (err) {
     return errorResponse(err);
   }
@@ -50,9 +63,11 @@ export async function POST(
     const template = await db.comparisonTemplate.create({
       data: {
         portalId: id,
+        comparisonConfigId: data.comparisonConfigId ?? null,
+        providerGroupId: data.providerGroupId ?? null,
         name: data.name,
-        groupingKey: JSON.parse(JSON.stringify(data.groupingKey)),
-        fields: JSON.parse(JSON.stringify(data.fields)),
+        groupingKey: toInputJson(data.groupingKey),
+        fields: toInputJson(data.fields),
       },
     });
 
@@ -60,6 +75,12 @@ export async function POST(
 
     return NextResponse.json(template, { status: 201 });
   } catch (err) {
+    if (err && typeof err === "object" && "code" in err && err.code === "P2002") {
+      return NextResponse.json(
+        { message: "A template with this name and provider group already exists" },
+        { status: 409 }
+      );
+    }
     return errorResponse(err);
   }
 }

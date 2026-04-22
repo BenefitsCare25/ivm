@@ -2,22 +2,27 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Copy, Check, HelpCircle } from "lucide-react";
+import { Loader2, Copy, Check, HelpCircle, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import { GroupingFieldConfig } from "./grouping-field-config";
 import { TemplateList } from "./template-list";
+import type { DetectedClaimType } from "@/types/portal";
 
 interface PortalComparisonSetupProps {
   portalId: string;
+  configId: string;
+  configName: string;
   groupingFields: string[];
   availableFields: string[];
-  detectedClaimTypes: string[];
+  detectedClaimTypes: DetectedClaimType[];
 }
 
 export function PortalComparisonSetup({
   portalId,
+  configId,
+  configName,
   groupingFields,
   availableFields,
   detectedClaimTypes,
@@ -32,6 +37,7 @@ export function PortalComparisonSetup({
   const [importLoadingPortals, setImportLoadingPortals] = useState(false);
   const [importDone, setImportDone] = useState(false);
   const [templateRefreshKey, setTemplateRefreshKey] = useState(0);
+  const [deleting, setDeleting] = useState(false);
 
   async function openImport() {
     setShowImport(true);
@@ -80,6 +86,23 @@ export function PortalComparisonSetup({
     }
   }
 
+  async function deleteConfig() {
+    if (!confirm(`Delete "${configName}" and all its templates?`)) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/portals/${portalId}/configs/${configId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || "Failed to delete");
+      }
+      router.push(`/portals/${portalId}`);
+    } catch {
+      setDeleting(false);
+    }
+  }
+
   return (
     <TooltipProvider>
     <Card>
@@ -108,22 +131,37 @@ export function PortalComparisonSetup({
             Configure how the AI compares scraped portal data against your uploaded documents.
           </p>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={
-            showImport
-              ? () => {
-                  setShowImport(false);
-                  setImportError(null);
-                }
-              : openImport
-          }
-          className="mt-0.5 h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <Copy className="mr-1.5 h-3.5 w-3.5" />
-          {showImport ? "Cancel" : "Copy from portal"}
-        </Button>
+        <div className="flex items-center gap-1 mt-0.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={
+              showImport
+                ? () => {
+                    setShowImport(false);
+                    setImportError(null);
+                  }
+                : openImport
+            }
+            className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Copy className="mr-1.5 h-3.5 w-3.5" />
+            {showImport ? "Cancel" : "Copy from portal"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={deleteConfig}
+            disabled={deleting}
+            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
+          >
+            {deleting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         {showImport && (
@@ -185,6 +223,7 @@ export function PortalComparisonSetup({
 
         <GroupingFieldConfig
           portalId={portalId}
+          configId={configId}
           currentGroupingFields={groupingFields}
           availableFields={availableFields}
           detectedClaimTypes={detectedClaimTypes}
@@ -193,7 +232,8 @@ export function PortalComparisonSetup({
         <div className="border-t border-border pt-5">
           <TemplateList
             portalId={portalId}
-            groupingField={groupingFields[0] ?? null}
+            configId={configId}
+            groupingFields={groupingFields}
             detectedClaimTypes={detectedClaimTypes}
             availableFields={availableFields}
             refreshKey={templateRefreshKey}

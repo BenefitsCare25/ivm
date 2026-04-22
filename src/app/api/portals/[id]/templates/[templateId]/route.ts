@@ -44,6 +44,7 @@ export async function PATCH(
       where: { id: templateId },
       data: {
         ...(data.name && { name: data.name }),
+        ...(data.providerGroupId !== undefined && { providerGroupId: data.providerGroupId }),
         ...(data.fields && { fields: toInputJson(data.fields) }),
         ...(data.requiredDocuments !== undefined && { requiredDocuments: toInputJson(data.requiredDocuments) }),
         ...(data.businessRules !== undefined && { businessRules: toInputJson(data.businessRules) }),

@@ -18,9 +18,11 @@ async function runExtractionInline(
   apiKey: string,
   userId: string,
   model?: string,
-  baseURL?: string
+  baseURL?: string,
+  displayProvider?: string
 ) {
-  const durationTimer = getExtractionDuration().startTimer({ provider });
+  const shownProvider = displayProvider ?? provider;
+  const durationTimer = getExtractionDuration().startTimer({ provider: shownProvider });
   try {
     const storage = getStorageAdapter();
     const fileData = await storage.download(sourceAsset.storagePath);
@@ -38,7 +40,7 @@ async function runExtractionInline(
     });
 
     durationTimer();
-    getExtractionCounter().inc({ provider, status: "completed" });
+    getExtractionCounter().inc({ provider: shownProvider, status: "completed" });
 
     const [updated] = await Promise.all([
       db.extractionResult.update({
@@ -62,7 +64,7 @@ async function runExtractionInline(
           actor: "SYSTEM",
           payload: {
             extractionId,
-            provider,
+            provider: shownProvider,
             documentType: result.documentType,
             fieldCount: result.fields.length,
           },
@@ -71,14 +73,14 @@ async function runExtractionInline(
     ]);
 
     logger.info(
-      { sessionId, extractionId, provider, fieldCount: result.fields.length },
+      { sessionId, extractionId, provider: shownProvider, fieldCount: result.fields.length },
       "Extraction completed"
     );
 
     return updated;
   } catch (aiErr) {
     durationTimer();
-    getExtractionCounter().inc({ provider, status: "failed" });
+    getExtractionCounter().inc({ provider: shownProvider, status: "failed" });
     const errorMessage = aiErr instanceof Error ? aiErr.message : "Unknown extraction error";
 
     await Promise.all([
@@ -91,12 +93,12 @@ async function runExtractionInline(
           fillSessionId: sessionId,
           eventType: "EXTRACTION_FAILED",
           actor: "SYSTEM",
-          payload: { extractionId, provider, error: errorMessage },
+          payload: { extractionId, provider: shownProvider, error: errorMessage },
         },
       }),
     ]);
 
-    logger.error({ err: aiErr, sessionId, extractionId, provider }, "Extraction failed");
+    logger.error({ err: aiErr, sessionId, extractionId, provider: shownProvider }, "Extraction failed");
 
     if (aiErr instanceof AppError) throw aiErr;
     throw new AppError(`Extraction failed: ${errorMessage}`, 500, "EXTRACTION_FAILED");
@@ -126,13 +128,13 @@ export async function POST(
       throw new ValidationError("No source document uploaded. Upload a file first.");
     }
 
-    const { provider, apiKey, visionModel, baseURL } = await resolveProviderAndKey(session.user.id);
+    const { provider, apiKey, visionModel, baseURL, displayProvider } = await resolveProviderAndKey(session.user.id);
 
     const extraction = await db.extractionResult.create({
       data: {
         fillSessionId: id,
         sourceAssetId: sourceAsset.id,
-        provider,
+        provider: displayProvider,
         status: "PROCESSING",
         startedAt: new Date(),
       },
@@ -164,7 +166,8 @@ export async function POST(
       apiKey,
       session.user.id,
       visionModel,
-      baseURL
+      baseURL,
+      displayProvider
     );
 
     return NextResponse.json(updated);

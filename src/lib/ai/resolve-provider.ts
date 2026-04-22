@@ -45,7 +45,7 @@ export async function resolveProviderAndKey(userId: string): Promise<ResolvedPro
     select: {
       preferredProvider: true,
       modelPreferences: true,
-      apiKeys: { where: { isActive: true }, select: { provider: true, encryptedKey: true } },
+      apiKeys: { where: { isActive: true }, select: { provider: true, encryptedKey: true, endpoint: true } },
     },
   });
 
@@ -65,6 +65,7 @@ export async function resolveProviderAndKey(userId: string): Promise<ResolvedPro
       visionModel: prefs?.visionModel ?? defaults.vision,
       textModel: prefs?.textModel ?? defaults.text,
       displayProvider: provider,
+      ...(provider === "azure-foundry" && key.endpoint ? { baseURL: key.endpoint } : {}),
     };
   }
 

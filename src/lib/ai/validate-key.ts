@@ -89,7 +89,37 @@ async function validateGeminiKey(apiKey: string): Promise<boolean> {
   }
 }
 
-export async function validateApiKey(provider: AIProvider, apiKey: string): Promise<boolean> {
+async function validateAzureFoundryKey(apiKey: string, endpoint: string): Promise<boolean> {
+  try {
+    const client = new Anthropic({ apiKey, baseURL: endpoint });
+    await client.messages.create(
+      {
+        model: "claude-haiku-4-5",
+        max_tokens: 1,
+        messages: [{ role: "user", content: "Hi" }],
+      },
+      { signal: AbortSignal.timeout(15_000) }
+    );
+    return true;
+  } catch (err: unknown) {
+    const error = err as { status?: number; message?: string; name?: string };
+    if (error.name === "AbortError") {
+      throw new ValidationError("Azure Foundry key validation timed out. Check your endpoint URL and try again.");
+    }
+    if (error.status === 401) {
+      throw new ValidationError("Invalid Azure AI Foundry API key. Check your key and try again.");
+    }
+    if (error.status === 403) {
+      throw new ValidationError("Azure AI Foundry API key does not have permission. Check your resource access.");
+    }
+    if (error.status === 404) {
+      throw new ValidationError("Azure AI Foundry endpoint not found. Check your endpoint URL.");
+    }
+    throw new ValidationError(`Failed to validate Azure Foundry key: ${error.message || "Unknown error"}`);
+  }
+}
+
+export async function validateApiKey(provider: AIProvider, apiKey: string, endpoint?: string): Promise<boolean> {
   switch (provider) {
     case "anthropic":
       return validateAnthropicKey(apiKey);
@@ -97,5 +127,8 @@ export async function validateApiKey(provider: AIProvider, apiKey: string): Prom
       return validateOpenAIKey(apiKey);
     case "gemini":
       return validateGeminiKey(apiKey);
+    case "azure-foundry":
+      if (!endpoint) throw new ValidationError("Endpoint URL is required for Azure AI Foundry.");
+      return validateAzureFoundryKey(apiKey, endpoint);
   }
 }

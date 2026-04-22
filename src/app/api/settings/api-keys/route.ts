@@ -15,7 +15,7 @@ export async function GET() {
     const [keys, user] = await Promise.all([
       db.userApiKey.findMany({
         where: { userId: session.user.id },
-        select: { provider: true, keyPrefix: true, isActive: true, updatedAt: true },
+        select: { provider: true, keyPrefix: true, isActive: true, updatedAt: true, endpoint: true },
         orderBy: { createdAt: "asc" },
       }),
       db.user.findUnique({
@@ -45,9 +45,9 @@ export async function POST(req: Request) {
       throw new ValidationError("Invalid input", { provider: ["Invalid provider or missing API key"] });
     }
 
-    const { provider, apiKey } = parsed.data;
+    const { provider, apiKey, endpoint } = parsed.data;
 
-    await validateApiKey(provider, apiKey);
+    await validateApiKey(provider, apiKey, endpoint);
 
     const encryptedKey = encrypt(apiKey);
     const keyPrefix = maskApiKey(apiKey);
@@ -59,13 +59,15 @@ export async function POST(req: Request) {
         provider,
         encryptedKey,
         keyPrefix,
+        endpoint: endpoint ?? null,
       },
       update: {
         encryptedKey,
         keyPrefix,
         isActive: true,
+        endpoint: endpoint ?? null,
       },
-      select: { provider: true, keyPrefix: true, isActive: true, updatedAt: true },
+      select: { provider: true, keyPrefix: true, isActive: true, updatedAt: true, endpoint: true },
     });
 
     const existingPreferred = await db.user.findUnique({

@@ -50,7 +50,7 @@ export async function scheduleStorageCleanup(): Promise<void> {
 }
 
 export function startCleanupWorker(
-  processor: () => Promise<{ deleted: number; freedBytes: number }>
+  processor: () => Promise<unknown>
 ): Worker | null {
   const conn = getQueueConnection();
   if (!conn) return null;
@@ -62,7 +62,7 @@ export function startCleanupWorker(
 
   worker.on("completed", (job, result) => {
     logger.info(
-      { jobId: job.id, ...result },
+      { jobId: job.id, result },
       "[cleanup] Storage cleanup job completed"
     );
   });

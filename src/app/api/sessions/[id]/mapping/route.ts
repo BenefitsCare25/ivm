@@ -54,7 +54,7 @@ export async function POST(
       throw new ValidationError("Target has no detected fields to map to.");
     }
 
-    const { provider, apiKey, textModel, baseURL } = await resolveProviderAndKey(session.user.id);
+    const { provider, apiKey, textModel, baseURL, displayProvider } = await resolveProviderAndKey(session.user.id);
 
     try {
       const result = await proposeFieldMappings({
@@ -87,7 +87,7 @@ export async function POST(
             eventType: "MAPPING_PROPOSED",
             actor: "SYSTEM",
             payload: {
-              provider,
+              provider: displayProvider,
               mappingCount: result.mappings.length,
               mappedCount: result.mappings.filter(
                 (m: { sourceFieldId: string | null }) => m.sourceFieldId !== null
@@ -122,12 +122,12 @@ export async function POST(
           fillSessionId: id,
           eventType: "MAPPING_FAILED",
           actor: "SYSTEM",
-          payload: { provider, error: errorMessage },
+          payload: { provider: displayProvider, error: errorMessage },
         },
       });
 
       logger.error(
-        { err: aiErr, sessionId: id, provider },
+        { err: aiErr, sessionId: id, provider: displayProvider },
         "Mapping failed"
       );
 

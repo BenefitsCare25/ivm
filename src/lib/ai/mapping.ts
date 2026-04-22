@@ -129,10 +129,11 @@ export async function proposeFieldMappings(
   let rawResponse: unknown;
 
   switch (provider) {
-    case "anthropic": {
+    case "anthropic":
+    case "azure-foundry": {
       const result = await withRetry(
         () => callAnthropic(apiKey, systemPrompt, userPrompt, request.model, request.baseURL),
-        { maxRetries: 2, operation: "mapping:anthropic" }
+        { maxRetries: 2, operation: `mapping:${provider}` }
       );
       rawText = result.rawText;
       rawResponse = result.rawResponse;

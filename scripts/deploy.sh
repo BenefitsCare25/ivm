@@ -48,6 +48,11 @@ ssh -i "$KEY" "$VPS" "
   # Build on VPS using correct env
   npm run build 2>&1 | tail -5
 
+  # Standalone mode requires static + public symlinked into .next/standalone/
+  mkdir -p .next/standalone/.next
+  ln -sfn /var/www/ivm/.next/static .next/standalone/.next/static
+  ln -sfn /var/www/ivm/public .next/standalone/public
+
   pm2 restart ivm ivm-worker ivm-detail-worker
   sleep 3
   curl -s http://localhost:3001/api/health

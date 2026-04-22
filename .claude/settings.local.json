@@ -102,7 +102,19 @@
       "Read(//c/Program Files/Docker/Docker/resources/**)",
       "Bash(awk '$1 > 500 {print}')",
       "Bash(git:*)",
-      "Bash(node_modules/.bin/tsc --noEmit --pretty false)"
+      "Bash(node_modules/.bin/tsc --noEmit --pretty false)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:support.anthropic.com)",
+      "WebFetch(domain:support.claude.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(C:\\\\Program Files\\\\Docker\\\\Docker\\\\resources\\\\bin\\\\docker compose *)",
+      "Bash(PGPASSWORD=ivm_dev_password psql *)",
+      "Bash(start *)",
+      "Bash(openssl rand *)",
+      "WebFetch(domain:azure.microsoft.com)",
+      "WebFetch(domain:privacy.claude.com)",
+      "WebFetch(domain:www.anthropic.com)"
     ]
   }
 }

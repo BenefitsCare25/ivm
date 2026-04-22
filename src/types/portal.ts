@@ -231,6 +231,8 @@ export interface ComparisonTemplateSummary {
   id: string;
   portalId: string;
   comparisonConfigId: string | null;
+  providerGroupId: string | null;
+  providerGroupName: string | null;
   name: string;
   groupingKey: Record<string, string>;
   fields: TemplateField[];
@@ -246,6 +248,27 @@ export interface ComparisonConfigSummary {
   name: string;
   groupingFields: string[];
   templateCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ─── Provider Groups ──────────────────────────────────────────────
+
+export const PROVIDER_GROUP_MATCH_MODES = ["list", "others"] as const;
+export type ProviderGroupMatchMode = (typeof PROVIDER_GROUP_MATCH_MODES)[number];
+
+export const PROVIDER_GROUP_MATCH_MODE_LABELS: Record<ProviderGroupMatchMode, string> = {
+  list: "Match from list",
+  others: "Match all others",
+};
+
+export interface ProviderGroupSummary {
+  id: string;
+  portalId: string;
+  name: string;
+  providerFieldName: string;
+  matchMode: ProviderGroupMatchMode;
+  members: string[];
   createdAt: string;
   updatedAt: string;
 }
