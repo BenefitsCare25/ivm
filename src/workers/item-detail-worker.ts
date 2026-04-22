@@ -23,6 +23,7 @@ import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-
 import { runCrossItemChecks } from "@/lib/validations/cross-item";
 import { checkForeignCurrency } from "@/lib/validations/currency";
 import { runFullCleanup } from "@/lib/storage/cleanup";
+import { toInputJson } from "@/lib/utils";
 import { createHash } from "crypto";
 import type { MatchedTemplate } from "@/lib/comparison-templates";
 import type { DetailSelectors, TemplateField, BusinessRule, RequiredDocument, BusinessRuleResult, RequiredDocumentCheck } from "@/types/portal";
@@ -127,7 +128,7 @@ async function processItemDetailCore(
       if (useNewData) {
         await db.trackedItem.update({
           where: { id: trackedItemId },
-          data: { detailData: JSON.parse(JSON.stringify(detailData)) },
+          data: { detailData: toInputJson(detailData) },
         });
       } else {
         logger.warn(
@@ -192,6 +193,7 @@ async function processItemDetailCore(
       // ── AI extraction from downloaded files ─────────────────
       const { provider, apiKey, visionModel, textModel, baseURL, displayProvider } = await resolveProviderAndKey(userId);
       const pdfFields: Record<string, string> = {};
+      const pdfRawFields: Record<string, string> = {};
       const fileExtractions: { fileName: string; documentType: string; fields: { label: string; value: string }[] }[] = [];
       const tamperingTargets: { fileName: string; fileHash: string }[] = [];
 
@@ -241,6 +243,7 @@ async function processItemDetailCore(
 
             for (const field of extraction.fields) {
               pdfFields[field.label] = field.value;
+              pdfRawFields[field.label] = field.rawText ?? field.value;
             }
 
             fileExtractions.push({
@@ -279,9 +282,11 @@ async function processItemDetailCore(
       });
 
       // Run tampering checks after the delete so results are not immediately wiped
-      for (const { fileName, fileHash } of tamperingTargets) {
-        await checkTampering(trackedItemId, portalId, item.portalItemId, fileName, fileHash);
-      }
+      await Promise.all(
+        tamperingTargets.map(({ fileName, fileHash }) =>
+          checkTampering(trackedItemId, portalId, item.portalItemId, fileName, fileHash)
+        )
+      );
 
       const classifiedDocs: { documentTypeId: string | null; documentTypeName: string | null; fileName: string }[] = [];
 
@@ -334,8 +339,8 @@ async function processItemDetailCore(
       }
 
       // ── Foreign currency detection + SGD conversion ────────
-      if (Object.keys(pdfFields).length > 0) {
-        checkForeignCurrency(trackedItemId, pdfFields, effectiveDetailData).catch((err) =>
+      if (Object.keys(pdfRawFields).length > 0) {
+        checkForeignCurrency(trackedItemId, pdfRawFields, effectiveDetailData).catch((err) =>
           logger.warn({ err, trackedItemId }, "[worker] Currency check failed (non-fatal)")
         );
       }
@@ -428,27 +433,25 @@ async function processItemDetailCore(
           comparisonResult.mismatchCount = comparisonResult.fieldComparisons.filter((c) => c.status === "MISMATCH").length;
         }
 
+        const comparisonsJson = toInputJson(comparisonResult.fieldComparisons);
+        const diagnosisJson = comparisonResult.diagnosisAssessment
+          ? toInputJson(comparisonResult.diagnosisAssessment)
+          : null;
+
+        const comparisonData = {
+          provider: displayProvider,
+          templateId,
+          fieldComparisons: comparisonsJson,
+          matchCount: comparisonResult.matchCount,
+          mismatchCount: comparisonResult.mismatchCount,
+          summary: comparisonResult.summary,
+          diagnosisAssessment: diagnosisJson,
+          completedAt: new Date(),
+        };
         await db.comparisonResult.upsert({
           where: { trackedItemId },
-          create: {
-            trackedItemId,
-            provider: displayProvider,
-            templateId,
-            fieldComparisons: JSON.parse(JSON.stringify(comparisonResult.fieldComparisons)),
-            matchCount: comparisonResult.matchCount,
-            mismatchCount: comparisonResult.mismatchCount,
-            summary: comparisonResult.summary,
-            completedAt: new Date(),
-          },
-          update: {
-            provider: displayProvider,
-            templateId,
-            fieldComparisons: JSON.parse(JSON.stringify(comparisonResult.fieldComparisons)),
-            matchCount: comparisonResult.matchCount,
-            mismatchCount: comparisonResult.mismatchCount,
-            summary: comparisonResult.summary,
-            completedAt: new Date(),
-          },
+          create: { trackedItemId, ...comparisonData },
+          update: comparisonData,
         });
 
         // Clean up old validation results from previous attempts before re-inserting
@@ -469,14 +472,14 @@ async function processItemDetailCore(
                   ruleType: "BUSINESS_RULE",
                   status,
                   message: `${r.category}: ${r.rule}`,
-                  metadata: JSON.parse(JSON.stringify({
+                  metadata: toInputJson({
                     rule: r.rule,
                     category: r.category,
                     severity: matchedRule?.severity ?? "warning",
                     evidence: r.evidence,
                     notes: r.notes,
                     aiStatus: r.status,
-                  })),
+                  }),
                 },
               });
             });
@@ -497,11 +500,11 @@ async function processItemDetailCore(
                   ruleType: "REQUIRED_DOCUMENT",
                   status: "FAIL",
                   message: `Required document not found: ${d.documentTypeName}`,
-                  metadata: JSON.parse(JSON.stringify({
+                  metadata: toInputJson({
                     documentTypeName: d.documentTypeName,
                     group: matchedReqDoc?.group ?? null,
                     notes: d.notes,
-                  })),
+                  }),
                 },
               });
             });

@@ -220,7 +220,7 @@ export function ExpandedPanel({ item, portalId, sessionId, columnCount }: Expand
               />
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-[1fr_1.5fr_1.2fr] overflow-hidden">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-[0.8fr_2fr_1fr] overflow-hidden">
               <PortalDetailsColumn
                 detailData={item.detailData}
                 listData={item.listData}

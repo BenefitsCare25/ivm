@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { parseCurrencyAmount, isAmountField, isDateField } from "@/lib/currency/detector";
-import { getSgdRate } from "@/lib/currency/mas-rates";
+import { resolveSgdRate } from "@/lib/currency";
 
 export interface CurrencyConversionMetadata {
   fieldLabel: string;
@@ -13,6 +13,7 @@ export interface CurrencyConversionMetadata {
   raw: string;
   isFallback: boolean;
   isFuture: boolean;
+  source: "mas" | "exchangerate-api";
 }
 
 /**
@@ -27,8 +28,6 @@ export async function checkForeignCurrency(
   pdfFields: Record<string, string>,
   pageFields?: Record<string, string>
 ): Promise<void> {
-  const allFields = { ...(pageFields ?? {}), ...pdfFields };
-
   // Resolve incurred date — prefer portal data (more reliable), fall back to PDF fields
   const incurredDate = findIncurredDate(pageFields ?? {}) ?? findIncurredDate(pdfFields);
   const dateToUse = incurredDate ?? new Date().toISOString().split("T")[0];
@@ -42,7 +41,7 @@ export async function checkForeignCurrency(
     if (!parsed) continue;
 
     try {
-      const result = await getSgdRate(parsed.code, dateToUse);
+      const result = await resolveSgdRate(parsed.code, dateToUse);
       if (result === null) continue;
 
       const sgdAmount = Math.round(parsed.amount * result.rate * 100) / 100;
@@ -56,6 +55,7 @@ export async function checkForeignCurrency(
         raw: parsed.raw,
         isFallback: result.isFallback,
         isFuture: result.isFuture,
+        source: result.source,
       });
     } catch (err) {
       logger.warn({ err, trackedItemId, label, currency: parsed.code }, "[currency] Rate fetch failed (non-fatal)");
@@ -76,7 +76,7 @@ export async function checkForeignCurrency(
           trackedItemId,
           ruleType: "CURRENCY_CONVERSION",
           status: "WARNING",
-          message: `${conv.fieldLabel}: ${conv.originalCurrency} ${conv.originalAmount.toFixed(2)} ≈ SGD ${conv.sgdAmount.toFixed(2)} (rate ${conv.rate.toFixed(4)} on ${conv.rateDate}${conv.isFuture ? " — estimated, future date" : conv.isFallback ? " — nearest available rate" : ""})`,
+          message: `${conv.fieldLabel}: ${conv.originalCurrency} ${conv.originalAmount.toFixed(2)} ≈ SGD ${conv.sgdAmount.toFixed(2)} (rate ${conv.rate.toFixed(4)} on ${conv.rateDate}${conv.isFuture ? " — estimated, future date" : conv.isFallback && conv.source === "mas" ? " — nearest MAS business day" : conv.source === "exchangerate-api" ? " — live rate" : ""})`,
           metadata: JSON.parse(JSON.stringify(conv)),
         },
       })

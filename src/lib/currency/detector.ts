@@ -82,10 +82,10 @@ export function parseCurrencyAmount(value: string): ParsedAmount | null {
 
 /** Returns true if a field label looks like a monetary amount field. */
 export function isAmountField(label: string): boolean {
-  return /amount|total|charge|fee|cost|invoice|bill|claim|paid|payable/i.test(label);
+  return /amount|total|charge|fee|cost|invoice|bill|claim|paid|payable|balance|outstanding|co-?pay|deductible|premium|settlement|reimburs/i.test(label);
 }
 
 /** Returns true if a field label looks like a date field suitable for incurred date. */
 export function isDateField(label: string): boolean {
-  return /incurred|date of (visit|service|treatment|admission|discharge)|admission date|discharge date|invoice date|bill date/i.test(label);
+  return /incurred|service.date|treatment.date|visit.date|admission.date|discharge.date|invoice.date|bill.date|date.of.(visit|service|treatment|admission|discharge)/i.test(label);
 }

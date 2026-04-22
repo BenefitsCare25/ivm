@@ -1,5 +1,6 @@
 import type { TemplateField, RequiredDocument, BusinessRule } from "@/types/portal";
 import { BUSINESS_RULE_SEVERITY_LABELS } from "@/types/portal";
+import { DIAGNOSIS_JSON_SCHEMA, DIAGNOSIS_RULES } from "./prompts-comparison";
 
 const MAX_VALUE_LENGTH = 200;
 
@@ -61,6 +62,7 @@ Return ONLY valid JSON with this exact structure:
       "notes": "Optional explanation"
     }
   ],
+  ${DIAGNOSIS_JSON_SCHEMA},
   "summary": "Brief narrative summary — highlight key discrepancies and rule violations"
 }
 
@@ -87,6 +89,8 @@ REQUIRED DOCUMENTS CHECK:
 1. Check if each required document type appears in the "Documents found" list.
 2. For "one_of" groups, at least one document in the group must be present.
 3. Use semantic matching — "Tax Invoice" matches "Invoice", "Medical Receipt" matches "Receipt".
+
+${DIAGNOSIS_RULES}
 
 Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.`;
 }

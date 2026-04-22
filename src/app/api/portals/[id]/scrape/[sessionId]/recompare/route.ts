@@ -147,6 +147,7 @@ export async function POST(
         matchCount: result.matchCount,
         mismatchCount: result.mismatchCount,
         summary: result.summary,
+        diagnosisAssessment: result.diagnosisAssessment ? toInputJson(result.diagnosisAssessment) : null,
         completedAt: new Date(),
       };
       await db.comparisonResult.upsert({

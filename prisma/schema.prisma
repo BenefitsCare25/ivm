@@ -442,16 +442,17 @@ model TrackedItemFile {
 }
 
 model ComparisonResult {
-  id               String   @id @default(cuid())
-  trackedItemId    String   @unique
-  provider         String   @default("anthropic")
-  templateId       String?
-  fieldComparisons Json     @default("[]")
-  matchCount       Int      @default(0)
-  mismatchCount    Int      @default(0)
-  summary          String?
-  completedAt      DateTime?
-  errorMessage     String?
+  id                    String   @id @default(cuid())
+  trackedItemId         String   @unique
+  provider              String   @default("anthropic")
+  templateId            String?
+  fieldComparisons      Json     @default("[]")
+  matchCount            Int      @default(0)
+  mismatchCount         Int      @default(0)
+  summary               String?
+  diagnosisAssessment   Json?
+  completedAt           DateTime?
+  errorMessage          String?
 
   trackedItem TrackedItem @relation(fields: [trackedItemId], references: [id], onDelete: Cascade)
 

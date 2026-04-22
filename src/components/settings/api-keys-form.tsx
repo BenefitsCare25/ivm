@@ -89,6 +89,7 @@ export function ApiKeysForm() {
   const [removingProvider, setRemovingProvider] = useState<string | null>(null);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
   const [endpointInputs, setEndpointInputs] = useState<Record<string, string>>({});
+  const [validationModelInputs, setValidationModelInputs] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [successes, setSuccesses] = useState<Record<string, string>>({});
   const modelSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -129,7 +130,12 @@ export function ApiKeysForm() {
       const res = await fetch("/api/settings/api-keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, apiKey, ...(endpoint ? { endpoint } : {}) }),
+        body: JSON.stringify({
+          provider,
+          apiKey,
+          ...(endpoint ? { endpoint } : {}),
+          ...(validationModelInputs[provider] ? { validationModel: validationModelInputs[provider] } : {}),
+        }),
       });
 
       const data = await res.json();
@@ -141,6 +147,7 @@ export function ApiKeysForm() {
 
       setKeyInputs((prev) => ({ ...prev, [provider]: "" }));
       setEndpointInputs((prev) => ({ ...prev, [provider]: "" }));
+      setValidationModelInputs((prev) => ({ ...prev, [provider]: "" }));
       setSuccesses((prev) => ({ ...prev, [provider]: "Key validated and saved" }));
       await fetchKeys();
 
@@ -290,16 +297,36 @@ export function ApiKeysForm() {
               ) : (
                 <div className="space-y-2">
                   {needsEndpoint && (
-                    <Input
-                      type="url"
-                      placeholder={info.endpointPlaceholder}
-                      value={endpointInputs[provider] || ""}
-                      onChange={(e) => {
-                        setEndpointInputs((prev) => ({ ...prev, [provider]: e.target.value }));
-                        setErrors((prev) => ({ ...prev, [provider]: "" }));
-                      }}
-                      disabled={isSaving}
-                    />
+                    <>
+                      <Input
+                        type="url"
+                        placeholder={info.endpointPlaceholder}
+                        value={endpointInputs[provider] || ""}
+                        onChange={(e) => {
+                          setEndpointInputs((prev) => ({ ...prev, [provider]: e.target.value }));
+                          setErrors((prev) => ({ ...prev, [provider]: "" }));
+                        }}
+                        disabled={isSaving}
+                      />
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                          Deployed Model
+                        </label>
+                        <select
+                          value={validationModelInputs[provider] || PROVIDER_MODELS[provider].defaults.vision}
+                          onChange={(e) => setValidationModelInputs((prev) => ({ ...prev, [provider]: e.target.value }))}
+                          disabled={isSaving}
+                          className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                        >
+                          {PROVIDER_MODELS[provider].models.map((m) => (
+                            <option key={m.id} value={m.id}>{m.label}</option>
+                          ))}
+                        </select>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                          Select the model you deployed in Azure AI Foundry
+                        </p>
+                      </div>
+                    </>
                   )}
                   <div className="flex gap-2">
                     <Input

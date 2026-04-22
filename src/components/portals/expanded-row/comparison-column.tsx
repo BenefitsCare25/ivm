@@ -1,8 +1,8 @@
 "use client";
 
-import { CheckCircle2, XCircle, ShieldAlert, TrendingUp } from "lucide-react";
+import { CheckCircle2, XCircle, ShieldAlert, TrendingUp, Stethoscope } from "lucide-react";
 import { ComparisonStatusBadge } from "../portal-status-badge";
-import type { FieldComparison, ComparisonFieldStatus, ValidationAlert, ComparisonSummary } from "@/types/portal";
+import type { FieldComparison, ValidationAlert, ComparisonSummary } from "@/types/portal";
 import { FWA_LABELS } from "@/types/portal";
 
 interface ComparisonColumnProps {
@@ -10,18 +10,20 @@ interface ComparisonColumnProps {
   fwaAlerts: ValidationAlert[];
 }
 
-const MATCH: ComparisonFieldStatus = "MATCH";
+const SOURCE_LABELS: Record<string, string> = {
+  document: "From Document",
+  portal: "From Portal",
+  inferred: "AI Inferred",
+};
 
-function findAiDiagnosis(fieldComparisons: FieldComparison[]): string | null {
-  const field = fieldComparisons.find((f) => {
-    const name = f.fieldName.toLowerCase();
-    return name.includes("diagnosis") || name === "icd-10" || name.includes("icd10") || name.includes("icd 10");
-  });
-  return field?.pdfValue ?? null;
-}
+const SOURCE_COLORS: Record<string, string> = {
+  document: "bg-emerald-500/20 text-emerald-400",
+  portal: "bg-amber-500/20 text-amber-400",
+  inferred: "bg-purple-500/20 text-purple-400",
+};
 
 export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColumnProps) {
-  const diagnosis = comparisonResult ? findAiDiagnosis(comparisonResult.fieldComparisons) : null;
+  const diagnosis = comparisonResult?.diagnosisAssessment ?? null;
 
   const currencyAlerts = fwaAlerts.filter((a) => a.ruleType === "CURRENCY_CONVERSION");
   const otherAlerts = fwaAlerts.filter((a) => a.ruleType !== "CURRENCY_CONVERSION");
@@ -72,17 +74,9 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
             </p>
           )}
 
-          {/* Diagnosis */}
-          {diagnosis && (
-            <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
-              <span className="text-xs font-medium text-muted-foreground shrink-0">Diagnosis:</span>
-              <span className="text-xs text-foreground">{diagnosis}</span>
-            </div>
-          )}
-
           {/* Full field comparison table */}
           <div className="overflow-hidden rounded-md border border-border">
-            <div className="max-h-[350px] overflow-y-auto">
+            <div className="max-h-[450px] overflow-y-auto">
               <table className="w-full text-xs">
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-muted">
@@ -100,14 +94,14 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                         field.status === "MISMATCH" ? "bg-status-error/5" : ""
                       }`}
                     >
-                      <td className="px-2 py-1.5 font-medium text-foreground truncate max-w-[120px]" title={field.fieldName}>
+                      <td className="px-2 py-1.5 font-medium text-foreground truncate max-w-[200px]" title={field.fieldName}>
                         {field.fieldName}
                       </td>
-                      <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[120px]" title={field.pageValue ?? ""}>
-                        {field.pageValue || "\u2014"}
+                      <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[200px]" title={field.pageValue ?? ""}>
+                        {field.pageValue || "—"}
                       </td>
-                      <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[120px]" title={field.pdfValue ?? ""}>
-                        {field.pdfValue || "\u2014"}
+                      <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[200px]" title={field.pdfValue ?? ""}>
+                        {field.pdfValue || "—"}
                       </td>
                       <td className="px-2 py-1.5">
                         <ComparisonStatusBadge status={field.status} />
@@ -119,6 +113,29 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
             </div>
           </div>
         </>
+      )}
+
+      {/* Diagnosis Assessment */}
+      {diagnosis && (
+        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 space-y-1">
+          <div className="flex items-center gap-2">
+            <Stethoscope className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-xs font-medium text-foreground">{diagnosis.diagnosis}</span>
+            {diagnosis.icdCode && (
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                {diagnosis.icdCode}
+              </span>
+            )}
+            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${SOURCE_COLORS[diagnosis.source] ?? "bg-muted text-muted-foreground"}`}>
+              {SOURCE_LABELS[diagnosis.source] ?? diagnosis.source}
+            </span>
+          </div>
+          {diagnosis.evidence && (
+            <p className="text-[11px] text-muted-foreground leading-relaxed pl-5.5">
+              {diagnosis.evidence}
+            </p>
+          )}
+        </div>
       )}
 
       {/* Currency Conversion Notices */}
@@ -138,6 +155,7 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                 fieldLabel?: string;
                 isFallback?: boolean;
                 isFuture?: boolean;
+                source?: "mas" | "exchangerate-api";
               } | null;
               return (
                 <div
@@ -163,9 +181,14 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                               ESTIMATED
                             </span>
                           )}
-                          {!meta.isFuture && meta.isFallback && (
+                          {!meta.isFuture && meta.isFallback && meta.source === "mas" && (
                             <span className="ml-1.5 inline-block rounded px-1 py-0.5 text-[9px] font-semibold bg-blue-500/20 text-blue-400">
                               NEAREST DATE
+                            </span>
+                          )}
+                          {meta.source === "exchangerate-api" && (
+                            <span className="ml-1.5 inline-block rounded px-1 py-0.5 text-[9px] font-semibold bg-emerald-500/20 text-emerald-400">
+                              LIVE
                             </span>
                           )}
                         </p>

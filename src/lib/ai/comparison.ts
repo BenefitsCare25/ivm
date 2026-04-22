@@ -7,7 +7,7 @@ import { PROVIDER_MODELS } from "@/lib/validations/api-key";
 import { stripMarkdownFences } from "./parse";
 import { getComparisonSystemPrompt, getComparisonUserPrompt, getTemplatedComparisonUserPrompt } from "./prompts-comparison";
 import type { AIProvider } from "./types";
-import type { FieldComparison, ComparisonFieldStatus, TemplateField, BusinessRuleResult, RequiredDocumentCheck } from "@/types/portal";
+import type { FieldComparison, ComparisonFieldStatus, TemplateField, BusinessRuleResult, RequiredDocumentCheck, DiagnosisAssessment } from "@/types/portal";
 
 export interface ComparisonRequest {
   pageFields: Record<string, string>;
@@ -30,6 +30,7 @@ export interface ComparisonResponse {
   summary: string;
   businessRuleResults?: BusinessRuleResult[];
   requiredDocumentsCheck?: RequiredDocumentCheck[];
+  diagnosisAssessment?: DiagnosisAssessment | null;
   rawResponse: unknown;
 }
 
@@ -179,6 +180,25 @@ function parseComparisonResponse(rawText: string): Omit<ComparisonResponse, "raw
       }));
     }
 
+    // Parse diagnosis assessment (optional)
+    const VALID_SOURCES = ["document", "portal", "inferred"] as const;
+    let diagnosisAssessment: DiagnosisAssessment | null = null;
+    if (parsed.diagnosisAssessment && typeof parsed.diagnosisAssessment === "object") {
+      const da = parsed.diagnosisAssessment as Record<string, unknown>;
+      if (da.diagnosis && String(da.diagnosis).trim()) {
+        const rawSource = String(da.source ?? "inferred");
+        diagnosisAssessment = {
+          diagnosis: String(da.diagnosis),
+          icdCode: da.icdCode ? String(da.icdCode) : null,
+          source: VALID_SOURCES.includes(rawSource as typeof VALID_SOURCES[number])
+            ? (rawSource as DiagnosisAssessment["source"])
+            : "inferred",
+          confidence: typeof da.confidence === "number" ? da.confidence : 0.5,
+          evidence: String(da.evidence ?? ""),
+        };
+      }
+    }
+
     return {
       fieldComparisons: comparisons,
       matchCount,
@@ -186,6 +206,7 @@ function parseComparisonResponse(rawText: string): Omit<ComparisonResponse, "raw
       summary: String(parsed.summary ?? ""),
       businessRuleResults,
       requiredDocumentsCheck,
+      diagnosisAssessment,
     };
   } catch {
     logger.error({ rawText: rawText.slice(0, 500) }, "[ai] Failed to parse comparison response");

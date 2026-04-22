@@ -1,13 +1,8 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { FileText, Download, ExternalLink, Loader2 } from "lucide-react";
-
-interface ItemFile {
-  id: string;
-  fileName: string;
-  mimeType: string;
-}
+import { FileText, Download, ZoomIn, X, Loader2 } from "lucide-react";
+import type { ItemFile } from "@/types/portal";
 
 interface DocumentViewerColumnProps {
   files: ItemFile[];
@@ -27,7 +22,7 @@ function isImage(mimeType: string, fileName: string): boolean {
 }
 
 function isPdf(mimeType: string, fileName: string): boolean {
-  if (mimeType === "application/pdf" || mimeType.startsWith("application/pdf")) return true;
+  if (mimeType === "application/pdf") return true;
   return fileName.toLowerCase().endsWith(".pdf");
 }
 
@@ -65,67 +60,201 @@ function useBlobUrl(apiUrl: string) {
   return { blobUrl, loading, error };
 }
 
-function ImageViewer({ url, fileName }: { url: string; fileName: string }) {
+function ImageLightbox({ blobUrl, fileName, onClose }: { blobUrl: string; fileName: string; onClose: () => void }) {
+  const offsetRef = useRef({ x: 0, y: 0 });
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [scale, setScale] = useState(1);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCloseRef.current();
+    }
+    const container = containerRef.current;
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
+      setScale((prev) => {
+        const next = Math.min(Math.max(prev * (e.deltaY < 0 ? 1.15 : 0.87), 0.25), 10);
+        return next === prev ? prev : next;
+      });
+    }
+    document.addEventListener("keydown", onKey);
+    container?.addEventListener("wheel", onWheel, { passive: false });
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      container?.removeEventListener("wheel", onWheel);
+      document.body.style.overflow = "";
+    };
+  }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    setIsDragging(true);
-    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: offset.x, origY: offset.y };
-  }, [offset]);
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: offsetRef.current.x, origY: offsetRef.current.y };
+  }, []);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!dragRef.current) return;
-    const dx = e.clientX - dragRef.current.startX;
-    const dy = e.clientY - dragRef.current.startY;
-    setOffset({ x: dragRef.current.origX + dx, y: dragRef.current.origY + dy });
+    const next = {
+      x: dragRef.current.origX + (e.clientX - dragRef.current.startX),
+      y: dragRef.current.origY + (e.clientY - dragRef.current.startY),
+    };
+    offsetRef.current = next;
+    setOffset(next);
   }, []);
 
   const handleMouseUp = useCallback(() => {
     dragRef.current = null;
-    setIsDragging(false);
   }, []);
 
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setScale(1);
+    offsetRef.current = { x: 0, y: 0 };
+    setOffset({ x: 0, y: 0 });
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute top-4 right-4 z-10 rounded-full bg-card/80 p-2 text-foreground hover:bg-card transition-colors"
+      >
+        <X className="h-5 w-5" />
+      </button>
+      <p className="absolute top-4 left-4 text-sm text-white/70 select-none">{fileName}</p>
+      <p className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-white/40 select-none">
+        Scroll to zoom &middot; Drag to pan &middot; Double-click to reset
+      </p>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={blobUrl}
+        alt={fileName}
+        className="max-h-[90vh] max-w-[90vw] select-none"
+        style={{
+          transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+          cursor: "grab",
+        }}
+        draggable={false}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={handleDoubleClick}
+        onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e); }}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      />
+    </div>
+  );
+}
+
+function ImageViewer({ url, fileName }: { url: string; fileName: string }) {
+  const [showLightbox, setShowLightbox] = useState(false);
   const { blobUrl, loading, error } = useBlobUrl(url);
+
+  const closeLightbox = useCallback(() => setShowLightbox(false), []);
 
   if (loading) return <ViewerLoading />;
   if (error || !blobUrl) return <ViewerError fileName={fileName} url={url} />;
 
   return (
+    <>
+      <div
+        className="relative h-[500px] w-full overflow-hidden rounded-md border border-border bg-muted/30 cursor-pointer group"
+        onClick={() => setShowLightbox(true)}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={blobUrl}
+          alt={fileName}
+          className="absolute top-0 left-0 w-full select-none"
+          draggable={false}
+        />
+        <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors">
+          <ZoomIn className="h-8 w-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+        </div>
+      </div>
+      {showLightbox && (
+        <ImageLightbox blobUrl={blobUrl} fileName={fileName} onClose={closeLightbox} />
+      )}
+    </>
+  );
+}
+
+function PdfLightbox({ blobUrl, fileName, onClose }: { blobUrl: string; fileName: string; onClose: () => void }) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCloseRef.current();
+    }
+    document.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, []);
+
+  return (
     <div
-      className="relative h-[500px] w-full overflow-hidden rounded-md border border-border bg-muted/30"
-      style={{ cursor: isDragging ? "grabbing" : "grab" }}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      onClick={onClose}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={blobUrl}
-        alt={fileName}
-        className="absolute top-0 left-0 w-full select-none"
-        style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
-        draggable={false}
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute top-4 right-4 z-10 rounded-full bg-card/80 p-2 text-foreground hover:bg-card transition-colors"
+      >
+        <X className="h-5 w-5" />
+      </button>
+      <p className="absolute top-4 left-4 text-sm text-white/70 select-none">{fileName}</p>
+      <iframe
+        src={`${blobUrl}#view=FitH`}
+        className="h-[90vh] w-[90vw] rounded-md"
+        title={fileName}
+        onClick={(e) => e.stopPropagation()}
       />
     </div>
   );
 }
 
 function PdfViewer({ url, fileName }: { url: string; fileName: string }) {
+  const [showLightbox, setShowLightbox] = useState(false);
   const { blobUrl, loading, error } = useBlobUrl(url);
+
+  const closeLightbox = useCallback(() => setShowLightbox(false), []);
 
   if (loading) return <ViewerLoading />;
   if (error || !blobUrl) return <ViewerError fileName={fileName} url={url} />;
 
   return (
-    <iframe
-      src={`${blobUrl}#view=FitH&toolbar=0`}
-      className="h-[500px] w-full rounded-md border border-border"
-      title={fileName}
-    />
+    <>
+      <div
+        className="relative h-[500px] w-full overflow-hidden rounded-md border border-border cursor-pointer group"
+        onClick={() => setShowLightbox(true)}
+      >
+        <iframe
+          src={`${blobUrl}#view=FitH&toolbar=0`}
+          className="h-full w-full pointer-events-none"
+          title={fileName}
+        />
+        <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors">
+          <ZoomIn className="h-8 w-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+        </div>
+      </div>
+      {showLightbox && (
+        <PdfLightbox blobUrl={blobUrl} fileName={fileName} onClose={closeLightbox} />
+      )}
+    </>
   );
 }
 
@@ -218,23 +347,12 @@ export function DocumentViewerColumn({ files, portalId, sessionId, itemId }: Doc
 
       {/* Viewer */}
       {selectedFile && (
-        <>
-          <InlineFileViewer
-            key={selectedFile.id}
-            url={fileUrl(portalId, sessionId, itemId, selectedFile.id)}
-            mimeType={selectedFile.mimeType}
-            fileName={selectedFile.fileName}
-          />
-          <a
-            href={fileUrl(portalId, sessionId, itemId, selectedFile.id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ExternalLink className="h-3 w-3" />
-            Open in new tab
-          </a>
-        </>
+        <InlineFileViewer
+          key={selectedFile.id}
+          url={fileUrl(portalId, sessionId, itemId, selectedFile.id)}
+          mimeType={selectedFile.mimeType}
+          fileName={selectedFile.fileName}
+        />
       )}
     </div>
   );

@@ -237,6 +237,14 @@ export interface RequiredDocumentCheck {
   notes?: string;
 }
 
+export interface DiagnosisAssessment {
+  diagnosis: string;
+  icdCode: string | null;
+  source: "document" | "portal" | "inferred";
+  confidence: number;
+  evidence: string;
+}
+
 export interface ComparisonTemplateSummary {
   id: string;
   portalId: string;
@@ -334,6 +342,7 @@ export interface ComparisonSummary {
   mismatchCount: number;
   summary: string | null;
   fieldComparisons: FieldComparison[];
+  diagnosisAssessment?: DiagnosisAssessment | null;
 }
 
 // ─── Status helpers ─────────────────────────────────────────────

@@ -5,6 +5,10 @@ set -e
 
 # Deploy target: "azure" (default) or "hostinger"
 TARGET="${1:-azure}"
+FORCE=false
+for arg in "$@"; do
+  [ "$arg" = "--force" ] && FORCE=true
+done
 
 if [ "$TARGET" = "azure" ]; then
   VPS="azureuser@20.198.253.167"
@@ -14,6 +18,41 @@ else
   KEY="$HOME/.ssh/id_ed25519"
 fi
 
+# ── Pre-flight: check for active scrape jobs ──────────────────────────────────
+echo "Checking for active scrape jobs..."
+
+# Upload check script first (it needs Prisma client on the server)
+scp -i "$KEY" -q scripts/check-active-jobs.js "$VPS":/tmp/check-active-jobs.js
+
+ACTIVE_CHECK=$(ssh -i "$KEY" -o ConnectTimeout=10 "$VPS" "
+  cd /var/www/ivm
+  source /etc/ivm/.env 2>/dev/null
+  cp /tmp/check-active-jobs.js /var/www/ivm/_check.js
+  node _check.js
+  rm -f _check.js /tmp/check-active-jobs.js
+")
+
+RUNNING_SESSIONS=$(echo "$ACTIVE_CHECK" | cut -d'|' -f1 | tr -d '[:space:]')
+PROCESSING_ITEMS=$(echo "$ACTIVE_CHECK" | cut -d'|' -f2 | tr -d '[:space:]')
+
+if [ "$RUNNING_SESSIONS" != "0" ] || [ "$PROCESSING_ITEMS" != "0" ]; then
+  echo ""
+  echo "⚠  ACTIVE SCRAPE JOBS DETECTED"
+  echo "   Running sessions:  $RUNNING_SESSIONS"
+  echo "   Processing items:  $PROCESSING_ITEMS"
+  echo ""
+  if [ "$FORCE" = true ]; then
+    echo "   --force flag set, deploying anyway..."
+  else
+    echo "   Deploying now will kill workers and leave items stuck in PROCESSING."
+    echo "   Wait for jobs to finish, or run: bash scripts/deploy.sh --force"
+    exit 1
+  fi
+else
+  echo "No active jobs. Safe to deploy."
+fi
+
+# ── Deploy ────────────────────────────────────────────────────────────────────
 echo "Creating tarball..."
 tar czf /tmp/ivm-deploy.tar.gz \
   --exclude=node_modules \

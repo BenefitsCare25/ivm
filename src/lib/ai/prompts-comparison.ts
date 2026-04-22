@@ -1,5 +1,20 @@
 import type { TemplateField } from "@/types/portal";
 
+export const DIAGNOSIS_JSON_SCHEMA = `"diagnosisAssessment": {
+    "diagnosis": "The assessed medical diagnosis",
+    "icdCode": "ICD-10 code if identifiable, or null",
+    "source": "document" | "portal" | "inferred",
+    "confidence": 0.0 to 1.0,
+    "evidence": "Brief explanation of what evidence supports this diagnosis"
+  }`;
+
+export const DIAGNOSIS_RULES = `DIAGNOSIS ASSESSMENT RULES:
+1. Determine the most accurate diagnosis for this claim by analyzing ALL available evidence.
+2. Source priority: (a) "document" — if the document explicitly states a diagnosis, clinical condition, or ICD code, use it. (b) "portal" — if the document has no explicit diagnosis but the portal states one and document evidence is consistent with it, use the portal diagnosis with source "portal". (c) "inferred" — if neither source has an explicit diagnosis, infer from document evidence (medications, procedures, lab tests, specialist type) and set source to "inferred".
+3. For "inferred" diagnoses: use medications (e.g. antibiotics suggest infection, insulin suggests diabetes), procedures (e.g. colonoscopy suggests GI investigation), specialist type, and clinical notes to determine the most likely diagnosis.
+4. Always attempt to provide an ICD-10 code when the diagnosis is identifiable.
+5. The confidence should reflect how certain the diagnosis is: 0.9+ for explicit document diagnosis, 0.7-0.9 for portal-confirmed with supporting evidence, 0.4-0.7 for inferred from indirect evidence.`;
+
 export function getComparisonSystemPrompt(): string {
   return `You are an expert data comparison analyst. Your job is to compare structured data from a web portal page against data extracted from PDF/document files to identify matches, mismatches, and missing data.
 
@@ -19,8 +34,11 @@ You must return a JSON object with this exact structure:
       "notes": "Optional explanation of the comparison result"
     }
   ],
+  ${DIAGNOSIS_JSON_SCHEMA},
   "summary": "Brief narrative summary of the comparison results — highlight key discrepancies"
 }
+
+${DIAGNOSIS_RULES}
 
 COMPARISON RULES:
 1. MATCH: Values are semantically equivalent, even if formatted differently. Ignore formatting differences such as date formats, currency symbols, whitespace, and punctuation. For invoice numbers, reference numbers, and IDs, ignore leading punctuation characters (e.g. "#").
@@ -32,7 +50,7 @@ COMPARISON RULES:
 5. UNCERTAIN: You cannot determine with reasonable confidence whether values match (e.g., abbreviation vs full name that could be different entity).
 6. Compare ALL fields from both sources — do not skip any.
 7. Match fields by semantic meaning, not exact label match. "Incurred Date" and "Date of Service" likely refer to the same thing.
-8. For monetary amounts, compare numerical values regardless of currency symbols or formatting.
+8. For monetary amounts: compare numerical values regardless of formatting. However, if the portal amount and document amount differ by a large factor (e.g. 50x–100x), note in the "notes" field that the amounts may be in different currencies (e.g. SGD vs PHP/IDR/THB) rather than a simple data error.
 9. For dates, compare the actual date regardless of format.
 10. Confidence: 0.95+ for clear match/mismatch, 0.7-0.94 for high-probability comparison, below 0.7 for uncertain.
 

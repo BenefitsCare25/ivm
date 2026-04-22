@@ -11,7 +11,7 @@ import { ScrapeStatusBadge, ITEM_STATUS_COLORS } from "@/components/portals/port
 import { AutoRefresh } from "@/components/portals/auto-refresh";
 import { SessionActions } from "@/components/portals/session-actions";
 import { FWA_PRIORITY } from "@/types/portal";
-import type { ScrapeSessionStatus, FieldComparison } from "@/types/portal";
+import type { ScrapeSessionStatus, FieldComparison, DiagnosisAssessment } from "@/types/portal";
 
 
 export default async function SessionItemsPage({
@@ -54,6 +54,7 @@ export default async function SessionItemsPage({
               mismatchCount: true,
               summary: true,
               fieldComparisons: true,
+              diagnosisAssessment: true,
             },
           },
         },
@@ -113,6 +114,14 @@ export default async function SessionItemsPage({
     scrapeSession.status === "PENDING" ||
     (breakdown["PROCESSING"] ?? 0) > 0;
 
+  const processingCount = (breakdown["PROCESSING"] ?? 0);
+  const discoveredCount = (breakdown["DISCOVERED"] ?? 0);
+  let displayStatus = scrapeSession.status as ScrapeSessionStatus;
+  if (scrapeSession.status === "COMPLETED") {
+    if (processingCount > 0) displayStatus = "RUNNING";
+    else if (discoveredCount > 0) displayStatus = "PENDING";
+  }
+
   const statusOrder = ["COMPARED", "FLAGGED", "VERIFIED", "REQUIRE_DOC", "SKIPPED", "ERROR", "PROCESSING", "DISCOVERED"];
 
   return (
@@ -130,7 +139,7 @@ export default async function SessionItemsPage({
               <h1 className="text-2xl font-semibold text-foreground">
                 Scrape Session
               </h1>
-              <ScrapeStatusBadge status={scrapeSession.status as ScrapeSessionStatus} />
+              <ScrapeStatusBadge status={displayStatus} />
             </div>
             <p className="text-sm text-muted-foreground">
               {scrapeSession._count.trackedItems} items found &middot;{" "}
@@ -200,6 +209,7 @@ export default async function SessionItemsPage({
                 mismatchCount: item.comparisonResult.mismatchCount,
                 summary: item.comparisonResult.summary,
                 fieldComparisons: item.comparisonResult.fieldComparisons as unknown as FieldComparison[],
+                diagnosisAssessment: (item.comparisonResult.diagnosisAssessment as unknown as DiagnosisAssessment) ?? null,
               }
             : null,
           createdAt: item.createdAt.toISOString(),
