@@ -22,6 +22,7 @@ export interface AIExtractionResponse {
   documentType: string;
   fields: ExtractedField[];
   rawResponse: unknown;
+  truncated?: boolean;
 }
 
 export interface AIMappingRequest {

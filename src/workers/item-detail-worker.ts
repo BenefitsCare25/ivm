@@ -15,6 +15,7 @@ import { emitItemEvent, emitFailureEvent, withEventTracking } from "@/lib/portal
 import {
   startItemDetailWorker,
   enqueueItemDetailBatch,
+  getItemDetailQueue,
   type ItemDetailJobData,
   type ItemDetailJobResult,
 } from "@/lib/queue/item-detail-queue";
@@ -246,6 +247,13 @@ async function processItemDetailCore(
               documentType: extraction.documentType,
               fields: extraction.fields.map((f) => ({ label: f.label, value: f.value })),
             });
+
+            if (extraction.truncated) {
+              await emitItemEvent(trackedItemId, "AI_EXTRACT_TRUNCATED", {
+                fileName: file.originalName,
+                note: "Response hit max_tokens limit — partial extraction",
+              });
+            }
 
             await emitItemEvent(
               trackedItemId,
@@ -637,6 +645,55 @@ async function recoverStuckItems(): Promise<void> {
       { reprocess: true }
     );
   }
+
+  // Also recover DISCOVERED items whose BullMQ jobs were lost (e.g. after
+  // repeated worker crashes exhaust the retry limit and orphan Redis jobs).
+  await recoverOrphanedDiscoveredItems();
+}
+
+async function recoverOrphanedDiscoveredItems(): Promise<void> {
+  const queue = getItemDetailQueue();
+  if (!queue) return;
+
+  const discovered = await db.trackedItem.findMany({
+    where: { status: "DISCOVERED" },
+    select: {
+      id: true,
+      scrapeSession: {
+        select: {
+          portalId: true,
+          portal: { select: { userId: true } },
+        },
+      },
+    },
+  });
+
+  if (discovered.length === 0) return;
+
+  // Check which of these items have NO live BullMQ job (waiting/active/delayed).
+  // If the job is missing or in a terminal state, we need to re-enqueue it.
+  const orphaned = (
+    await Promise.all(
+      discovered.map(async (item) => {
+        const job = await queue.getJob(`item_${item.id}`);
+        if (!job) return item;
+        const state = await job.getState();
+        return state === "completed" || state === "failed" || state === "unknown" ? item : null;
+      })
+    )
+  ).filter(Boolean) as typeof discovered;
+
+  if (orphaned.length === 0) return;
+
+  logger.warn({ count: orphaned.length }, "[worker] Re-enqueuing orphaned DISCOVERED items with no BullMQ job");
+  await enqueueItemDetailBatch(
+    orphaned.map((item) => ({
+      trackedItemId: item.id,
+      portalId: item.scrapeSession.portalId,
+      userId: item.scrapeSession.portal.userId,
+    })),
+    { reprocess: true }
+  );
 }
 
 async function handleFinalFailure(

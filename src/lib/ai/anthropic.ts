@@ -86,6 +86,8 @@ export async function extractWithAnthropic(request: AIExtractionRequest): Promis
     );
   }
 
+  const truncated = response.stop_reason === "max_tokens";
+
   const textBlock = response.content.find((block) => block.type === "text");
   if (!textBlock || textBlock.type !== "text") {
     throw new AppError("AI returned no text response", 500, "AI_EMPTY_RESPONSE");
@@ -98,5 +100,5 @@ export async function extractWithAnthropic(request: AIExtractionRequest): Promis
     "AI extraction completed"
   );
 
-  return { documentType, fields, rawResponse: response };
+  return { documentType, fields, rawResponse: response, truncated };
 }

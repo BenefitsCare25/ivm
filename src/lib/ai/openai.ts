@@ -63,7 +63,9 @@ export async function extractWithOpenAI(request: AIExtractionRequest): Promise<A
     { signal: AbortSignal.timeout(180_000) }
   );
 
-  if (response.choices[0]?.finish_reason === "length") {
+  const truncated = response.choices[0]?.finish_reason === "length";
+
+  if (truncated) {
     logger.warn(
       { sourceAssetId: request.sourceAssetId },
       "AI extraction response was truncated (max_tokens reached)"
@@ -82,5 +84,5 @@ export async function extractWithOpenAI(request: AIExtractionRequest): Promise<A
     "AI extraction completed"
   );
 
-  return { documentType, fields, rawResponse: response };
+  return { documentType, fields, rawResponse: response, truncated };
 }

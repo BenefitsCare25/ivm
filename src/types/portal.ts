@@ -384,6 +384,7 @@ export const ITEM_EVENT_TYPES = [
   "AI_EXTRACT_START",
   "AI_EXTRACT_DONE",
   "AI_EXTRACT_FAIL",
+  "AI_EXTRACT_TRUNCATED",
   "AI_COMPARE_START",
   "AI_COMPARE_DONE",
   "AI_COMPARE_FAIL",
@@ -418,6 +419,7 @@ export const EVENT_TYPE_LABELS: Record<ItemEventType, string> = {
   AI_EXTRACT_START: "AI Extracting",
   AI_EXTRACT_DONE: "AI Extraction Done",
   AI_EXTRACT_FAIL: "AI Extraction Failed",
+  AI_EXTRACT_TRUNCATED: "Extraction Truncated",
   AI_COMPARE_START: "AI Comparing Fields",
   AI_COMPARE_DONE: "AI Comparison Done",
   AI_COMPARE_FAIL: "AI Comparison Failed",
@@ -425,7 +427,7 @@ export const EVENT_TYPE_LABELS: Record<ItemEventType, string> = {
   ITEM_ERROR: "Error",
 };
 
-export const EVENT_SEVERITY: Record<ItemEventType, "info" | "success" | "error"> = {
+export const EVENT_SEVERITY: Record<ItemEventType, "info" | "success" | "error" | "warning"> = {
   AUTH_START: "info",
   AUTH_SUCCESS: "success",
   AUTH_FAIL: "error",
@@ -442,6 +444,7 @@ export const EVENT_SEVERITY: Record<ItemEventType, "info" | "success" | "error">
   AI_EXTRACT_START: "info",
   AI_EXTRACT_DONE: "success",
   AI_EXTRACT_FAIL: "error",
+  AI_EXTRACT_TRUNCATED: "warning",
   AI_COMPARE_START: "info",
   AI_COMPARE_DONE: "success",
   AI_COMPARE_FAIL: "error",

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ChevronDown, ChevronRight, Camera, AlertCircle, CheckCircle2, Info, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Camera, AlertCircle, CheckCircle2, Info, Loader2, AlertTriangle } from "lucide-react";
 import type { ItemEventSummary, ItemEventType, TrackedItemStatus } from "@/types/portal";
 import { EVENT_TYPE_LABELS, EVENT_SEVERITY } from "@/types/portal";
 
@@ -136,18 +136,23 @@ export function ItemEventTimeline({
             const severity = EVENT_SEVERITY[evt.eventType as ItemEventType] ?? "info";
             const isError = severity === "error";
             const isSuccess = severity === "success";
+            const isWarning = severity === "warning";
             const isExpanded = expanded.has(evt.id);
             const hasPayload = Object.keys(evt.payload).length > 0;
 
             const DotColor = isError
               ? "bg-red-500"
+              : isWarning
+              ? "bg-amber-500"
               : isSuccess
               ? "bg-emerald-500"
               : "bg-muted-foreground/40";
 
-            const Icon = isError ? AlertCircle : isSuccess ? CheckCircle2 : Info;
+            const Icon = isError ? AlertCircle : isWarning ? AlertTriangle : isSuccess ? CheckCircle2 : Info;
             const iconColor = isError
               ? "text-red-500"
+              : isWarning
+              ? "text-amber-500"
               : isSuccess
               ? "text-emerald-500"
               : "text-muted-foreground/60";
