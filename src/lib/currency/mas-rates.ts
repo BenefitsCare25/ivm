@@ -2,7 +2,6 @@ import { logger } from "@/lib/logger";
 
 const MAS_API = "https://eservices.mas.gov.sg/statistics/api/v1/exchange-rate";
 
-// MAS fields: { masField, units } — rate = masValue / units gives SGD per 1 foreign unit
 const MAS_FIELD_MAP: Record<string, { field: string; units: number }> = {
   USD: { field: "usd_sgd",     units: 1   },
   EUR: { field: "eur_sgd",     units: 1   },
@@ -24,16 +23,27 @@ const MAS_FIELD_MAP: Record<string, { field: string; units: number }> = {
   INR: { field: "inr_100_sgd", units: 100 },
 };
 
-// In-memory cache: "${code}:${date}" → SGD per 1 unit of foreign currency
-const rateCache = new Map<string, number>();
+export interface RateResult {
+  rate: number;
+  /** The date MAS actually published this rate (may differ from requested date). */
+  actualDate: string;
+  /** True if actualDate !== requestedDate — i.e. we fell back to a nearby business day. */
+  isFallback: boolean;
+  /** True if the requested date was after today — rate is an estimate only. */
+  isFuture: boolean;
+}
+
+// In-memory cache: "${code}:${requestedDate}" → RateResult
+const rateCache = new Map<string, RateResult>();
+
+const today = (): string => new Date().toISOString().split("T")[0];
 
 /**
  * Fetch the SGD exchange rate for a given currency on or before the given date.
- * Uses the Monetary Authority of Singapore (MAS) exchange rate API.
- * Looks back up to 10 calendar days to cover weekends and public holidays.
- * Returns null if the currency is unsupported or the API is unavailable.
+ * Returns the rate plus metadata about whether it is exact, a fallback, or an estimate
+ * (when the requested date is in the future).
  */
-export async function getSgdRate(currencyCode: string, date: string): Promise<number | null> {
+export async function getSgdRate(currencyCode: string, date: string): Promise<RateResult | null> {
   const code = currencyCode.toUpperCase();
   const cacheKey = `${code}:${date}`;
 
@@ -45,40 +55,53 @@ export async function getSgdRate(currencyCode: string, date: string): Promise<nu
     return null;
   }
 
-  // Look back up to 10 days so weekends and public holidays resolve to the prior business day
-  const end = new Date(date);
-  if (isNaN(end.getTime())) return null;
-  const start = new Date(end);
-  start.setDate(start.getDate() - 10);
+  const requestedDate = new Date(date);
+  if (isNaN(requestedDate.getTime())) return null;
 
+  const isFuture = date > today();
+
+  // For future dates cap the end_date at today so MAS doesn't reject the query
+  const endDate = isFuture ? today() : date;
+
+  // Look back 10 days to cover weekends and public holidays
+  const start = new Date(endDate);
+  start.setDate(start.getDate() - 10);
   const startStr = start.toISOString().split("T")[0];
-  const url = `${MAS_API}?start_date=${startStr}&end_date=${date}&rows=15&fields=end_of_day,${config.field}`;
+
+  const url = `${MAS_API}?start_date=${startStr}&end_date=${endDate}&rows=15&fields=end_of_day,${config.field}`;
 
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
     if (!res.ok) {
-      logger.warn({ status: res.status, currency: code, date }, "[mas-rates] MAS API returned error");
+      logger.warn({ status: res.status, currency: code, date }, "[mas-rates] MAS API error");
       return null;
     }
 
     const json = await res.json();
     const records: Record<string, string>[] = json?.result?.records ?? [];
 
-    // Records are returned oldest-first; reverse to get the most recent first
     for (const record of [...records].reverse()) {
       const raw = record[config.field];
-      if (raw) {
-        const rate = parseFloat(raw) / config.units;
-        rateCache.set(cacheKey, rate);
-        logger.debug({ currency: code, date: record["end_of_day"], rate }, "[mas-rates] Rate resolved");
-        return rate;
-      }
+      if (!raw) continue;
+
+      const actualDate = record["end_of_day"] as string;
+      const rate = parseFloat(raw) / config.units;
+      const result: RateResult = {
+        rate,
+        actualDate,
+        isFallback: actualDate !== date,
+        isFuture,
+      };
+
+      rateCache.set(cacheKey, result);
+      logger.debug({ currency: code, requestedDate: date, actualDate, rate, isFuture }, "[mas-rates] Rate resolved");
+      return result;
     }
 
     logger.warn({ currency: code, date }, "[mas-rates] No rate found in window");
     return null;
   } catch (err) {
-    logger.warn({ err, currency: code, date }, "[mas-rates] Failed to fetch from MAS API");
+    logger.warn({ err, currency: code, date }, "[mas-rates] Fetch failed");
     return null;
   }
 }

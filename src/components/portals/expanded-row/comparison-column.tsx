@@ -136,6 +136,8 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                 rate?: number;
                 rateDate?: string;
                 fieldLabel?: string;
+                isFallback?: boolean;
+                isFuture?: boolean;
               } | null;
               return (
                 <div
@@ -156,6 +158,16 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                         </p>
                         <p className="text-muted-foreground">
                           Rate: 1 {meta.originalCurrency} = SGD {meta.rate?.toFixed(4)} &nbsp;·&nbsp; {meta.rateDate}
+                          {meta.isFuture && (
+                            <span className="ml-1.5 inline-block rounded px-1 py-0.5 text-[9px] font-semibold bg-amber-500/20 text-amber-400">
+                              ESTIMATED
+                            </span>
+                          )}
+                          {!meta.isFuture && meta.isFallback && (
+                            <span className="ml-1.5 inline-block rounded px-1 py-0.5 text-[9px] font-semibold bg-blue-500/20 text-blue-400">
+                              NEAREST DATE
+                            </span>
+                          )}
                         </p>
                       </div>
                     ) : (

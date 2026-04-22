@@ -11,6 +11,8 @@ export interface CurrencyConversionMetadata {
   rate: number;
   rateDate: string;
   raw: string;
+  isFallback: boolean;
+  isFuture: boolean;
 }
 
 /**
@@ -40,18 +42,20 @@ export async function checkForeignCurrency(
     if (!parsed) continue;
 
     try {
-      const rate = await getSgdRate(parsed.code, dateToUse);
-      if (rate === null) continue;
+      const result = await getSgdRate(parsed.code, dateToUse);
+      if (result === null) continue;
 
-      const sgdAmount = Math.round(parsed.amount * rate * 100) / 100;
+      const sgdAmount = Math.round(parsed.amount * result.rate * 100) / 100;
       conversions.push({
         fieldLabel: label,
         originalCurrency: parsed.code,
         originalAmount: parsed.amount,
         sgdAmount,
-        rate,
-        rateDate: dateToUse,
+        rate: result.rate,
+        rateDate: result.actualDate,
         raw: parsed.raw,
+        isFallback: result.isFallback,
+        isFuture: result.isFuture,
       });
     } catch (err) {
       logger.warn({ err, trackedItemId, label, currency: parsed.code }, "[currency] Rate fetch failed (non-fatal)");
@@ -72,7 +76,7 @@ export async function checkForeignCurrency(
           trackedItemId,
           ruleType: "CURRENCY_CONVERSION",
           status: "WARNING",
-          message: `${conv.fieldLabel}: ${conv.originalCurrency} ${conv.originalAmount.toFixed(2)} ≈ SGD ${conv.sgdAmount.toFixed(2)} (rate ${conv.rate.toFixed(4)} on ${conv.rateDate})`,
+          message: `${conv.fieldLabel}: ${conv.originalCurrency} ${conv.originalAmount.toFixed(2)} ≈ SGD ${conv.sgdAmount.toFixed(2)} (rate ${conv.rate.toFixed(4)} on ${conv.rateDate}${conv.isFuture ? " — estimated, future date" : conv.isFallback ? " — nearest available rate" : ""})`,
           metadata: JSON.parse(JSON.stringify(conv)),
         },
       })
