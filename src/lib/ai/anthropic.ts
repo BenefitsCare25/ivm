@@ -72,12 +72,19 @@ export async function extractWithAnthropic(request: AIExtractionRequest): Promis
   const response = await client.messages.create(
     {
       model: request.model ?? env.ANTHROPIC_MODEL,
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: getExtractionSystemPrompt(request.knownDocumentTypes),
       messages: [{ role: "user", content }],
     },
-    { signal: AbortSignal.timeout(60_000) }
+    { signal: AbortSignal.timeout(90_000) }
   );
+
+  if (response.stop_reason === "max_tokens") {
+    logger.warn(
+      { sourceAssetId: request.sourceAssetId, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
+      "AI extraction response was truncated (max_tokens reached)"
+    );
+  }
 
   const textBlock = response.content.find((block) => block.type === "text");
   if (!textBlock || textBlock.type !== "text") {

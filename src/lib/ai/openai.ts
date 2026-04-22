@@ -54,14 +54,21 @@ export async function extractWithOpenAI(request: AIExtractionRequest): Promise<A
   const response = await client.chat.completions.create(
     {
       model: request.model ?? env.OPENAI_MODEL,
-      max_tokens: 4096,
+      max_tokens: 8192,
       messages: [
         { role: "system", content: getExtractionSystemPrompt(request.knownDocumentTypes) },
         { role: "user", content: buildUserContent(request) },
       ],
     },
-    { signal: AbortSignal.timeout(60_000) }
+    { signal: AbortSignal.timeout(90_000) }
   );
+
+  if (response.choices[0]?.finish_reason === "length") {
+    logger.warn(
+      { sourceAssetId: request.sourceAssetId },
+      "AI extraction response was truncated (max_tokens reached)"
+    );
+  }
 
   const text = response.choices[0]?.message?.content;
   if (!text) {

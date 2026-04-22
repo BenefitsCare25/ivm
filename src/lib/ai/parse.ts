@@ -5,16 +5,19 @@ const log = createChildLogger({ module: "ai-parse" });
 
 export function stripMarkdownFences(text: string): string {
   const trimmed = text.trim();
+  const FENCE = "```";
 
-  // Strict: entire text is a single fenced block
-  const strict = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```\s*$/);
-  if (strict) return strict[1].trim();
+  if (!trimmed.startsWith(FENCE)) return trimmed;
 
-  // Loose: fenced block anywhere in text (agent may add explanation around it)
-  const loose = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-  if (loose) return loose[1].trim();
+  // Find end of opening fence line (```json or ```)
+  const openLineEnd = trimmed.indexOf("\n", FENCE.length);
+  if (openLineEnd === -1) return trimmed;
 
-  return trimmed;
+  // Find the closing fence — use lastIndexOf to handle any ``` inside content
+  const closeFenceStart = trimmed.lastIndexOf(FENCE);
+  if (closeFenceStart <= openLineEnd) return trimmed;
+
+  return trimmed.slice(openLineEnd + 1, closeFenceStart).trim();
 }
 
 /** Extract outermost JSON object from free-form text that contains all requiredKeys. */
