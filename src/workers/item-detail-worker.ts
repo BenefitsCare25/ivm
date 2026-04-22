@@ -193,6 +193,7 @@ async function processItemDetailCore(
       const { provider, apiKey, visionModel, textModel, baseURL, displayProvider } = await resolveProviderAndKey(userId);
       const pdfFields: Record<string, string> = {};
       const fileExtractions: { fileName: string; documentType: string; fields: { label: string; value: string }[] }[] = [];
+      const tamperingTargets: { fileName: string; fileHash: string }[] = [];
 
       // Fetch doc types before extraction so the AI receives the constrained list,
       // eliminating fuzzy-match ambiguity during classification.
@@ -223,7 +224,7 @@ async function processItemDetailCore(
               where: { trackedItemId, storagePath: file.storagePath },
               data: { fileHash },
             });
-            await checkTampering(trackedItemId, portalId, item.portalItemId, file.originalName, fileHash);
+            tamperingTargets.push({ fileName: file.originalName, fileHash });
 
             const extraction = await extractFieldsFromDocument({
               sourceAssetId: trackedItemId,
@@ -276,6 +277,11 @@ async function processItemDetailCore(
           ruleType: { in: ["DUPLICATE", "TAMPERING", "REQUIRED_FIELD", "DOC_TYPE_MATCH"] },
         },
       });
+
+      // Run tampering checks after the delete so results are not immediately wiped
+      for (const { fileName, fileHash } of tamperingTargets) {
+        await checkTampering(trackedItemId, portalId, item.portalItemId, fileName, fileHash);
+      }
 
       const classifiedDocs: { documentTypeId: string | null; documentTypeName: string | null; fileName: string }[] = [];
 

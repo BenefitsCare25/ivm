@@ -67,7 +67,7 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 - **Solution**: `src/lib/ai/proxy-extraction.ts` — when `baseURL` (proxy) and `storagePath` are set, skips base64 content blocks entirely. Instead sends a text-only prompt telling Claude to use its **Read tool** to open the file from the local filesystem. Claude reads PDFs/images multimodally via the Read tool.
 - **Routing**: `index.ts` checks `baseURL && storagePath && !textContent` → routes to `extractWithProxyReadTool()` before the provider switch. BYOK users (no proxy) still use direct API adapters with native content blocks.
 - **`storagePath`** on `AIExtractionRequest` — relative storage key (e.g. `portal-files/{portalId}/{itemId}/file.pdf`). Resolved to absolute path via `path.resolve(STORAGE_LOCAL_PATH, storagePath)`. Passed from both `item-detail-worker.ts` and `sessions/[id]/extract/route.ts`.
-- **Timeout**: 120s (vs 60s for direct API) — extra time for Read tool round trip.
+- **Timeout**: 180s (same as direct API) — extra time for Read tool round trip.
 - **Parser robustness**: `parse.ts` `stripMarkdownFences()` tries strict then loose regex. `extractJsonObject()` fallback finds `{...}` containing `"documentType"` + `"fields"` in free-form agent responses.
 - **Limitation**: Slower than direct API (~20-30s vs ~10s). Agent may occasionally wrap JSON in conversational text — parser handles this.
 
@@ -105,7 +105,7 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Env validation**: `src/lib/env.ts` — Zod schema, imported by `db.ts` for fail-fast
 - **Rate limiting**: `src/lib/rate-limit.ts` — `globalLimiter` (100/min IP), `authLimiter` (10/min IP), `aiLimiter` (5/min user)
 - **Retry**: `src/lib/retry.ts` — `withRetry()` with exponential backoff, max 2 retries on 429/5xx
-- **AI timeouts**: 60s extraction, 30s mapping, 15s key validation
+- **AI timeouts**: 180s extraction (streaming), 30s mapping, 15s key validation
 - **Health check**: `GET /api/health` — pings DB + Redis; excluded from auth middleware
 
 ### Portal Tracker — Scrape Filters
@@ -138,7 +138,8 @@ Never pass Lucide icon components as props from Server → Client Components (fu
   - **Column 1 — Portal Details**: `detailData` key-value list with match indicator icons (green/red/yellow) per field based on comparison status. Falls back to `listData` if detail not scraped. Includes "Open in Portal" link.
   - **Column 2 — Comparison & Alerts**: Full field comparison table (all rows, scrollable), match/mismatch summary + match rate %, AI summary text, and all FWA alerts.
   - **Column 3 — Document Viewer**: File selector chips (one at a time), inline blob-based viewer (images with drag-to-pan, PDFs in iframe via `blob:` URL to bypass `X-Frame-Options: DENY`). 500px fixed height.
-  - Status line at top shows pass/fail/processing state with error message if failed. No event timeline in expanded row (available on full detail page only).
+  - Status line at top shows pass/fail/processing state with error message if failed.
+  - **PROCESSING / DISCOVERED items**: instead of the 3-column layout, shows a "Live Activity" `ProcessingFeed` — polls `/events` every 3s, displays file extraction progress (extracted/started counts), truncation warnings, fail counts, and the last 8 events. Full timeline is on the item detail page.
 - **Prisma models**: `Portal`, `PortalCredential`, `ScrapeSession`, `TrackedItem`, `TrackedItemFile`, `ComparisonResult`, `TrackedItemEvent`, `ComparisonConfig`, `ComparisonTemplate`, `ProviderGroup`
 - **Types/Validations**: `src/types/portal.ts`, `src/lib/validations/portal.ts` — all selector fields `.optional().nullable()`
 - **Status colors**: `ITEM_STATUS_COLORS` exported from `src/components/portals/portal-status-badge.tsx`
@@ -209,14 +210,14 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 ### Portal Tracker — Item Event Observability
 - **Purpose**: Per-item structured event log for self-diagnosing scrape failures from the UI (no SSH needed)
 - **Model**: `TrackedItemEvent` — `id`, `trackedItemId`, `eventType`, `payload` (JSONB), `screenshotPath`, `durationMs`, `createdAt`; indexed on `(trackedItemId, createdAt)`
-- **Event types**: defined in `src/types/portal.ts` as `ITEM_EVENT_TYPES` const — 21 typed events covering AUTH_START/SUCCESS/FAIL, DETAIL_SCRAPE_START/DONE/FAIL, SELECTOR_MATCH, DOWNLOAD_START/DONE, AI_EXTRACT_START/DONE/FAIL, AI_COMPARE_START/DONE/FAIL, ITEM_COMPLETE, ITEM_ERROR
+- **Event types**: defined in `src/types/portal.ts` as `ITEM_EVENT_TYPES` const — 22 typed events covering AUTH_START/SUCCESS/FAIL, DETAIL_SCRAPE_START/DONE/FAIL, SELECTOR_MATCH, DOWNLOAD_START/DONE, AI_EXTRACT_START/DONE/FAIL/TRUNCATED, AI_COMPARE_START/DONE/FAIL, ITEM_COMPLETE, ITEM_ERROR. `AI_EXTRACT_TRUNCATED` has `"warning"` severity and is emitted when extraction hits the `max_tokens` limit.
 - **Emission helpers** (`src/lib/portal-events.ts`):
   - `emitItemEvent(trackedItemId, eventType, payload?, options?)` — fire-and-forget, never throws
   - `emitFailureEvent(trackedItemId, eventType, error, screenshot?)` — uploads screenshot buffer to StorageAdapter at `portal-events/{itemId}/{timestamp}.png`, stores path
   - `withEventTracking(trackedItemId, startType, doneType, failType, payload, fn, captureScreenshot?)` — wraps async fn, emits start/done/fail + timing automatically
 - **Worker instrumentation**: `item-detail-worker.ts` emits events at every stage; outer catch captures page screenshot if browser still open
 - **API routes**: `GET .../items/:id/events` (list), `GET .../items/:id/events/screenshot?path=...` (serve PNG, path must start with `portal-events/{itemId}/` to prevent traversal)
-- **Timeline UI**: `src/components/portals/item-event-timeline.tsx` — auto-refreshes every 3s while PROCESSING/DISCOVERED; colored dots (red/green/grey), expandable payload, screenshot lightbox; rendered on the full item detail page only (not in expanded table rows)
+- **Timeline UI**: `src/components/portals/item-event-timeline.tsx` — auto-refreshes every 3s while PROCESSING/DISCOVERED; colored dots (red/green/amber/grey), expandable payload, screenshot lightbox; rendered on the full item detail page. A condensed `ProcessingFeed` variant is also shown inline in the expanded table row for PROCESSING/DISCOVERED items.
 - **Screenshot path validation**: `screenshotPath` must start with `portal-events/{itemId}/` — validated in screenshot API route before storage download
 
 ### Scraper — File Downloads
@@ -256,14 +257,15 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - `classifier.ts` — `fetchDocTypes(userId)` queries DB directly; `classifyDocumentTypeFromCache(aiDocType, docTypes)` Jaro-Winkler fuzzy match (fallback — AI receives exact names in prompt)
 - `validator.ts` — `validateRequiredFields(docType, extractedFields, options)`; `checkDocTypeMatch(...)` writes `DOC_TYPE_MATCH` FAIL/WARNING `ValidationResult` when classified type not in `acceptableDocumentTypeIds`
 - `deduplicator.ts` — `checkDuplicate(userId, documentTypeId, keyFields, extractedFields, options)` SHA-256 hash, 90-day lookback
-- `tampering.ts`, `anomaly.ts`, `document-forensics.ts` — FWA checks called from worker
+- `tampering.ts` — `checkTampering(trackedItemId, portalId, portalItemId, fileName, currentHash)` compares SHA-256 hash against most recent previous scrape of same file; writes TAMPERING FAIL `ValidationResult` when hashes differ. `anomaly.ts` and `document-forensics.ts` were removed in Apr 2026 refactor (unreliable).
 
 #### Prisma models
 - `DocumentType`, `ValidationResult` (trackedItemId?, ruleType, status PASS/FAIL/WARNING, message, metadata JSON)
 - `Portal.defaultDocumentTypeIds String[]`, `ScrapeSession.acceptableDocumentTypeIds String[]`
 
 #### Worker integration (`item-detail-worker.ts`)
-`fetchDocTypes` runs before extraction loop so `knownDocumentTypes` names are injected into the AI prompt. Non-fatal pipeline: classify → validate required fields → check duplicate → check doc type match. Never blocks comparison pipeline.
+`fetchDocTypes` runs before extraction loop so `knownDocumentTypes` names are injected into the AI prompt. Non-fatal pipeline: tampering check → classify → validate required fields → check duplicate → check doc type match. Never blocks comparison pipeline.
+- **Tampering ordering**: file hashes are collected into `tamperingTargets[]` during extraction loop; `checkTampering` is called AFTER the `deleteMany` that clears previous-attempt results — this ensures TAMPERING ValidationResults are not immediately wiped.
 
 #### FWA display
 - `FWA_RULE_TYPES` (Set) and `FWA_LABELS` (Record) in `src/types/portal.ts` — shared by `TrackedItemsTable`, `ComparisonColumn`, and `ItemDetailView`. Add new alert types here only.
