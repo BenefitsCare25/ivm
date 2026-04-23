@@ -20,52 +20,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Restore Next.js build cache
-        uses: actions/cache@v4
-        with:
-          path: .next/cache
-          key: nextjs-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**') }}
-          restore-keys: nextjs-${{ hashFiles('package-lock.json') }}-
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Generate Prisma client
-        run: npx prisma generate
-
-      - name: Build Next.js
-        run: npm run build
-        env:
-          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
-          NEXTAUTH_URL: http://localhost:3000
-          NEXTAUTH_SECRET: ci-build-secret-minimum-32-characters-long
-          ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-
-      - name: Create deploy artifact
+      - name: Create source tarball
         run: |
           tar czf /tmp/ivm-deploy.tar.gz \
-            .next/standalone/ \
-            .next/static/ \
-            public/ \
-            prisma/ \
-            scripts/ \
-            src/ \
-            package.json \
-            package-lock.json \
-            tsconfig.json \
-            next.config.ts
+            --exclude=node_modules \
+            --exclude=.git \
+            --exclude=.next \
+            --exclude='*.tar.gz' \
+            --exclude=.env \
+            --exclude=.env.local \
+            --exclude=uploads \
+            .
 
       - name: Setup SSH
         run: |
@@ -107,7 +79,6 @@ jobs:
 
           OLD_LOCK=$(md5sum package-lock.json 2>/dev/null | cut -d" " -f1 || echo none)
 
-          rm -rf .next/standalone .next/static src prisma/migrations public scripts
           tar xzf /tmp/ivm-deploy.tar.gz
 
           ln -sf /etc/ivm/.env /var/www/ivm/.env
@@ -130,6 +101,11 @@ jobs:
           npx prisma generate 2>&1 | tail -1
           npx prisma migrate deploy 2>&1 | tail -3
 
+          pm2 stop ivm-worker ivm-detail-worker 2>/dev/null || true
+
+          rm -rf .next/cache
+          npm run build 2>&1 | tail -5
+
           mkdir -p .next/standalone/.next
           ln -sfn /var/www/ivm/.next/static .next/standalone/.next/static
           ln -sfn /var/www/ivm/public .next/standalone/public
@@ -137,12 +113,13 @@ jobs:
           rm -f /tmp/ivm-deploy.tar.gz
 
           pm2 restart ivm ivm-worker ivm-detail-worker
-          sleep 3
+          sleep 5
           curl -sf http://localhost:3001/api/health || echo "Health check failed"
           SSHEOF
 
       - name: Verify deployment
         run: |
+          sleep 3
           STATUS=$(ssh -i ~/.ssh/deploy_key azureuser@${{ secrets.VM_HOST }} "curl -sf http://localhost:3001/api/health | node -e \"process.stdin.on('data',d=>{const j=JSON.parse(d);console.log(j.status)})\"")
           if [ "$STATUS" = "healthy" ]; then
             echo "Deployment verified: healthy"
