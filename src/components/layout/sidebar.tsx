@@ -5,12 +5,15 @@ import { LayoutDashboard, Settings, Radar, ChevronLeft, ChevronRight, ShieldChec
 import { NavItem } from "./nav-item";
 import { useSidebar } from "@/lib/sidebar-context";
 import { cn } from "@/lib/utils";
-import { useSession } from "next-auth/react";
+import type { UserRole } from "@prisma/client";
 
-export function Sidebar() {
+interface SidebarProps {
+  role: UserRole;
+}
+
+export function Sidebar({ role }: SidebarProps) {
   const { collapsed, toggle } = useSidebar();
-  const { data: session } = useSession();
-  const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
+  const isSuperAdmin = role === "SUPER_ADMIN";
 
   return (
     <aside
