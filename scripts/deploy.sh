@@ -106,10 +106,7 @@ MSYS_NO_PATHCONV=1 ssh -i "$KEY" "$VPS" "
   # Stop workers before build so they don't compete for CPU on the 2-core VM
   pm2 stop ivm-worker ivm-detail-worker 2>/dev/null || true
 
-  # Clear stale build cache to prevent path contamination from CI builds
-  rm -rf .next/cache
-
-  # Build on VPS using correct env
+  # Build on VPS using correct env (webpack cache persists for faster incremental builds)
   npm run build 2>&1 | tail -5
 
   # Standalone mode requires static + public symlinked into .next/standalone/

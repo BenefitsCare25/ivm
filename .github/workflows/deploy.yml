@@ -103,7 +103,6 @@ jobs:
 
           pm2 stop ivm-worker ivm-detail-worker 2>/dev/null || true
 
-          rm -rf .next/cache
           npm run build 2>&1 | tail -5
 
           mkdir -p .next/standalone/.next
