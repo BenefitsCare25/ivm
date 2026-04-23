@@ -116,14 +116,23 @@ jobs:
 
       - name: Verify deployment
         run: |
-          for i in 1 2 3 4 5; do
-            STATUS=$(ssh -i ~/.ssh/deploy_key azureuser@${{ secrets.VM_HOST }} "curl -sf http://localhost:3001/api/health | node -e \"process.stdin.on('data',d=>{const j=JSON.parse(d);console.log(j.status)})\"" 2>/dev/null)
+          for i in $(seq 1 18); do
+            RAW=$(ssh -i ~/.ssh/deploy_key azureuser@${{ secrets.VM_HOST }} "
+              source /etc/ivm/.env 2>/dev/null
+              if [ -n \"\${HEALTH_CHECK_TOKEN:-}\" ]; then
+                curl -sf -H \"Authorization: Bearer \$HEALTH_CHECK_TOKEN\" http://localhost:3001/api/health 2>/dev/null || echo '{}'
+              else
+                curl -sf http://localhost:3001/api/health 2>/dev/null || echo '{}'
+              fi
+            " 2>/dev/null || echo '{}')
+            STATUS=$(echo "$RAW" | node -e "process.stdin.on('data',d=>{try{const j=JSON.parse(d);console.log(j.status)}catch(e){console.log('')}})" 2>/dev/null || echo "")
             [ "$STATUS" = "healthy" ] && break
-            sleep 3
+            echo "Attempt $i/18: ${STATUS:-no response}, waiting 10s..."
+            sleep 10
           done
           if [ "$STATUS" = "healthy" ]; then
             echo "Deployment verified: healthy"
           else
-            echo "::error::Health check returned: $STATUS"
+            echo "::error::Health check failed after 18 attempts. Last: ${STATUS:-empty}"
             exit 1
           fi

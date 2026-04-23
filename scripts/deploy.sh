@@ -3,28 +3,20 @@
 # Env source of truth: /etc/ivm/.env (never overwritten by deploys)
 set -e
 
-# Deploy target: "azure" (default) or "hostinger"
-TARGET="${1:-azure}"
+REMOTE="azureuser@20.198.253.167"
+KEY="$HOME/Downloads/ivm-vm_key.pem"
 FORCE=false
 for arg in "$@"; do
   [ "$arg" = "--force" ] && FORCE=true
 done
 
-if [ "$TARGET" = "azure" ]; then
-  VPS="azureuser@20.198.253.167"
-  KEY="$HOME/Downloads/ivm-vm_key.pem"
-else
-  VPS="root@72.62.75.247"
-  KEY="$HOME/.ssh/id_ed25519"
-fi
-
 # ── Pre-flight: check for active scrape jobs ──────────────────────────────────
 echo "Checking for active scrape jobs..."
 
 # Upload check script first (it needs Prisma client on the server)
-scp -i "$KEY" -q scripts/check-active-jobs.js "$VPS":/tmp/check-active-jobs.js
+scp -i "$KEY" -q scripts/check-active-jobs.js "$REMOTE":/tmp/check-active-jobs.js
 
-ACTIVE_CHECK=$(ssh -i "$KEY" -o ConnectTimeout=10 "$VPS" "
+ACTIVE_CHECK=$(ssh -i "$KEY" -o ConnectTimeout=10 "$REMOTE" "
   cd /var/www/ivm
   source /etc/ivm/.env 2>/dev/null
   cp /tmp/check-active-jobs.js /var/www/ivm/_check.js
@@ -64,12 +56,12 @@ tar czf /tmp/ivm-deploy.tar.gz \
   .
 
 echo "Uploading..."
-scp -i "$KEY" /tmp/ivm-deploy.tar.gz "$VPS":/tmp/ivm-deploy.tar.gz
+scp -i "$KEY" /tmp/ivm-deploy.tar.gz "$REMOTE":/tmp/ivm-deploy.tar.gz
 
-echo "Deploying on VPS..."
+echo "Deploying on Azure VM..."
 # MSYS_NO_PATHCONV=1 prevents git bash on Windows from translating Unix paths
 # (e.g. /var/www/ivm/public) inside the SSH command string before sending to remote.
-MSYS_NO_PATHCONV=1 ssh -i "$KEY" "$VPS" "
+MSYS_NO_PATHCONV=1 ssh -i "$KEY" "$REMOTE" "
   set -e
   cd /var/www/ivm
 
