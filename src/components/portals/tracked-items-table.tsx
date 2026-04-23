@@ -35,6 +35,7 @@ export interface TableItem {
   fwaAlerts: ValidationAlert[];
   createdAt: string;
   updatedAt: string;
+  runtime?: string | null;
 }
 
 interface TrackedItemsTableProps {
@@ -62,7 +63,7 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
   const previewKeys = allListKeys
     .filter((k) => !subKeySet.has(k))
     .slice(0, 3);
-  const columnCount = previewKeys.length + 5;
+  const columnCount = previewKeys.length + 6;
 
   return (
     <TooltipProvider>
@@ -88,6 +89,9 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
                 {key}
               </th>
             ))}
+            <th className="whitespace-nowrap px-3 py-2.5 text-left font-medium text-muted-foreground">
+              Runtime
+            </th>
             <th className="whitespace-nowrap px-3 py-2.5 text-left font-medium text-muted-foreground">
               Docs
             </th>
@@ -164,6 +168,12 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
                       </td>
                     );
                   })}
+
+                  <td className="whitespace-nowrap px-3 py-2.5">
+                    <span className="text-xs text-muted-foreground">
+                      {item.runtime ?? <span className="text-muted-foreground/40">&mdash;</span>}
+                    </span>
+                  </td>
 
                   <td className="whitespace-nowrap px-3 py-2.5">
                     {item.files.length > 0 ? (

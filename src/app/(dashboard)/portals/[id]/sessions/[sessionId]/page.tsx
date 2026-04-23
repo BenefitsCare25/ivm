@@ -1,5 +1,16 @@
 export const dynamic = "force-dynamic";
 
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+}
+
+const COMPLETED_STATUSES = new Set(["COMPARED", "FLAGGED", "VERIFIED", "ERROR", "SKIPPED", "REQUIRE_DOC"]);
+
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, AlertCircle } from "lucide-react";
@@ -144,6 +155,14 @@ export default async function SessionItemsPage({
             <p className="text-sm text-muted-foreground">
               {scrapeSession._count.trackedItems} items found &middot;{" "}
               {(breakdown["COMPARED"] ?? 0) + (breakdown["FLAGGED"] ?? 0) + (breakdown["VERIFIED"] ?? 0) + (breakdown["ERROR"] ?? 0) + (breakdown["SKIPPED"] ?? 0)} processed
+              {scrapeSession.startedAt && (
+                <>
+                  {" "}&middot;{" "}
+                  {scrapeSession.completedAt
+                    ? formatDuration(scrapeSession.completedAt.getTime() - scrapeSession.startedAt.getTime())
+                    : "Running…"}
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -214,6 +233,9 @@ export default async function SessionItemsPage({
             : null,
           createdAt: item.createdAt.toISOString(),
           updatedAt: item.updatedAt.toISOString(),
+          runtime: COMPLETED_STATUSES.has(item.status)
+            ? formatDuration(item.updatedAt.getTime() - item.createdAt.getTime())
+            : item.status === "PROCESSING" ? "Running…" : null,
           fwaAlert: fwaByItem.get(item.id) ?? null,
           fwaAlerts: fwaAlertsByItem.get(item.id) ?? [],
         }))}

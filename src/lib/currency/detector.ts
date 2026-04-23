@@ -44,9 +44,10 @@ const CURRENCY_PATTERNS: CurrencyPattern[] = [
   // PHP
   { pattern: /\bPHP\s*([\d,]+\.?\d*)/i, code: "PHP" },
   { pattern: /₱\s*([\d,]+\.?\d*)/, code: "PHP" },
-  // INR
+  // INR — "INR 546", "₹546", "Rs 546", "Rs. 546"
   { pattern: /\bINR\s*([\d,]+\.?\d*)/i, code: "INR" },
   { pattern: /₹\s*([\d,]+\.?\d*)/, code: "INR" },
+  { pattern: /\bRs\.?\s*([\d,]+\.?\d*)/i, code: "INR" },
   // NZD
   { pattern: /\bNZD\s*([\d,]+\.?\d*)/i, code: "NZD" },
   { pattern: /\bNZ\$\s*([\d,]+\.?\d*)/i, code: "NZD" },

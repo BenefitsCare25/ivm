@@ -158,12 +158,12 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
+      const data = await res.json();
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data.message || "Failed to trigger scrape");
       }
       setScrapeModalOpen(false);
-      router.refresh();
+      router.push(`/portals/${portal.id}/sessions/${data.scrapeSessionId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to trigger scrape");
     } finally {

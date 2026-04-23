@@ -80,7 +80,7 @@ export async function extractWithAnthropic(request: AIExtractionRequest): Promis
         system: getExtractionSystemPrompt(request.knownDocumentTypes),
         messages: [{ role: "user", content }],
       },
-      { signal: AbortSignal.timeout(180_000) }
+      { signal: AbortSignal.timeout(360_000) }
     )
     .finalMessage();
 
