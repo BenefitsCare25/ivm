@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build",
+    "build": "node -e \"const fs=require('fs'),p='node_modules/next/dist/lib/server-external-packages';if(fs.existsSync(p+'.json')&&!fs.existsSync(p+'.jsonc'))fs.copyFileSync(p+'.json',p+'.jsonc')\" && next build",
     "start": "next start",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
