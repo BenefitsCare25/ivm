@@ -74,7 +74,7 @@ jobs:
           scp -i ~/.ssh/deploy_key /tmp/ivm-deploy.tar.gz azureuser@${{ secrets.VM_HOST }}:/tmp/ivm-deploy.tar.gz
 
           ssh -i ~/.ssh/deploy_key azureuser@${{ secrets.VM_HOST }} bash << 'SSHEOF'
-          set -e
+          set -eo pipefail
           cd /var/www/ivm
 
           OLD_LOCK=$(md5sum package-lock.json 2>/dev/null | cut -d" " -f1 || echo none)

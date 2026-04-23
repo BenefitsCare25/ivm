@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy IVM to Azure VM
 # Env source of truth: /etc/ivm/.env (never overwritten by deploys)
-set -e
+set -eo pipefail
 
 REMOTE="azureuser@20.198.253.167"
 KEY="$HOME/Downloads/ivm-vm_key.pem"

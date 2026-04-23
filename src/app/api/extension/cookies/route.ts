@@ -7,7 +7,7 @@ import { errorResponse, UnauthorizedError, NotFoundError, ValidationError } from
 import { authLimiter } from "@/lib/rate-limit";
 import { toInputJson } from "@/lib/utils";
 import { encrypt } from "@/lib/crypto";
-import { verifyExtensionToken } from "@/app/api/auth/extension-token/route";
+import { verifyExtensionToken } from "@/lib/extension-token";
 
 const extensionCookieSchema = z.object({
   url: z.string().url(),
