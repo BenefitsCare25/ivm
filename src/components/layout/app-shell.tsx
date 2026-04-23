@@ -14,7 +14,7 @@ export async function AppShell({ children }: AppShellProps) {
 
   return (
     <SidebarProvider>
-      <div className="flex h-screen bg-background">
+      <div className="flex h-screen">
         <Sidebar role={role} />
         <div className="flex flex-1 flex-col overflow-hidden min-w-0">
           <Header />

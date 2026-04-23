@@ -99,7 +99,7 @@ export function ComparisonTemplateModal({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <Card className="w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
         <CardHeader>
           <CardTitle className="text-base">Configure Comparison Template</CardTitle>

@@ -16,7 +16,7 @@ export async function Header() {
   const session = await auth();
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-end gap-1 border-b border-border bg-card px-4">
+    <header className="flex h-14 shrink-0 items-center justify-end gap-1 glass-light px-4">
       <ThemeToggle />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

@@ -30,7 +30,7 @@ export function Stepper({ steps, className, onStepClick }: StepperProps) {
                 step.status === "completed" &&
                   "text-status-success",
                 step.status === "current" &&
-                  "bg-primary/10 text-primary font-medium",
+                  "bg-primary/20 text-primary font-medium backdrop-blur-sm",
                 step.status === "upcoming" &&
                   "text-muted-foreground"
               )}
@@ -43,7 +43,7 @@ export function Stepper({ steps, className, onStepClick }: StepperProps) {
                   step.status === "current" &&
                     "bg-primary text-primary-foreground",
                   step.status === "upcoming" &&
-                    "bg-muted text-muted-foreground"
+                    "bg-accent/20 text-muted-foreground"
                 )}
               >
                 {step.status === "completed" ? (

@@ -21,11 +21,11 @@ export function NavItem({ href, icon: Icon, label, collapsed = false }: NavItemP
       href={href}
       title={collapsed ? label : undefined}
       className={cn(
-        "flex items-center rounded-lg py-2 text-sm transition-colors",
+        "flex items-center rounded-xl py-2 text-sm transition-all duration-150",
         collapsed ? "justify-center px-0" : "gap-3 px-3",
         isActive
-          ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          ? "bg-primary/12 text-primary font-semibold"
+          : "text-sidebar-foreground hover:bg-primary/8 hover:text-foreground"
       )}
     >
       <Icon className="h-4 w-4 shrink-0" />

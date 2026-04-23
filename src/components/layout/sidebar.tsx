@@ -18,7 +18,7 @@ export function Sidebar({ role }: SidebarProps) {
   return (
     <aside
       className={cn(
-        "flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar-bg overflow-hidden transition-[width] duration-200 ease-in-out",
+        "flex shrink-0 flex-col glass-strong overflow-hidden transition-[width] duration-200 ease-in-out",
         collapsed ? "w-[var(--sidebar-width-collapsed)]" : "w-[var(--sidebar-width)]"
       )}
     >
@@ -38,7 +38,7 @@ export function Sidebar({ role }: SidebarProps) {
         <button
           onClick={toggle}
           className={cn(
-            "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors",
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sidebar-foreground hover:bg-accent/40 hover:text-accent-foreground transition-colors",
             collapsed && "mx-auto"
           )}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -64,7 +64,7 @@ export function Sidebar({ role }: SidebarProps) {
 
       {/* Bottom items */}
       {isSuperAdmin && (
-        <div className="border-t border-sidebar-border px-2 py-2">
+        <div className="border-t border-glass-border/20 px-2 py-2">
           <NavItem href="/settings" icon={Settings} label="Settings" collapsed={collapsed} />
         </div>
       )}

@@ -33,13 +33,13 @@ export function TagInput({ tags, placeholder, onAdd, onRemove }: TagInputProps) 
 
   return (
     <div
-      className="min-h-9 flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5 cursor-text"
+      className="min-h-9 flex flex-wrap items-center gap-1.5 rounded-xl glass-input px-2 py-1.5 cursor-text"
       onClick={() => inputRef.current?.focus()}
     >
       {tags.map((tag, i) => (
         <span
           key={i}
-          className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs font-medium text-foreground"
+          className="inline-flex items-center gap-1 rounded bg-accent/40 backdrop-blur-sm px-2 py-0.5 text-xs font-medium text-foreground"
         >
           {tag}
           <button
