@@ -38,6 +38,14 @@ function buildCsp(nonce: string): string {
   ].join("; ");
 }
 
+function isAdminAllowedPath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/portals") ||
+    pathname.startsWith("/api/portals") ||
+    pathname.startsWith("/sign-out")
+  );
+}
+
 export default auth(async (req) => {
   const { pathname } = req.nextUrl;
   const requestId = crypto.randomUUID();
@@ -63,8 +71,6 @@ export default auth(async (req) => {
   }
 
   if (pathname.startsWith("/api/")) {
-    // Use userId when authenticated so shared IPs (corporate proxies, VPNs)
-    // don't bucket multiple users together under a single IP limit.
     const globalKey = req.auth?.user?.id ? `user:${req.auth.user.id}` : ip;
     const result = await globalLimiter(globalKey);
     if (!result.allowed) {
@@ -75,17 +81,33 @@ export default auth(async (req) => {
   }
 
   const isAuthenticated = !!req.auth;
+  const role = req.auth?.user?.role;
   const isAuthPage = pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up");
 
   if (isAuthPage) {
     if (isAuthenticated) {
-      return Response.redirect(new URL("/", req.url));
+      const redirectPath = role === "ADMIN" ? "/portals" : "/";
+      return Response.redirect(new URL(redirectPath, req.url));
     }
     return;
   }
 
   if (!isAuthenticated) {
     return Response.redirect(new URL("/sign-in", req.url));
+  }
+
+  // Role-based access control: Admin users can only access portal routes
+  if (role === "ADMIN") {
+    if (pathname.startsWith("/api/")) {
+      if (!isAdminAllowedPath(pathname)) {
+        return NextResponse.json(
+          { error: "Forbidden", code: "FORBIDDEN" },
+          { status: 403 }
+        );
+      }
+    } else if (!isAdminAllowedPath(pathname)) {
+      return Response.redirect(new URL("/portals", req.url));
+    }
   }
 
   const requestHeaders = new Headers(req.headers);

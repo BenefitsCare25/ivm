@@ -4,6 +4,7 @@ import GitHub from "next-auth/providers/github";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
+import type { UserRole } from "@prisma/client";
 
 const providers = [
   Credentials({
@@ -17,7 +18,7 @@ const providers = [
 
       const user = await db.user.findUnique({
         where: { email: credentials.email as string },
-        select: { id: true, email: true, name: true, image: true, passwordHash: true },
+        select: { id: true, email: true, name: true, image: true, passwordHash: true, role: true },
       });
 
       if (!user?.passwordHash) return null;
@@ -34,6 +35,7 @@ const providers = [
         email: user.email,
         name: user.name,
         image: user.image,
+        role: user.role,
       };
     },
   }),
@@ -66,12 +68,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        token.role = user.role as UserRole;
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user && token.id) {
         session.user.id = token.id as string;
+        session.user.role = token.role as UserRole;
       }
       return session;
     },

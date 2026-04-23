@@ -1,13 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { LayoutDashboard, Settings, Radar, ChevronLeft, ChevronRight } from "lucide-react";
+import { LayoutDashboard, Settings, Radar, ChevronLeft, ChevronRight, ShieldCheck } from "lucide-react";
 import { NavItem } from "./nav-item";
 import { useSidebar } from "@/lib/sidebar-context";
 import { cn } from "@/lib/utils";
+import { useSession } from "next-auth/react";
 
 export function Sidebar() {
   const { collapsed, toggle } = useSidebar();
+  const { data: session } = useSession();
+  const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
 
   return (
     <aside
@@ -20,7 +23,7 @@ export function Sidebar() {
       <div className="flex h-14 shrink-0 items-center px-3">
         {!collapsed && (
           <Link
-            href="/"
+            href={isSuperAdmin ? "/" : "/portals"}
             className="flex flex-1 items-center gap-2 text-foreground font-semibold min-w-0"
           >
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-bold">
@@ -47,14 +50,21 @@ export function Sidebar() {
 
       {/* Nav items */}
       <nav className="flex-1 space-y-1 px-2 py-2">
-        <NavItem href="/" icon={LayoutDashboard} label="Auto Form" collapsed={collapsed} />
+        {isSuperAdmin && (
+          <NavItem href="/" icon={LayoutDashboard} label="Auto Form" collapsed={collapsed} />
+        )}
         <NavItem href="/portals" icon={Radar} label="Portal Tracker" collapsed={collapsed} />
+        {isSuperAdmin && (
+          <NavItem href="/admin/users" icon={ShieldCheck} label="Users" collapsed={collapsed} />
+        )}
       </nav>
 
       {/* Bottom items */}
-      <div className="border-t border-sidebar-border px-2 py-2">
-        <NavItem href="/settings" icon={Settings} label="Settings" collapsed={collapsed} />
-      </div>
+      {isSuperAdmin && (
+        <div className="border-t border-sidebar-border px-2 py-2">
+          <NavItem href="/settings" icon={Settings} label="Settings" collapsed={collapsed} />
+        </div>
+      )}
     </aside>
   );
 }

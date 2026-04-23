@@ -114,7 +114,25 @@
       "Bash(openssl rand *)",
       "WebFetch(domain:azure.microsoft.com)",
       "WebFetch(domain:privacy.claude.com)",
-      "WebFetch(domain:www.anthropic.com)"
+      "WebFetch(domain:www.anthropic.com)",
+      "Bash(tar --exclude='.env' --exclude='node_modules' --exclude='.next' --exclude='uploads' --exclude='.git' --exclude='.claude/worktrees' -czf /tmp/ivm-deploy.tar.gz .)",
+      "Read(//c/Users/huien/azurevm//**)",
+      "Read(//c/Users/huien/.ssh//**)",
+      "Read(//c/Users/huien/Downloads/**)",
+      "Read(//c/Users/huien/**)",
+      "Bash(awk '/^model / {model=$2} /@@ index|@@ unique/ {print model}' /c/Users/huien/ivm/prisma/schema.prisma)",
+      "Bash(awk *)",
+      "Bash(gh repo *)",
+      "Bash(gh secret *)",
+      "Bash(gh run *)",
+      "Bash(tr -d '\\\\r')",
+      "Bash(mv /tmp/deploy_fixed.yml .github/workflows/deploy.yml)",
+      "Bash(file *)",
+      "Bash(mv /tmp/deploy_sh_fixed.sh scripts/deploy.sh)",
+      "Bash(mv /tmp/check_fixed.js scripts/check-active-jobs.js)",
+      "Bash(xxd)",
+      "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && grep -A 5 \"export async function DELETE\" {} | head -10')",
+      "Bash(cat C:\\\\\\\\Users\\\\\\\\huien\\\\\\\\.claude-work\\\\\\\\projects\\\\\\\\C--Users-huien-ivm\\\\\\\\3ff3089c-29ee-43f2-94c7-e1c0b6661b50\\\\\\\\tool-results\\\\\\\\b7mcjjaft.txt)"
     ]
   }
 }

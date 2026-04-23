@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Currency Conversion UI Mockup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0f1117;
+    color: #e2e8f0;
+    padding: 32px;
+    font-size: 13px;
+  }
+
+  .page-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 12px;
+  }
+
+  /* ── Expanded row container ── */
+  .expanded-row {
+    background: #161b27;
+    border: 1px solid #2a3145;
+    border-radius: 10px;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0;
+  }
+
+  .col {
+    padding: 16px;
+    border-right: 1px solid #2a3145;
+  }
+  .col:last-child { border-right: none; }
+
+  .col-header {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 12px;
+  }
+
+  /* ── Portal details col ── */
+  .field-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid #1e2535;
+  }
+  .field-row:last-child { border-bottom: none; }
+  .field-key { color: #94a3b8; min-width: 130px; }
+  .field-val { color: #e2e8f0; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+  .dot-green  { background: #22c55e; }
+  .dot-red    { background: #ef4444; }
+  .dot-yellow { background: #f59e0b; }
+  .dot-gray   { background: #475569; }
+
+  /* ── Comparison col ── */
+  .match-summary {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 10px;
+  }
+  .match-ok   { color: #22c55e; display: flex; align-items: center; gap: 4px; font-weight: 500; }
+  .match-fail { color: #ef4444; display: flex; align-items: center; gap: 4px; font-weight: 500; }
+  .match-rate { color: #94a3b8; }
+
+  svg { display: inline-block; vertical-align: middle; }
+
+  .summary-text {
+    color: #94a3b8;
+    font-style: italic;
+    font-size: 11.5px;
+    line-height: 1.6;
+    margin-bottom: 10px;
+  }
+
+  .diagnosis-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #2a3145;
+    background: #1a2030;
+    border-radius: 6px;
+    padding: 7px 10px;
+    margin-bottom: 10px;
+  }
+  .diag-label { color: #64748b; font-weight: 500; white-space: nowrap; }
+  .diag-val   { color: #e2e8f0; }
+
+  .comparison-table {
+    width: 100%;
+    border: 1px solid #2a3145;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .comparison-table table { width: 100%; border-collapse: collapse; }
+  .comparison-table thead tr { background: #1a2030; }
+  .comparison-table th {
+    padding: 6px 8px;
+    text-align: left;
+    color: #64748b;
+    font-weight: 500;
+    font-size: 11px;
+  }
+  .comparison-table tbody tr { border-top: 1px solid #1e2535; }
+  .comparison-table tbody tr.mismatch { background: rgba(239,68,68,0.05); }
+  .comparison-table td { padding: 5px 8px; color: #94a3b8; }
+  .comparison-table td.field-name { color: #e2e8f0; font-weight: 500; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .comparison-table td.field-val  { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .badge {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 2px 7px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .badge-match    { background: rgba(34,197,94,0.15);  color: #22c55e; }
+  .badge-mismatch { background: rgba(239,68,68,0.15);  color: #ef4444; }
+  .badge-missing  { background: rgba(100,116,139,0.2); color: #94a3b8; }
+
+  /* ══ CURRENCY CONVERSION SECTION ══ */
+  .section-header {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 8px;
+    margin-top: 4px;
+  }
+
+  .currency-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    border: 1px solid rgba(59,130,246,0.35);
+    background: rgba(59,130,246,0.08);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+  }
+  .currency-icon { color: #60a5fa; margin-top: 1px; flex-shrink: 0; }
+  .currency-badge {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 2px 7px;
+    font-size: 10px;
+    font-weight: 600;
+    background: rgba(59,130,246,0.2);
+    color: #60a5fa;
+    margin-bottom: 5px;
+  }
+  .currency-main {
+    font-weight: 500;
+    color: #e2e8f0;
+    margin-bottom: 3px;
+  }
+  .currency-main .converted { color: #93c5fd; font-weight: 600; }
+  .currency-arrow { color: #60a5fa; margin: 0 4px; }
+  .currency-rate { color: #64748b; font-size: 11.5px; }
+  .currency-dot { color: #475569; margin: 0 4px; }
+
+  /* ── FWA Alerts ── */
+  .fwa-card-warn {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    border: 1px solid rgba(245,158,11,0.3);
+    background: rgba(245,158,11,0.08);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+  }
+  .fwa-icon-warn { color: #f59e0b; margin-top: 1px; flex-shrink: 0; }
+  .fwa-badge-warn {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 2px 7px;
+    font-size: 10px;
+    font-weight: 600;
+    background: rgba(245,158,11,0.2);
+    color: #f59e0b;
+    margin-bottom: 4px;
+  }
+  .fwa-message { color: rgba(226,232,240,0.8); line-height: 1.5; }
+
+  /* ── Document viewer col ── */
+  .file-chips { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .chip {
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .chip-active { background: #3b82f6; color: #fff; }
+  .chip-idle   { background: #1e2535; color: #94a3b8; border: 1px solid #2a3145; }
+
+  .pdf-viewer {
+    background: #1a2030;
+    border: 1px solid #2a3145;
+    border-radius: 8px;
+    height: 340px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+    color: #64748b;
+  }
+  .pdf-viewer .pdf-label { font-size: 11px; }
+
+  /* ── Callout box for explanation ── */
+  .callout {
+    background: #161b27;
+    border: 1px solid #2a3145;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 28px;
+  }
+  .callout h3 { font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 10px; }
+  .callout ul { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+  .callout li { display: flex; align-items: flex-start; gap: 10px; color: #94a3b8; font-size: 12px; line-height: 1.5; }
+  .callout li .bullet { color: #3b82f6; font-weight: 700; margin-top: 2px; }
+
+  /* scenario selector */
+  .scenario-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+  .tab {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: default;
+    background: #1e2535;
+    color: #94a3b8;
+    border: 1px solid #2a3145;
+  }
+  .tab.active { background: #3b82f6; color: #fff; border-color: transparent; }
+
+  .divider { height: 1px; background: #1e2535; margin: 18px 0; }
+
+  /* MAS note */
+  .mas-note {
+    background: rgba(59,130,246,0.06);
+    border: 1px solid rgba(59,130,246,0.2);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 20px;
+    font-size: 11.5px;
+    color: #94a3b8;
+    line-height: 1.6;
+  }
+  .mas-note strong { color: #60a5fa; }
+</style>
+</head>
+<body>
+
+<p class="page-label">Portal Tracker — Expanded Row UI &nbsp;·&nbsp; Foreign Currency Detection</p>
+
+<div class="mas-note">
+  <strong>Exchange Rate Source:</strong> Monetary Authority of Singapore (MAS) official mid-market rates, fetched live at processing time for the claim's <strong>incurred date</strong>.
+  Covers: USD, EUR, GBP, MYR, AUD, JPY, CNY, HKD, THB, IDR, PHP, INR, NZD, CAD, CHF.
+</div>
+
+<!-- Scenario tabs -->
+<div class="scenario-tabs">
+  <div class="tab active">Scenario A: MYR invoice (overseas treatment)</div>
+  <div class="tab">Scenario B: USD invoice</div>
+</div>
+
+<!-- ─── Expanded row ─── -->
+<div class="expanded-row">
+
+  <!-- Column 1: Portal Details -->
+  <div class="col">
+    <p class="col-header">Portal Details</p>
+    <div class="field-row">
+      <div class="dot dot-green"></div>
+      <span class="field-key">Claim No.</span>
+      <span class="field-val">STM-008799</span>
+    </div>
+    <div class="field-row">
+      <div class="dot dot-green"></div>
+      <span class="field-key">Status</span>
+      <span class="field-val">Pending Review</span>
+    </div>
+    <div class="field-row">
+      <div class="dot dot-green"></div>
+      <span class="field-key">Employee</span>
+      <span class="field-val">Tan Wei Ming</span>
+    </div>
+    <div class="field-row">
+      <div class="dot dot-green"></div>
+      <span class="field-key">Incurred Date</span>
+      <span class="field-val">14 Mar 2025</span>
+    </div>
+    <div class="field-row">
+      <div class="dot dot-yellow"></div>
+      <span class="field-key">Claim Amount</span>
+      <span class="field-val">SGD 612.00</span>
+    </div>
+    <div class="field-row">
+      <div class="dot dot-gray"></div>
+      <span class="field-key">Diagnosis</span>
+      <span class="field-val">—</span>
+    </div>
+    <div class="field-row">
+      <div class="dot dot-green"></div>
+      <span class="field-key">Hospital</span>
+      <span class="field-val">KPJ Damansara</span>
+    </div>
+    <div class="field-row">
+      <div class="dot dot-green"></div>
+      <span class="field-key">Submitted By</span>
+      <span class="field-val">HR Portal</span>
+    </div>
+  </div>
+
+  <!-- Column 2: Comparison & Alerts -->
+  <div class="col">
+    <p class="col-header">AI Comparison &amp; Alerts</p>
+
+    <!-- Match summary -->
+    <div class="match-summary">
+      <span class="match-ok">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        5 matched
+      </span>
+      <span class="match-fail">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+        1 mismatched
+      </span>
+      <span class="match-rate">83% match rate</span>
+    </div>
+
+    <!-- AI summary -->
+    <p class="summary-text">
+      Most fields match. Claim Amount shows a difference — portal records SGD 612.00 while the invoice total is MYR 2,000.00. Currency conversion explains the discrepancy.
+    </p>
+
+    <!-- Diagnosis -->
+    <div class="diagnosis-pill">
+      <span class="diag-label">Diagnosis:</span>
+      <span class="diag-val">Upper respiratory tract infection (J06.9)</span>
+    </div>
+
+    <!-- Comparison table -->
+    <div class="comparison-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Field</th>
+            <th>Portal</th>
+            <th>Document</th>
+            <th style="width:72px">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="field-name">Patient Name</td>
+            <td class="field-val">Tan Wei Ming</td>
+            <td class="field-val">Tan Wei Ming</td>
+            <td><span class="badge badge-match">Match</span></td>
+          </tr>
+          <tr>
+            <td class="field-name">Incurred Date</td>
+            <td class="field-val">14/03/2025</td>
+            <td class="field-val">14 March 2025</td>
+            <td><span class="badge badge-match">Match</span></td>
+          </tr>
+          <tr>
+            <td class="field-name">Hospital</td>
+            <td class="field-val">KPJ Damansara</td>
+            <td class="field-val">KPJ Damansara Specialist</td>
+            <td><span class="badge badge-match">Match</span></td>
+          </tr>
+          <tr class="mismatch">
+            <td class="field-name">Claim Amount</td>
+            <td class="field-val">SGD 612.00</td>
+            <td class="field-val">MYR 2,000.00</td>
+            <td><span class="badge badge-mismatch">Mismatch</span></td>
+          </tr>
+          <tr>
+            <td class="field-name">Diagnosis</td>
+            <td class="field-val">—</td>
+            <td class="field-val">J06.9</td>
+            <td><span class="badge badge-missing">Missing</span></td>
+          </tr>
+          <tr>
+            <td class="field-name">Invoice No.</td>
+            <td class="field-val">INV-2025-1847</td>
+            <td class="field-val">INV-2025-1847</td>
+            <td><span class="badge badge-match">Match</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- ══ CURRENCY CONVERSION SECTION ══ -->
+    <p class="section-header">Currency Conversion</p>
+
+    <div class="currency-card">
+      <div class="currency-icon">
+        <!-- TrendingUp icon -->
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+          <polyline points="17 6 23 6 23 12"/>
+        </svg>
+      </div>
+      <div style="flex:1">
+        <span class="currency-badge">Foreign Currency</span>
+        <p class="currency-main">
+          Total Amount:&nbsp;
+          <strong>MYR 2,000.00</strong>
+          <span class="currency-arrow">→</span>
+          <span class="converted">SGD 612.00</span>
+        </p>
+        <p class="currency-rate">
+          Rate: 1 MYR = SGD 0.3060
+          <span class="currency-dot">·</span>
+          14 Mar 2025 (MAS official)
+        </p>
+      </div>
+    </div>
+
+    <!-- Second currency field (if any — e.g. consultation fee also in MYR) -->
+    <div class="currency-card" style="opacity:0.8">
+      <div class="currency-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+          <polyline points="17 6 23 6 23 12"/>
+        </svg>
+      </div>
+      <div style="flex:1">
+        <span class="currency-badge">Foreign Currency</span>
+        <p class="currency-main">
+          Consultation Fee:&nbsp;
+          <strong>MYR 150.00</strong>
+          <span class="currency-arrow">→</span>
+          <span class="converted">SGD 45.90</span>
+        </p>
+        <p class="currency-rate">
+          Rate: 1 MYR = SGD 0.3060
+          <span class="currency-dot">·</span>
+          14 Mar 2025 (MAS official)
+        </p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- FWA Alert (example: also a duplicate) -->
+    <p class="section-header">FWA Alerts (1)</p>
+    <div class="fwa-card-warn">
+      <div class="fwa-icon-warn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </div>
+      <div style="flex:1">
+        <span class="fwa-badge-warn">Duplicate</span>
+        <p class="fwa-message">Possible duplicate: same patient, same incurred date found in STM-008712.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Column 3: Document Viewer -->
+  <div class="col">
+    <p class="col-header">Documents</p>
+    <div class="file-chips">
+      <div class="chip chip-active">KPJ_invoice.pdf</div>
+      <div class="chip chip-idle">referral_letter.pdf</div>
+    </div>
+    <div class="pdf-viewer">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      <span class="pdf-label">PDF renders inline here</span>
+      <span class="pdf-label" style="font-size:10px;color:#334155">KPJ_invoice.pdf</span>
+    </div>
+  </div>
+</div>
+
+<!-- Explanation callout -->
+<div class="callout">
+  <h3>How the Currency Conversion section works</h3>
+  <ul>
+    <li>
+      <span class="bullet">1</span>
+      <span>After AI extracts fields from the PDF invoice, the system scans each amount field for foreign currency symbols (MYR/RM, USD/$, EUR/€, GBP/£, THB/฿, JPY/¥, etc.).</span>
+    </li>
+    <li>
+      <span class="bullet">2</span>
+      <span>The incurred date is taken from portal data (or PDF if unavailable). The MAS historical exchange rate API is queried for that specific date — going back up to 10 days for weekends and public holidays.</span>
+    </li>
+    <li>
+      <span class="bullet">3</span>
+      <span>A <strong style="color:#e2e8f0">Currency Conversion</strong> card appears in the Comparison column for each foreign-currency field. It shows: original amount, → SGD equivalent, the exact rate used, and the rate date.</span>
+    </li>
+    <li>
+      <span class="bullet">4</span>
+      <span>The AI comparison sees the raw amounts ("SGD 612.00" vs "MYR 2,000.00") and marks it as <span style="color:#ef4444">Mismatch</span> — the Currency Conversion section explains the discrepancy to the reviewer.</span>
+    </li>
+    <li>
+      <span class="bullet">5</span>
+      <span>Currency conversion is <strong style="color:#e2e8f0">informational only</strong> (blue, separate from red FWA alerts). It does not automatically mark the claim as flagged.</span>
+    </li>
+  </ul>
+</div>
+
+</body>
+</html>
