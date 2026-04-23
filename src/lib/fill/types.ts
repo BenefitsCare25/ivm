@@ -1,5 +1,8 @@
 import type { TargetType, TargetField } from "@/types/target";
 import type { FieldMapping } from "@/types/mapping";
+import type { WebpageFillOp } from "@/types/fill";
+
+export type { WebpageFillOp };
 
 export interface FillContext {
   sessionId: string;
@@ -20,13 +23,6 @@ export interface FillFieldResult {
   verifiedValue: string | null;
   status: "APPLIED" | "VERIFIED" | "FAILED" | "SKIPPED";
   errorMessage: string | null;
-}
-
-/** A single safe fill operation — no eval required */
-export interface WebpageFillOp {
-  selector: string;
-  value: string | boolean;
-  type: "value" | "check" | "click";
 }
 
 export interface FillerResult {

@@ -1,3 +1,5 @@
+import type { WebpageFillOp } from "@/types/fill";
+
 const EXTENSION_ID = process.env.NEXT_PUBLIC_IVM_EXTENSION_ID ?? "";
 
 interface ExtensionPingResponse {
@@ -170,12 +172,6 @@ export async function syncExtensionConfig(): Promise<void> {
       // Non-critical
     }
   }
-}
-
-export interface WebpageFillOp {
-  selector: string;
-  value: string | boolean;
-  type: "value" | "check" | "click";
 }
 
 export async function sendFillToExtension(

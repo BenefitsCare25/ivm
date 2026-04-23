@@ -12,11 +12,12 @@ export function generateExtensionToken(userId: string, secret: string): string {
 export function verifyExtensionToken(token: string, secret: string): string | null {
   try {
     const decoded = Buffer.from(token, "base64url").toString("utf8");
-    const hmacPart = decoded.slice(decoded.lastIndexOf(":") + 1);
-    const rest = decoded.slice(0, decoded.lastIndexOf(":"));
-    const secondLastColon = rest.lastIndexOf(":");
-    const expiresAtStr = rest.slice(secondLastColon + 1);
-    const userId = rest.slice(0, secondLastColon);
+    const parts = decoded.split(":");
+    if (parts.length < 3) return null;
+
+    const hmacPart = parts.pop()!;
+    const expiresAtStr = parts.pop()!;
+    const userId = parts.join(":");
 
     if (!userId || !expiresAtStr || !hmacPart) return null;
 

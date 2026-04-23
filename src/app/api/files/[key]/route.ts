@@ -21,8 +21,8 @@ async function verifyOwnership(decodedKey: string, userId: string): Promise<bool
   // User upload files: uploads/<userId>/...
   if (decodedKey.startsWith(`uploads/${userId}/`)) return true;
 
-  // FillSession target assets (filledStoragePath)
-  const asset = await db.targetAsset.findFirst({
+  // Run independent DB lookups in parallel
+  const assetP = db.targetAsset.findFirst({
     where: {
       OR: [
         { storagePath: decodedKey },
@@ -32,32 +32,33 @@ async function verifyOwnership(decodedKey: string, userId: string): Promise<bool
     },
     select: { id: true },
   });
-  if (asset) return true;
 
-  // Portal item files
-  const portalFile = await db.trackedItemFile.findFirst({
+  const portalFileP = db.trackedItemFile.findFirst({
     where: {
       storagePath: decodedKey,
       trackedItem: { scrapeSession: { portal: { userId } } },
     },
     select: { id: true },
   });
-  if (portalFile) return true;
 
-  // Portal event screenshots: portal-events/<itemId>/<timestamp>.png
+  let eventItemP: Promise<{ id: string } | null> | null = null;
   if (decodedKey.startsWith("portal-events/")) {
     const parts = decodedKey.split("/");
     if (parts.length >= 2) {
-      const itemId = parts[1];
-      const item = await db.trackedItem.findFirst({
-        where: { id: itemId, scrapeSession: { portal: { userId } } },
+      eventItemP = db.trackedItem.findFirst({
+        where: { id: parts[1], scrapeSession: { portal: { userId } } },
         select: { id: true },
       });
-      if (item) return true;
     }
   }
 
-  return false;
+  const [asset, portalFile, eventItem] = await Promise.all([
+    assetP,
+    portalFileP,
+    eventItemP,
+  ]);
+
+  return !!(asset || portalFile || eventItem);
 }
 
 export async function GET(

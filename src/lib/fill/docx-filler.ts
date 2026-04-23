@@ -120,6 +120,6 @@ export async function fillDocx(ctx: FillContext): Promise<FillerResult> {
     results,
     filledStoragePath: filledKey,
     webpageFillScript: null,
-      webpageFillOperations: null,
+    webpageFillOperations: null,
   };
 }
