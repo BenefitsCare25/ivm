@@ -112,14 +112,15 @@ jobs:
           rm -f /tmp/ivm-deploy.tar.gz
 
           pm2 restart ivm ivm-worker ivm-detail-worker
-          sleep 5
-          curl -sf http://localhost:3001/api/health || echo "Health check failed"
           SSHEOF
 
       - name: Verify deployment
         run: |
-          sleep 3
-          STATUS=$(ssh -i ~/.ssh/deploy_key azureuser@${{ secrets.VM_HOST }} "curl -sf http://localhost:3001/api/health | node -e \"process.stdin.on('data',d=>{const j=JSON.parse(d);console.log(j.status)})\"")
+          for i in 1 2 3 4 5; do
+            STATUS=$(ssh -i ~/.ssh/deploy_key azureuser@${{ secrets.VM_HOST }} "curl -sf http://localhost:3001/api/health | node -e \"process.stdin.on('data',d=>{const j=JSON.parse(d);console.log(j.status)})\"" 2>/dev/null)
+            [ "$STATUS" = "healthy" ] && break
+            sleep 3
+          done
           if [ "$STATUS" = "healthy" ]; then
             echo "Deployment verified: healthy"
           else
