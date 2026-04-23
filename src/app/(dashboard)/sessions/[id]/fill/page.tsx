@@ -55,6 +55,7 @@ export default async function FillStepPage({
       report: buildFillReport(actions),
       hasFilledDocument: !!targetAsset?.filledStoragePath,
       webpageFillScript: null,
+      webpageFillOperations: null,
     };
   }
 

@@ -3,6 +3,23 @@ import { createBrowserContext } from "./browser";
 import { decrypt } from "@/lib/crypto";
 import { logger } from "@/lib/logger";
 
+/**
+ * Decrypts cookieData stored by the portal credential routes.
+ * Supports both the encrypted sentinel format `{ __encrypted: "..." }` and
+ * legacy plaintext arrays written before encryption was introduced.
+ */
+function decodeCookieData(raw: unknown): Cookie[] {
+  if (!raw) return [];
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (typeof obj.__encrypted === "string") {
+      return JSON.parse(decrypt(obj.__encrypted)) as Cookie[];
+    }
+  }
+  // Legacy: raw array stored without encryption
+  return raw as Cookie[];
+}
+
 interface CookieAuthOptions {
   cookies: Cookie[];
 }
@@ -100,7 +117,7 @@ export async function resolveAuth(portal: {
 
   // Try cookies first
   if (cred?.cookieData) {
-    const cookies = cred.cookieData as Cookie[];
+    const cookies = decodeCookieData(cred.cookieData);
     const expired = cred.cookieExpiresAt && new Date(cred.cookieExpiresAt) < new Date();
 
     if (!expired && cookies.length > 0) {

@@ -27,6 +27,7 @@ export async function fillPdf(ctx: FillContext): Promise<FillerResult> {
       })),
       filledStoragePath: null,
       webpageFillScript: null,
+      webpageFillOperations: null,
     };
   }
 
@@ -137,5 +138,6 @@ export async function fillPdf(ctx: FillContext): Promise<FillerResult> {
     results,
     filledStoragePath: filledKey,
     webpageFillScript: null,
+      webpageFillOperations: null,
   };
 }

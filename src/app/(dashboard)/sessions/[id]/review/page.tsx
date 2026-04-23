@@ -60,6 +60,7 @@ export default async function ReviewStepPage({
       report: buildFillReport(actions),
       hasFilledDocument: !!targetAsset?.filledStoragePath,
       webpageFillScript: null,
+      webpageFillOperations: null,
     };
   }
 

@@ -58,18 +58,39 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(db) as any,
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    maxAge: 7 * 24 * 60 * 60, // 7 days (reduced from 30)
   },
   pages: {
     signIn: "/sign-in",
   },
   providers,
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.id = user.id;
         token.role = user.role as UserRole;
+        token.tokenVersion = 0;
+        token.roleCheckedAt = Date.now();
       }
+
+      // Periodic re-validation every 15 minutes: invalidate on tokenVersion mismatch or refresh role
+      const now = Date.now();
+      const lastCheck = (token.roleCheckedAt as number | undefined) ?? 0;
+      if (token.id && (trigger === "update" || now - lastCheck > 15 * 60 * 1000)) {
+        const dbUser = await db.user.findUnique({
+          where: { id: token.id as string },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          select: { role: true, tokenVersion: true } as any,
+        }) as { role: string; tokenVersion: number } | null;
+        if (!dbUser) return null; // User deleted — invalidate token
+        const storedVersion = token.tokenVersion as number | undefined;
+        // Only invalidate if storedVersion is set (skip for tokens issued before this feature)
+        if (storedVersion !== undefined && dbUser.tokenVersion !== storedVersion) return null;
+        token.role = dbUser.role;
+        token.tokenVersion = dbUser.tokenVersion;
+        token.roleCheckedAt = now;
+      }
+
       return token;
     },
     async session({ session, token }) {

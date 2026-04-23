@@ -1,10 +1,20 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getRedisClient } from "@/lib/redis";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  // Optional bearer token guard — prevents exposing DB/Redis health to the public
+  const expectedToken = env.HEALTH_CHECK_TOKEN;
+  if (expectedToken) {
+    const auth = req.headers.get("authorization") ?? "";
+    const provided = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    if (provided !== expectedToken) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+  }
   const start = Date.now();
   const checks: Record<string, { status: string; latencyMs?: number; error?: string }> = {};
 

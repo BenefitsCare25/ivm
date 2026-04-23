@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { getStorageAdapter } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import { errorResponse, UnauthorizedError, NotFoundError } from "@/lib/errors";
@@ -8,6 +9,55 @@ import { EXTENSION_TO_MIME } from "@/lib/validations/upload";
 function getMimeType(key: string): string {
   const ext = key.slice(key.lastIndexOf(".")).toLowerCase();
   return EXTENSION_TO_MIME[ext] ?? "application/octet-stream";
+}
+
+/**
+ * Verify the requesting user owns the resource associated with this storage key.
+ * Keys are scoped by prefix: uploads/<userId>/... or portal-events/<itemId>/...
+ * For uploads, the userId prefix provides implicit ownership.
+ * For other keys, we verify via DB lookup.
+ */
+async function verifyOwnership(decodedKey: string, userId: string): Promise<boolean> {
+  // User upload files: uploads/<userId>/...
+  if (decodedKey.startsWith(`uploads/${userId}/`)) return true;
+
+  // FillSession target assets (filledStoragePath)
+  const asset = await db.targetAsset.findFirst({
+    where: {
+      OR: [
+        { storagePath: decodedKey },
+        { filledStoragePath: decodedKey },
+      ],
+      fillSession: { userId },
+    },
+    select: { id: true },
+  });
+  if (asset) return true;
+
+  // Portal item files
+  const portalFile = await db.trackedItemFile.findFirst({
+    where: {
+      storagePath: decodedKey,
+      trackedItem: { scrapeSession: { portal: { userId } } },
+    },
+    select: { id: true },
+  });
+  if (portalFile) return true;
+
+  // Portal event screenshots: portal-events/<itemId>/<timestamp>.png
+  if (decodedKey.startsWith("portal-events/")) {
+    const parts = decodedKey.split("/");
+    if (parts.length >= 2) {
+      const itemId = parts[1];
+      const item = await db.trackedItem.findFirst({
+        where: { id: itemId, scrapeSession: { portal: { userId } } },
+        select: { id: true },
+      });
+      if (item) return true;
+    }
+  }
+
+  return false;
 }
 
 export async function GET(
@@ -26,6 +76,9 @@ export async function GET(
 
     const { key } = await params;
     const decodedKey = decodeURIComponent(key);
+
+    const allowed = await verifyOwnership(decodedKey, session.user.id);
+    if (!allowed) throw new NotFoundError("File", decodedKey);
 
     const storage = getStorageAdapter();
     let data: Buffer;

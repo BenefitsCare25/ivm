@@ -1,7 +1,8 @@
-import type { FillContext, FillFieldResult, FillerResult } from "./types";
+import type { FillContext, FillFieldResult, FillerResult, WebpageFillOp } from "./types";
 
 export async function fillWebpage(ctx: FillContext): Promise<FillerResult> {
   const results: FillFieldResult[] = [];
+  const operations: WebpageFillOp[] = [];
   const scriptLines: string[] = [
     "// IVM Auto-Fill Script",
     `// Target: ${ctx.targetUrl ?? "unknown"}`,
@@ -38,6 +39,7 @@ export async function fillWebpage(ctx: FillContext): Promise<FillerResult> {
 
     if (fieldType === "checkbox") {
       const checked = ["true", "yes", "1", "checked", "on"].includes(value.toLowerCase());
+      operations.push({ selector, value: checked, type: "check" });
       scriptLines.push(
         `  try {`,
         `    const el = document.querySelector(${escapedSelector});`,
@@ -49,6 +51,8 @@ export async function fillWebpage(ctx: FillContext): Promise<FillerResult> {
         ""
       );
     } else if (fieldType === "radio") {
+      // Radio: selector targets the group; background executor selects matching value
+      operations.push({ selector, value, type: "value" });
       scriptLines.push(
         `  try {`,
         `    const radios = document.querySelectorAll(${escapedSelector});`,
@@ -67,6 +71,7 @@ export async function fillWebpage(ctx: FillContext): Promise<FillerResult> {
         ""
       );
     } else if (fieldType === "select") {
+      operations.push({ selector, value, type: "value" });
       scriptLines.push(
         `  try {`,
         `    const el = document.querySelector(${escapedSelector});`,
@@ -78,6 +83,7 @@ export async function fillWebpage(ctx: FillContext): Promise<FillerResult> {
         ""
       );
     } else {
+      operations.push({ selector, value, type: "value" });
       scriptLines.push(
         `  try {`,
         `    const el = document.querySelector(${escapedSelector});`,
@@ -119,5 +125,6 @@ export async function fillWebpage(ctx: FillContext): Promise<FillerResult> {
     results,
     filledStoragePath: null,
     webpageFillScript: scriptLines.join("\n"),
+    webpageFillOperations: operations.length > 0 ? operations : null,
   };
 }

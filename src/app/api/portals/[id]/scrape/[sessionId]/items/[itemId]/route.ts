@@ -21,7 +21,7 @@ export async function GET(
     if (!portal) throw new NotFoundError("Portal");
 
     const item = await db.trackedItem.findFirst({
-      where: { id: itemId, scrapeSessionId: sessionId },
+      where: { id: itemId, scrapeSession: { id: sessionId, portalId: id } },
       include: {
         files: {
           select: {
@@ -75,7 +75,7 @@ export async function PATCH(
     if (!portal) throw new NotFoundError("Portal");
 
     const updated = await db.trackedItem.updateMany({
-      where: { id: itemId, scrapeSessionId: sessionId },
+      where: { id: itemId, scrapeSession: { id: sessionId, portalId: id } },
       data: parsed.data,
     });
 

@@ -132,7 +132,8 @@
       "Bash(mv /tmp/check_fixed.js scripts/check-active-jobs.js)",
       "Bash(xxd)",
       "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && grep -A 5 \"export async function DELETE\" {} | head -10')",
-      "Bash(cat C:\\\\\\\\Users\\\\\\\\huien\\\\\\\\.claude-work\\\\\\\\projects\\\\\\\\C--Users-huien-ivm\\\\\\\\3ff3089c-29ee-43f2-94c7-e1c0b6661b50\\\\\\\\tool-results\\\\\\\\b7mcjjaft.txt)"
+      "Bash(cat C:\\\\\\\\Users\\\\\\\\huien\\\\\\\\.claude-work\\\\\\\\projects\\\\\\\\C--Users-huien-ivm\\\\\\\\3ff3089c-29ee-43f2-94c7-e1c0b6661b50\\\\\\\\tool-results\\\\\\\\b7mcjjaft.txt)",
+      "Bash(echo \"Build started in background PID $!\")"
     ]
   }
 }

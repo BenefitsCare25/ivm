@@ -25,14 +25,7 @@ export async function POST(
     const { id, sessionId } = await params;
     const { type = "all" } = await req.json().catch(() => ({}));
 
-    if (type === "skip") {
-      const { count } = await db.trackedItem.updateMany({
-        where: { scrapeSessionId: sessionId, status: "ERROR" },
-        data: { status: "SKIPPED", errorMessage: null },
-      });
-      return NextResponse.json({ skipped: count });
-    }
-
+    // Ownership check FIRST — before any data modifications (covers skip branch too)
     const portal = await db.portal.findFirst({
       where: { id, userId: session.user.id },
       select: { id: true, userId: true },
@@ -44,6 +37,14 @@ export async function POST(
       select: { id: true },
     });
     if (!scrapeSession) throw new NotFoundError("Session");
+
+    if (type === "skip") {
+      const { count } = await db.trackedItem.updateMany({
+        where: { scrapeSessionId: sessionId, status: "ERROR" },
+        data: { status: "SKIPPED", errorMessage: null },
+      });
+      return NextResponse.json({ skipped: count });
+    }
 
     const statusFilter: TrackedItemStatus[] =
       type === "failed"      ? ["ERROR"] :

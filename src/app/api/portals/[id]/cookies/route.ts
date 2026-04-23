@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { saveCookiesSchema } from "@/lib/validations/portal";
 import { errorResponse, UnauthorizedError, NotFoundError, ValidationError } from "@/lib/errors";
 import { toInputJson } from "@/lib/utils";
+import { encrypt } from "@/lib/crypto";
 
 export async function POST(
   req: Request,
@@ -30,15 +31,17 @@ export async function POST(
       ? new Date(parsed.data.expiresAt)
       : new Date(Date.now() + 24 * 60 * 60 * 1000); // Default: 24 hours
 
+    const encryptedCookies = toInputJson({ __encrypted: encrypt(JSON.stringify(parsed.data.cookies)) });
+
     await db.portalCredential.upsert({
       where: { portalId: id },
       create: {
         portalId: id,
-        cookieData: toInputJson(parsed.data.cookies),
+        cookieData: encryptedCookies,
         cookieExpiresAt: expiresAt,
       },
       update: {
-        cookieData: toInputJson(parsed.data.cookies),
+        cookieData: encryptedCookies,
         cookieExpiresAt: expiresAt,
       },
     });

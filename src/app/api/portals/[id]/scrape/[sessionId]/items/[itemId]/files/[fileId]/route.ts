@@ -36,10 +36,11 @@ export async function GET(
     const storage = getStorageAdapter();
     const buffer = await storage.download(file.storagePath);
 
+    const safeFileName = file.fileName.replace(/["\\\r\n]/g, "_");
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
         "Content-Type": file.mimeType,
-        "Content-Disposition": `inline; filename="${file.fileName}"`,
+        "Content-Disposition": `inline; filename="${safeFileName}"`,
         "Content-Length": buffer.length.toString(),
         "Cache-Control": "private, max-age=3600",
       },

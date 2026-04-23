@@ -50,13 +50,7 @@ export function WizardAuthStep({
           setExtensionDetected(detected);
           if (detected) {
             try {
-              const res = await fetch("/api/auth/session");
-              if (res.ok) {
-                const data = await res.json();
-                if (data?.user?.id) {
-                  await syncExtensionConfig(data.user.id);
-                }
-              }
+              await syncExtensionConfig();
             } catch { /* non-critical */ }
           }
         })

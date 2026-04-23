@@ -50,10 +50,10 @@ export async function POST(req: Request) {
     const newHash = await bcrypt.hash(newPassword, 12);
     await db.user.update({
       where: { id: session.user.id },
-      data: { passwordHash: newHash },
+      data: { passwordHash: newHash, tokenVersion: { increment: 1 } },
     });
 
-    logger.info({ userId: session.user.id }, "Password changed");
+    logger.info({ userId: session.user.id }, "Password changed — tokenVersion incremented");
 
     return NextResponse.json({ success: true });
   } catch (err) {

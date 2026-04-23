@@ -22,8 +22,17 @@ export interface FillFieldResult {
   errorMessage: string | null;
 }
 
+/** A single safe fill operation — no eval required */
+export interface WebpageFillOp {
+  selector: string;
+  value: string | boolean;
+  type: "value" | "check" | "click";
+}
+
 export interface FillerResult {
   results: FillFieldResult[];
   filledStoragePath: string | null;
   webpageFillScript: string | null;
+  /** Structured operations for extension safe-fill (preferred over script) */
+  webpageFillOperations: WebpageFillOp[] | null;
 }

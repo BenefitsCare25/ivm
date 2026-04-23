@@ -184,6 +184,7 @@ export async function POST(
       report,
       hasFilledDocument: result.filledStoragePath !== null,
       webpageFillScript: result.webpageFillScript,
+      webpageFillOperations: result.webpageFillOperations,
     });
   } catch (err) {
     return errorResponse(err);
@@ -236,6 +237,7 @@ export async function GET(
       report: buildFillReport(actions),
       hasFilledDocument: !!targetAsset?.filledStoragePath,
       webpageFillScript: null,
+      webpageFillOperations: null,
     });
   } catch (err) {
     return errorResponse(err);

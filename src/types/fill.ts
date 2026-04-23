@@ -21,11 +21,18 @@ export interface FillReport {
   skipped: number;
 }
 
+export interface WebpageFillOp {
+  selector: string;
+  value: string | boolean;
+  type: "value" | "check" | "click";
+}
+
 export interface FillSessionData {
   actions: FillActionSummary[];
   report: FillReport;
   hasFilledDocument: boolean;
   webpageFillScript: string | null;
+  webpageFillOperations: WebpageFillOp[] | null;
 }
 
 export interface WebpageFillScript {

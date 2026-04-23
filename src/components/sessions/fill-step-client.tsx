@@ -58,7 +58,12 @@ export function FillStepClient({
   const handleExtensionFill = useCallback(async () => {
     if (!fillData?.webpageFillScript || !targetUrl) return;
     try {
-      const result = await sendFillToExtension(targetUrl, fillData.webpageFillScript, sessionId);
+      const result = await sendFillToExtension(
+        targetUrl,
+        fillData.webpageFillScript,
+        sessionId,
+        fillData.webpageFillOperations ?? undefined
+      );
       if (!result.success) {
         setError(`Extension fill failed: ${result.error || "Unknown error"}`);
       }

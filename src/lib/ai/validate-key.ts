@@ -28,7 +28,10 @@ async function validateAnthropicKey(apiKey: string): Promise<boolean> {
     if (error.status === 403) {
       throw new ValidationError("Anthropic API key does not have permission. Check your key permissions.");
     }
-    throw new ValidationError(`Failed to validate Anthropic key: ${error.message || "Unknown error"}`);
+    // Log full error server-side; return generic message to client
+    const { logger } = await import("@/lib/logger");
+    logger.warn({ status: error.status, name: error.name }, "[validate-key] Anthropic unexpected error");
+    throw new ValidationError("Could not validate Anthropic key. Check the key and try again.");
   }
 }
 
@@ -55,7 +58,9 @@ async function validateOpenAIKey(apiKey: string): Promise<boolean> {
     if (error.status === 403) {
       throw new ValidationError("OpenAI API key does not have permission. Check your key permissions.");
     }
-    throw new ValidationError(`Failed to validate OpenAI key: ${error.message || "Unknown error"}`);
+    const { logger } = await import("@/lib/logger");
+    logger.warn({ status: error.status, name: error.name }, "[validate-key] OpenAI unexpected error");
+    throw new ValidationError("Could not validate OpenAI key. Check the key and try again.");
   }
 }
 
@@ -85,7 +90,9 @@ async function validateGeminiKey(apiKey: string): Promise<boolean> {
     if (msg.includes("403") || msg.includes("PERMISSION_DENIED")) {
       throw new ValidationError("Gemini API key does not have permission. Enable the Generative AI API.");
     }
-    throw new ValidationError(`Failed to validate Gemini key: ${msg}`);
+    const { logger } = await import("@/lib/logger");
+    logger.warn({ name: (err as { name?: string })?.name }, "[validate-key] Gemini unexpected error");
+    throw new ValidationError("Could not validate Gemini key. Check the key and try again.");
   }
 }
 
@@ -117,7 +124,9 @@ async function validateAzureFoundryKey(apiKey: string, endpoint: string, model?:
     if (error.status === 404) {
       throw new ValidationError("Azure AI Foundry endpoint not found. URL should end with /anthropic/ — do not include /v1/messages.");
     }
-    throw new ValidationError(`Failed to validate Azure Foundry key: ${error.message || "Unknown error"}`);
+    const { logger } = await import("@/lib/logger");
+    logger.warn({ status: error.status, name: error.name }, "[validate-key] Azure Foundry unexpected error");
+    throw new ValidationError("Could not validate Azure Foundry key. Check the key and endpoint, then try again.");
   }
 }
 

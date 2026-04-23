@@ -140,14 +140,27 @@ export async function detectExtension(): Promise<boolean> {
   }
 }
 
-/** Store IVM base URL and userId in extension storage so the popup can auth */
-export async function syncExtensionConfig(userId: string): Promise<void> {
+/** Fetch a signed extension token from the server for popup auth */
+async function fetchExtensionToken(): Promise<string | null> {
+  try {
+    const res = await fetch("/api/auth/extension-token");
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.token === "string" ? data.token : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Store IVM base URL and signed extension token in extension storage so the popup can auth */
+export async function syncExtensionConfig(): Promise<void> {
   if (typeof window === "undefined") return;
-  const message = {
+  const token = await fetchExtensionToken();
+  const message: Record<string, unknown> = {
     type: "IVM_SYNC_CONFIG",
     ivmBaseUrl: window.location.origin,
-    ivmUserId: userId,
   };
+  if (token) message.ivmExtensionToken = token;
   try {
     await sendViaContentScript<{ ok: boolean }>(message);
   } catch {
@@ -159,15 +172,23 @@ export async function syncExtensionConfig(userId: string): Promise<void> {
   }
 }
 
+export interface WebpageFillOp {
+  selector: string;
+  value: string | boolean;
+  type: "value" | "check" | "click";
+}
+
 export async function sendFillToExtension(
   targetUrl: string,
   script: string,
-  sessionId?: string
+  sessionId?: string,
+  operations?: WebpageFillOp[]
 ): Promise<ExtensionFillResponse> {
   return sendMessageToExtension<ExtensionFillResponse>({
     type: "IVM_FILL",
     targetUrl,
     script,
+    operations: operations ?? [],
     sessionId,
   });
 }

@@ -57,7 +57,8 @@ export async function GET(
     const baseName = targetAsset.fileName
       ? targetAsset.fileName.replace(/\.[^.]+$/, "")
       : "document";
-    const fileName = `${baseName}-filled${ext}`;
+    const rawName = `${baseName}-filled${ext}`;
+    const fileName = rawName.replace(/["\\\r\n]/g, "_");
 
     return new Response(new Uint8Array(buffer), {
       headers: {

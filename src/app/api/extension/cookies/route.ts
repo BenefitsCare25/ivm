@@ -6,22 +6,22 @@ import { saveCookiesSchema } from "@/lib/validations/portal";
 import { errorResponse, UnauthorizedError, NotFoundError, ValidationError } from "@/lib/errors";
 import { authLimiter } from "@/lib/rate-limit";
 import { toInputJson } from "@/lib/utils";
+import { encrypt } from "@/lib/crypto";
+import { verifyExtensionToken } from "@/app/api/auth/extension-token/route";
 
 const extensionCookieSchema = z.object({
   url: z.string().url(),
   cookies: saveCookiesSchema.shape.cookies,
-  /** Optional userId for extension popup auth (session cookie may not be sent cross-origin) */
-  userId: z.string().optional(),
+  /** HMAC-signed token issued by /api/auth/extension-token (replaces bare userId) */
+  extensionToken: z.string().optional(),
 });
 
 /**
  * Receives cookies pushed from the Chrome Extension popup.
  * Matches the URL domain to an existing portal and saves the cookies.
  *
- * Auth: tries session cookie first (in-page requests). Falls back to
- * userId in body (extension popup where SameSite=Lax blocks the cookie).
- * The userId alone is low-risk — it only lets you write cookies to your
- * own portals, and the portal ownership check prevents cross-user writes.
+ * Auth: tries session cookie first (in-page requests). Falls back to a
+ * HMAC-SHA256 signed extension token — never a bare userId.
  */
 export async function POST(req: Request) {
   try {
@@ -38,11 +38,15 @@ export async function POST(req: Request) {
       throw new ValidationError("Validation failed", parsed.error.flatten().fieldErrors);
     }
 
-    const { url, cookies, userId: bodyUserId } = parsed.data;
+    const { url, cookies, extensionToken } = parsed.data;
 
-    // Extension popup fallback: accept userId from body when session cookie is unavailable
-    if (!userId && bodyUserId) {
-      userId = bodyUserId;
+    // Extension popup fallback: validate HMAC-signed token (not bare userId)
+    if (!userId && extensionToken) {
+      const secret = process.env.NEXTAUTH_SECRET;
+      if (!secret) throw new UnauthorizedError();
+      const resolvedId = verifyExtensionToken(extensionToken, secret);
+      if (!resolvedId) throw new UnauthorizedError();
+      userId = resolvedId;
     }
     if (!userId) throw new UnauthorizedError();
 
@@ -77,15 +81,17 @@ export async function POST(req: Request) {
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
+    const encryptedCookies = toInputJson({ __encrypted: encrypt(JSON.stringify(cookies)) });
+
     await db.portalCredential.upsert({
       where: { portalId: portal.id },
       create: {
         portalId: portal.id,
-        cookieData: toInputJson(cookies),
+        cookieData: encryptedCookies,
         cookieExpiresAt: expiresAt,
       },
       update: {
-        cookieData: toInputJson(cookies),
+        cookieData: encryptedCookies,
         cookieExpiresAt: expiresAt,
       },
     });

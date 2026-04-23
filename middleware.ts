@@ -3,9 +3,18 @@ import { NextResponse } from "next/server";
 import { globalLimiter, authLimiter, aiLimiter } from "@/lib/rate-limit";
 import { REQUEST_ID_HEADER } from "@/lib/request-context";
 
+// RFC 1918 + loopback — never trust these as real IPs (spoofable proxy hops)
+const PRIVATE_IP_RE = /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|::1$|fc|fd)/;
+
 function getClientIp(req: Request): string {
   const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
+  if (forwarded) {
+    // Use the rightmost non-private IP — leftmost is attacker-controlled when
+    // multiple proxies are in the chain. nginx/Traefik append the real IP last.
+    const ips = forwarded.split(",").map((s) => s.trim()).reverse();
+    const real = ips.find((ip) => !PRIVATE_IP_RE.test(ip));
+    if (real) return real;
+  }
   return "unknown";
 }
 
@@ -61,7 +70,13 @@ export default auth(async (req) => {
     }
   }
 
-  if (/^\/api\/sessions\/[^/]+\/(extract|mapping)$/.test(pathname) && req.auth?.user?.id) {
+  if (
+    req.auth?.user?.id && (
+      /^\/api\/sessions\/[^/]+\/(extract|mapping)$/.test(pathname) ||
+      /^\/api\/portals\/[^/]+\/analyze$/.test(pathname) ||
+      /^\/api\/portals\/[^/]+\/scrape\/[^/]+\/recompare$/.test(pathname)
+    )
+  ) {
     const result = await aiLimiter(`user:${req.auth.user.id}`);
     if (!result.allowed) {
       const res = rateLimitResponse(result, "Too many AI requests. Please wait before retrying.");
