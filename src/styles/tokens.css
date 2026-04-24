@@ -132,7 +132,7 @@
   --glass-border-opacity: 0.20;
 
   /* Specular & depth */
-  --glass-specular: 0.16;
+  --glass-specular: 0;
   --glass-specular-spread: 25%;
   --glass-depth-opacity: 0.08;
   --glass-inner-glow: 0.08;
