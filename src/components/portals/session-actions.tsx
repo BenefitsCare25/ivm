@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw, RotateCcw, Play, CheckCircle2, Square, Trash2, Loader2, SkipForward, FileSliders } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { ComparisonTemplateModal } from "./comparison-template-modal";
 import type { ProviderGroupSummary } from "@/types/portal";
 
@@ -158,7 +159,7 @@ export function SessionActions({
   if (total === 0) return null;
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <Card className="p-4 space-y-3">
       {/* Progress bar */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between text-sm">
@@ -405,6 +406,6 @@ export function SessionActions({
           }}
         />
       )}
-    </div>
+    </Card>
   );
 }

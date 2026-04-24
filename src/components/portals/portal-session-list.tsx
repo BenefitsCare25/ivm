@@ -61,7 +61,7 @@ export function PortalSessionList({ portalId, sessions }: PortalSessionListProps
               ).map((st) => ({ status: st, count: s.itemStatusCounts[st] }));
 
               return (
-                <div key={s.id} className="rounded-lg border border-border p-4 space-y-3">
+                <Card key={s.id} className="p-4 space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-2 flex-wrap">
                       <ScrapeStatusBadge status={s.status} />
@@ -128,7 +128,7 @@ export function PortalSessionList({ portalId, sessions }: PortalSessionListProps
                       <p className="text-xs text-status-error">{s.errorMessage}</p>
                     </div>
                   )}
-                </div>
+                </Card>
               );
             })}
           </div>

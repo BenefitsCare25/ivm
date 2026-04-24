@@ -10,6 +10,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
+import { Card } from "@/components/ui/card";
 import { ItemStatusBadge } from "./portal-status-badge";
 import { ExpandedPanel } from "./expanded-row";
 import type { TrackedItemStatus, FieldComparison, ItemFile, ComparisonSummary, ValidationAlert } from "@/types/portal";
@@ -49,9 +50,9 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
 
   if (items.length === 0) {
     return (
-      <div className="rounded-lg border border-border py-8 text-center text-sm text-muted-foreground">
+      <Card className="py-8 text-center text-sm text-muted-foreground">
         No items found in this session.
-      </div>
+      </Card>
     );
   }
 
@@ -67,7 +68,7 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
 
   return (
     <TooltipProvider>
-    <div className="rounded-lg border border-border overflow-hidden bg-card">
+    <Card className="overflow-hidden">
       <table className="w-full text-sm">
         <thead>
           <tr className="bg-muted">
@@ -210,7 +211,7 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
           })}
         </tbody>
       </table>
-    </div>
+    </Card>
     </TooltipProvider>
   );
 }
