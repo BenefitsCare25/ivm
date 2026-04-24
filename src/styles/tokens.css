@@ -40,10 +40,10 @@
 
   /* ─── Liquid Glass System ─── */
   --glass-bg: 255 255 255;
-  --glass-opacity: 0.88;
-  --glass-light-opacity: 0.78;
-  --glass-strong-opacity: 0.92;
-  --glass-input-opacity: 0.72;
+  --glass-opacity: 0.76;
+  --glass-light-opacity: 0.65;
+  --glass-strong-opacity: 0.84;
+  --glass-input-opacity: 0.60;
   --glass-blur: 32px;
   --glass-tint-color: 224 107 45;
   --glass-border-color: 224 107 45;
