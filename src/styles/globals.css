@@ -56,36 +56,35 @@
     background-color: rgb(var(--bg-base));
   }
 
-  /* Individual orb divs — each has filter:blur so backdrop-filter composites against real diffuse blobs */
+  /* Orb divs — NO filter:blur, so backdrop-filter on glass cards can sample their color directly.
+     Soft edges come from the radial-gradient falloff. Card backdrop-filter then blurs them. */
   .orb {
     position: absolute;
     border-radius: 50%;
-    filter: blur(72px);
-    will-change: transform;
   }
   .orb-1 {
-    width: 65vw; height: 65vh;
-    background: radial-gradient(circle, rgb(var(--orb-1) / var(--orb-1-alpha)), transparent 70%);
-    right: -8%; top: -12%;
+    width: 70vw; height: 70vh;
+    background: radial-gradient(circle, rgb(var(--orb-1) / var(--orb-1-alpha)) 0%, transparent 70%);
+    right: -5%; top: -8%;
     animation: orb-a 22s ease-in-out infinite;
   }
   .orb-2 {
-    width: 55vw; height: 55vh;
-    background: radial-gradient(circle, rgb(var(--orb-2) / var(--orb-2-alpha)), transparent 70%);
-    left: -8%; bottom: -8%;
+    width: 60vw; height: 60vh;
+    background: radial-gradient(circle, rgb(var(--orb-2) / var(--orb-2-alpha)) 0%, transparent 70%);
+    left: 5%; bottom: 0%;
     animation: orb-b 28s ease-in-out infinite;
   }
   .orb-3 {
-    width: 42vw; height: 42vh;
-    background: radial-gradient(circle, rgb(var(--orb-3) / var(--orb-3-alpha)), transparent 70%);
-    left: 50%; bottom: -14%;
+    width: 48vw; height: 48vh;
+    background: radial-gradient(circle, rgb(var(--orb-3) / var(--orb-3-alpha)) 0%, transparent 70%);
+    left: 50%; bottom: -10%;
     transform: translateX(-50%);
     animation: orb-c 34s ease-in-out infinite;
   }
   .orb-4 {
-    width: 36vw; height: 36vh;
-    background: radial-gradient(circle, rgb(var(--orb-4) / var(--orb-4-alpha)), transparent 65%);
-    left: 12%; top: 38%;
+    width: 44vw; height: 44vh;
+    background: radial-gradient(circle, rgb(var(--orb-4) / var(--orb-4-alpha)) 0%, transparent 65%);
+    left: 45%; top: 25%;
     animation: orb-d 26s ease-in-out infinite;
   }
 }

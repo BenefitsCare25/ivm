@@ -40,9 +40,9 @@
 
   /* ─── Liquid Glass System ─── */
   --glass-bg: 255 255 255;
-  --glass-opacity: 0.28;
-  --glass-light-opacity: 0.18;
-  --glass-strong-opacity: 0.44;
+  --glass-opacity: 0.55;
+  --glass-light-opacity: 0.38;
+  --glass-strong-opacity: 0.70;
   --glass-input-opacity: 0.25;
   --glass-blur: 32px;
   --glass-tint-color: 224 107 45;
@@ -73,10 +73,10 @@
   --orb-2: 240 150 90;
   --orb-3: 255 185 130;
   --orb-4: 200 85 40;
-  --orb-1-alpha: 0.45;
-  --orb-2-alpha: 0.32;
-  --orb-3-alpha: 0.20;
-  --orb-4-alpha: 0.14;
+  --orb-1-alpha: 0.60;
+  --orb-2-alpha: 0.45;
+  --orb-3-alpha: 0.32;
+  --orb-4-alpha: 0.38;
 
   /* Base gradient (orbs are layered on top via body::before) */
   --bg-base: 255 244 235;
@@ -120,16 +120,16 @@
 
   /* ─── Liquid Glass System — Pristine Water Glass ─── */
   --glass-bg: 255 255 255;
-  --glass-opacity: 0.08;
-  --glass-light-opacity: 0.05;
-  --glass-strong-opacity: 0.12;
-  --glass-input-opacity: 0.06;
+  --glass-opacity: 0.11;
+  --glass-light-opacity: 0.07;
+  --glass-strong-opacity: 0.18;
+  --glass-input-opacity: 0.08;
   --glass-blur: 40px;
   --glass-tint-color: 160 185 220;
   --glass-border-color: 255 255 255;
   --glass-tint-opacity: 0.04;
-  --glass-primary-border: 0.12;
-  --glass-border-opacity: 0.12;
+  --glass-primary-border: 0.18;
+  --glass-border-opacity: 0.14;
 
   /* Specular & depth — subtle glass refraction */
   --glass-specular: 0.10;
@@ -153,10 +153,10 @@
   --orb-2: 90 130 185;
   --orb-3: 145 168 205;
   --orb-4: 80 115 175;
-  --orb-1-alpha: 0.22;
-  --orb-2-alpha: 0.16;
-  --orb-3-alpha: 0.12;
-  --orb-4-alpha: 0.07;
+  --orb-1-alpha: 0.38;
+  --orb-2-alpha: 0.28;
+  --orb-3-alpha: 0.22;
+  --orb-4-alpha: 0.18;
 
   --bg-base: 10 10 14;
 }
