@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { FormError } from "@/components/ui/form-error";
+import { Card } from "@/components/ui/card";
 
 interface UserRow {
   id: string;
@@ -104,7 +105,7 @@ export default function AdminUsersPage() {
 
       {/* Create user form */}
       {showForm && (
-        <div className="rounded-lg border border-border bg-card p-5 space-y-4">
+        <Card className="p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium text-foreground">New Admin User</h2>
             <button
@@ -163,11 +164,11 @@ export default function AdminUsersPage() {
               </Button>
             </div>
           </form>
-        </div>
+        </Card>
       )}
 
       {/* Users table */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
+      <Card className="overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-12 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
@@ -223,7 +224,7 @@ export default function AdminUsersPage() {
             </tbody>
           </table>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

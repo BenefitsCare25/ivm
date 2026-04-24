@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { CheckCircle, Download, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FormError } from "@/components/ui/form-error";
+import { Card } from "@/components/ui/card";
 import { FillReportCard } from "./fill-report-card";
 import { FillActionsTable } from "./fill-actions-table";
 import { ReviewTabs } from "./review-tabs";
@@ -77,7 +78,7 @@ export function ReviewStepClient({
 
   if (!hasPrerequisites || !fillData) {
     return (
-      <div className="rounded-lg border border-border bg-muted/30 p-8 text-center">
+      <Card className="p-8 text-center">
         <p className="text-sm text-muted-foreground">
           Complete the fill step first before reviewing.
         </p>
@@ -90,7 +91,7 @@ export function ReviewStepClient({
             Go to Fill
           </Button>
         </div>
-      </div>
+      </Card>
     );
   }
 

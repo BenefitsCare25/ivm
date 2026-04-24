@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Sparkles, ArrowRight, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FormError } from "@/components/ui/form-error";
+import { Card } from "@/components/ui/card";
 import { ExtractionStatus } from "./extraction-status";
 import { ExtractionTable } from "./extraction-table";
 import type { ExtractedField, ExtractionState } from "@/types/extraction";
@@ -91,7 +92,7 @@ export function ExtractStepClient({ sessionId, hasSource, initialExtraction }: E
 
   if (!hasSource) {
     return (
-      <div className="rounded-lg border border-border bg-muted/30 p-8 text-center">
+      <Card className="p-8 text-center">
         <p className="text-sm text-muted-foreground">
           Upload a source document first before extracting fields.
         </p>
@@ -103,7 +104,7 @@ export function ExtractStepClient({ sessionId, hasSource, initialExtraction }: E
         >
           Go to Source Upload
         </Button>
-      </div>
+      </Card>
     );
   }
 

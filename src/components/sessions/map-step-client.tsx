@@ -6,6 +6,7 @@ import { Sparkles, ArrowRight, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FormError } from "@/components/ui/form-error";
 import { MappingReviewTable } from "./mapping-review-table";
+import { Card } from "@/components/ui/card";
 import type { ExtractedField } from "@/types/extraction";
 import type { TargetField } from "@/types/target";
 import type { FieldMapping, MappingState } from "@/types/mapping";
@@ -110,7 +111,7 @@ export function MapStepClient({
 
   if (!hasPrerequisites) {
     return (
-      <div className="rounded-lg border border-border bg-muted/30 p-8 text-center">
+      <Card className="p-8 text-center">
         <p className="text-sm text-muted-foreground">
           Complete field extraction and target selection first before proposing mappings.
         </p>
@@ -130,7 +131,7 @@ export function MapStepClient({
             Go to Target
           </Button>
         </div>
-      </div>
+      </Card>
     );
   }
 

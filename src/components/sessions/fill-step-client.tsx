@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Play, ArrowRight, Download, RotateCcw, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FormError } from "@/components/ui/form-error";
+import { Card } from "@/components/ui/card";
 import { FillReportCard } from "./fill-report-card";
 import { FillActionsTable } from "./fill-actions-table";
 import { WebpageFillScript } from "./webpage-fill-script";
@@ -161,7 +162,7 @@ export function FillStepClient({
 
   if (!hasPrerequisites) {
     return (
-      <div className="rounded-lg border border-border bg-muted/30 p-8 text-center">
+      <Card className="p-8 text-center">
         <p className="text-sm text-muted-foreground">
           Accept field mappings first before executing fill.
         </p>
@@ -174,7 +175,7 @@ export function FillStepClient({
             Go to Mapping
           </Button>
         </div>
-      </div>
+      </Card>
     );
   }
 

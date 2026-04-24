@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { TargetTypeSelector } from "./target-type-selector";
 import { TargetUrlInput } from "./target-url-input";
 import { TargetFileUpload } from "./target-file-upload";
@@ -57,7 +58,7 @@ export function TargetStepClient({
 
   if (!hasExtraction) {
     return (
-      <div className="rounded-lg border border-border bg-muted/30 p-8 text-center">
+      <Card className="p-8 text-center">
         <p className="text-sm text-muted-foreground">
           Complete field extraction first before selecting a target.
         </p>
@@ -69,7 +70,7 @@ export function TargetStepClient({
         >
           Go to Extraction
         </Button>
-      </div>
+      </Card>
     );
   }
 
