@@ -450,7 +450,7 @@ export function TemplateList({
               Previously configured (not seen in recent scrapes):
             </p>
             {orphaned.map((t) => (
-              <Card key={t.id} className="p-3 opacity-60">
+              <Card key={t.id} className="p-3 opacity-60 border-dashed">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-medium text-foreground">{t.name}</span>
                   <div className="flex items-center gap-1">
