@@ -18,7 +18,7 @@ export function Sidebar({ role }: SidebarProps) {
   return (
     <aside
       className={cn(
-        "flex shrink-0 flex-col glass-strong overflow-hidden transition-[width] duration-200 ease-in-out",
+        "flex shrink-0 flex-col glass-strong border-t-0 overflow-hidden transition-[width] duration-200 ease-in-out",
         collapsed ? "w-[var(--sidebar-width-collapsed)]" : "w-[var(--sidebar-width)]"
       )}
     >

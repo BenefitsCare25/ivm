@@ -40,33 +40,33 @@
 
   /* ─── Liquid Glass System ─── */
   --glass-bg: 255 255 255;
-  --glass-opacity: 0.56;
-  --glass-light-opacity: 0.38;
-  --glass-strong-opacity: 0.72;
-  --glass-input-opacity: 0.30;
-  --glass-blur: 24px;
+  --glass-opacity: 0.46;
+  --glass-light-opacity: 0.30;
+  --glass-strong-opacity: 0.58;
+  --glass-input-opacity: 0.25;
+  --glass-blur: 32px;
   --glass-tint-color: 224 107 45;
   --glass-border-color: 224 107 45;
-  --glass-tint-opacity: 0.06;
-  --glass-primary-border: 0.18;
-  --glass-border-opacity: 0.20;
+  --glass-tint-opacity: 0.05;
+  --glass-primary-border: 0.15;
+  --glass-border-opacity: 0.18;
 
   /* Specular & depth — liquid glass lighting model */
-  --glass-specular: 0.55;
-  --glass-specular-spread: 50%;
-  --glass-depth-opacity: 0.04;
-  --glass-inner-glow: 0.10;
+  --glass-specular: 0.50;
+  --glass-specular-spread: 48%;
+  --glass-depth-opacity: 0.03;
+  --glass-inner-glow: 0.08;
 
   --glass-shadow:
-    0 8px 40px -8px rgb(var(--primary) / 0.18),
-    0 2px 12px -2px rgb(var(--primary) / 0.10),
-    inset 0 1px 0 rgba(255,255,255,0.82),
-    inset 0 0 0 1px rgb(var(--glass-tint-color) / 0.12);
+    0 6px 32px -6px rgb(var(--primary) / 0.14),
+    0 2px 10px -2px rgb(var(--primary) / 0.08),
+    inset 0 1px 0 rgba(255,255,255,0.78),
+    inset 0 0 0 1px rgb(var(--glass-tint-color) / 0.10);
   --glass-shadow-hover:
-    0 14px 56px -8px rgb(var(--primary) / 0.28),
-    0 4px 18px -2px rgb(var(--primary) / 0.14),
-    inset 0 1px 0 rgba(255,255,255,0.92),
-    inset 0 0 0 1px rgb(var(--glass-tint-color) / 0.20);
+    0 10px 44px -6px rgb(var(--primary) / 0.22),
+    0 4px 16px -2px rgb(var(--primary) / 0.12),
+    inset 0 1px 0 rgba(255,255,255,0.88),
+    inset 0 0 0 1px rgb(var(--glass-tint-color) / 0.16);
 
   /* Decorative orbs — warm analogous palette with depth accent */
   --orb-1: 224 110 52;
@@ -83,80 +83,80 @@
 }
 
 [data-mode="dark"] {
-  --foreground: 232 226 220;
-  --foreground-secondary: 190 180 168;
-  --muted-foreground: 145 135 122;
+  --foreground: 242 238 232;
+  --foreground-secondary: 192 186 176;
+  --muted-foreground: 138 132 122;
 
-  --background: 12 10 22;
-  --card: 28 26 44;
-  --muted: 35 32 52;
-  --popover: 28 26 44;
+  --background: 16 16 20;
+  --card: 24 24 30;
+  --muted: 30 30 36;
+  --popover: 24 24 30;
 
-  --border: 68 62 88;
-  --input: 58 54 78;
-  --ring: 218 165 78;
+  --border: 52 50 58;
+  --input: 44 42 52;
+  --ring: 228 115 45;
 
-  --primary: 218 165 78;
-  --primary-foreground: 18 14 8;
-  --secondary: 42 38 62;
-  --secondary-foreground: 218 208 198;
+  --primary: 228 115 45;
+  --primary-foreground: 255 255 255;
+  --secondary: 34 34 42;
+  --secondary-foreground: 218 212 202;
 
-  --accent: 48 42 68;
-  --accent-foreground: 228 220 208;
+  --accent: 40 40 48;
+  --accent-foreground: 228 222 212;
 
-  --destructive: 248 113 113;
-  --destructive-foreground: 18 14 8;
+  --destructive: 240 82 82;
+  --destructive-foreground: 255 255 255;
 
-  --sidebar-bg: 18 16 32;
-  --sidebar-foreground: 195 184 172;
-  --sidebar-border: 52 48 72;
-  --sidebar-accent: 42 38 62;
-  --sidebar-accent-foreground: 228 220 208;
+  --sidebar-bg: 13 13 18;
+  --sidebar-foreground: 182 176 168;
+  --sidebar-border: 44 42 52;
+  --sidebar-accent: 34 34 42;
+  --sidebar-accent-foreground: 228 222 212;
 
-  --status-success: 74 222 128;
+  --status-success: 52 211 153;
   --status-warning: 251 191 36;
   --status-error: 248 113 113;
   --status-info: 96 165 250;
 
-  /* ─── Liquid Glass System ─── */
+  /* ─── Liquid Glass System — Pristine Water Glass ─── */
   --glass-bg: 255 255 255;
   --glass-opacity: 0.08;
   --glass-light-opacity: 0.05;
-  --glass-strong-opacity: 0.14;
+  --glass-strong-opacity: 0.12;
   --glass-input-opacity: 0.06;
-  --glass-blur: 30px;
-  --glass-tint-color: 188 175 255;
+  --glass-blur: 40px;
+  --glass-tint-color: 160 185 220;
   --glass-border-color: 255 255 255;
-  --glass-tint-opacity: 0.05;
-  --glass-primary-border: 0.14;
-  --glass-border-opacity: 0.15;
+  --glass-tint-opacity: 0.04;
+  --glass-primary-border: 0.12;
+  --glass-border-opacity: 0.12;
 
-  /* Specular & depth — dimmed for dark mode */
-  --glass-specular: 0.14;
-  --glass-specular-spread: 45%;
-  --glass-depth-opacity: 0.12;
-  --glass-inner-glow: 0.06;
+  /* Specular & depth — subtle glass refraction */
+  --glass-specular: 0.10;
+  --glass-specular-spread: 40%;
+  --glass-depth-opacity: 0.06;
+  --glass-inner-glow: 0.04;
 
   --glass-shadow:
-    0 10px 50px -8px rgba(0, 0, 0, 0.70),
-    0 2px 16px -2px rgba(0, 0, 0, 0.40),
-    inset 0 1px 0 rgba(255,255,255,0.18),
-    inset 0 0 0 1px rgba(255,255,255,0.10);
+    0 4px 24px -4px rgba(0, 0, 0, 0.40),
+    0 1px 8px -1px rgba(0, 0, 0, 0.20),
+    inset 0 1px 0 rgba(255,255,255,0.10),
+    inset 0 0 0 1px rgba(255,255,255,0.07);
   --glass-shadow-hover:
-    0 14px 64px -8px rgba(0, 0, 0, 0.85),
-    0 4px 22px -2px rgba(0, 0, 0, 0.50),
-    inset 0 1px 0 rgba(255,255,255,0.28),
-    inset 0 0 0 1px rgba(255,255,255,0.18);
+    0 8px 36px -4px rgba(0, 0, 0, 0.50),
+    0 2px 12px -2px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255,255,255,0.15),
+    inset 0 0 0 1px rgba(255,255,255,0.10);
 
-  /* Orbs — split-complementary aurora: amber + violet + indigo + lavender */
-  --orb-1: 218 165 78;
-  --orb-2: 145 62 218;
-  --orb-3: 55 65 200;
-  --orb-4: 178 98 255;
-  --orb-1-alpha: 0.48;
-  --orb-2-alpha: 0.42;
-  --orb-3-alpha: 0.35;
-  --orb-4-alpha: 0.18;
+  /* Orbs — visible cool glow so glass has depth to refract */
+  --orb-1: 120 150 200;
+  --orb-2: 90 130 185;
+  --orb-3: 145 168 205;
+  --orb-4: 80 115 175;
+  --orb-1-alpha: 0.22;
+  --orb-2-alpha: 0.16;
+  --orb-3-alpha: 0.12;
+  --orb-4-alpha: 0.07;
 
-  --bg-base: 8 6 20;
+  --bg-base: 10 10 14;
 }
