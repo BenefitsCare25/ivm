@@ -40,9 +40,9 @@
 
   /* ─── Liquid Glass System ─── */
   --glass-bg: 255 255 255;
-  --glass-opacity: 0.46;
-  --glass-light-opacity: 0.30;
-  --glass-strong-opacity: 0.58;
+  --glass-opacity: 0.28;
+  --glass-light-opacity: 0.18;
+  --glass-strong-opacity: 0.44;
   --glass-input-opacity: 0.25;
   --glass-blur: 32px;
   --glass-tint-color: 224 107 45;
@@ -52,8 +52,8 @@
   --glass-border-opacity: 0.18;
 
   /* Specular & depth — liquid glass lighting model */
-  --glass-specular: 0.50;
-  --glass-specular-spread: 48%;
+  --glass-specular: 0.22;
+  --glass-specular-spread: 20%;
   --glass-depth-opacity: 0.03;
   --glass-inner-glow: 0.08;
 
@@ -133,7 +133,7 @@
 
   /* Specular & depth — subtle glass refraction */
   --glass-specular: 0.10;
-  --glass-specular-spread: 40%;
+  --glass-specular-spread: 20%;
   --glass-depth-opacity: 0.06;
   --glass-inner-glow: 0.04;
 

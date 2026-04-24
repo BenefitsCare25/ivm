@@ -273,25 +273,25 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
             authBad ? "ring-1 ring-status-error/40" : authWarn ? "ring-1 ring-amber-400/40" : ""
           }
         >
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-3">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-2.5">
               <Shield
-                className={`h-5 w-5 mt-0.5 shrink-0 ${
+                className={`h-4 w-4 mt-0.5 shrink-0 ${
                   authBad ? "text-status-error" : authWarn ? "text-amber-500" : "text-muted-foreground"
                 }`}
               />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-1 mb-0.5">
+                <div className="flex items-center justify-between gap-1 mb-1">
                   <p className="text-sm font-medium text-foreground">Authentication</p>
                   <button
                     onClick={() => setShowReAuth(!showReAuth)}
-                    className="text-[10px] leading-none text-muted-foreground hover:text-foreground"
+                    className="text-[10px] leading-none text-muted-foreground hover:text-foreground shrink-0"
                   >
                     {showReAuth ? "Cancel" : authBad ? "Set up ↓" : "Update ↓"}
                   </button>
                 </div>
                 <p
-                  className={`text-xs ${
+                  className={`text-xs truncate ${
                     authBad ? "text-status-error" : authWarn ? "text-amber-500" : "text-muted-foreground"
                   }`}
                 >
@@ -313,12 +313,12 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
         </Card>
 
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <Calendar className="h-5 w-5 text-muted-foreground" />
-              <div>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2.5">
+              <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground">Schedule</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground truncate">
                   {portal.scheduleEnabled ? portal.scheduleCron : "Manual only"}
                 </p>
               </div>
@@ -327,10 +327,10 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
         </Card>
 
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <Settings className="h-5 w-5 text-muted-foreground" />
-              <div>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2.5">
+              <Settings className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground">Selectors</p>
                 <p className="text-xs text-muted-foreground">
                   {Object.keys(portal.listSelectors).length > 0 ? "Configured" : "Not configured"}
@@ -341,54 +341,50 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
         </Card>
 
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <Hash className="h-5 w-5 text-muted-foreground" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground mb-1.5">Scrape Limit</p>
-                <div className="flex items-center gap-1.5">
-                  <Input
-                    type="number"
-                    min={1}
-                    placeholder="No limit"
-                    value={limitInput}
-                    onChange={(e) => setLimitInput(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && saveScrapeLimit()}
-                    className="h-7 text-xs w-24"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={saveScrapeLimit}
-                    disabled={savingLimit}
-                    className="h-7 text-xs px-2"
-                  >
-                    {savingLimit ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
-                  </Button>
-                </div>
-              </div>
+          <CardContent className="p-4 space-y-2.5">
+            <div className="flex items-center gap-2.5">
+              <Hash className="h-4 w-4 text-muted-foreground shrink-0" />
+              <p className="text-sm font-medium text-foreground">Scrape Limit</p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="number"
+                min={1}
+                placeholder="No limit"
+                value={limitInput}
+                onChange={(e) => setLimitInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && saveScrapeLimit()}
+                className="h-7 text-xs flex-1 min-w-0"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={saveScrapeLimit}
+                disabled={savingLimit}
+                className="h-7 text-xs px-2 shrink-0"
+              >
+                {savingLimit ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
+              </Button>
             </div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <Brain className="h-5 w-5 text-muted-foreground shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground mb-1.5">AI Model</p>
-                <select
-                  value={modelValue}
-                  onChange={(e) => saveComparisonModel(e.target.value)}
-                  disabled={savingModel}
-                  className="h-7 text-xs w-full rounded border border-border bg-background text-foreground px-2 disabled:opacity-50"
-                >
-                  <option value="">Default (user setting)</option>
-                  <option value="claude-sonnet-4-6">Sonnet 4.6</option>
-                  <option value="claude-opus-4-6">Opus 4.6</option>
-                </select>
-              </div>
+          <CardContent className="p-4 space-y-2.5">
+            <div className="flex items-center gap-2.5">
+              <Brain className="h-4 w-4 text-muted-foreground shrink-0" />
+              <p className="text-sm font-medium text-foreground">AI Model</p>
             </div>
+            <select
+              value={modelValue}
+              onChange={(e) => saveComparisonModel(e.target.value)}
+              disabled={savingModel}
+              className="h-7 text-xs w-full rounded border border-border bg-background text-foreground px-2 disabled:opacity-50"
+            >
+              <option value="">Default (user setting)</option>
+              <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+              <option value="claude-opus-4-6">Opus 4.6</option>
+            </select>
           </CardContent>
         </Card>
 

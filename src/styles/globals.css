@@ -134,9 +134,7 @@
      —  rgb(var(--glass-bg) / opacity) where --glass-bg is "255 255 255" (space-sep channels)
   */
   .glass {
-    background:
-      radial-gradient(ellipse 110% 65% at 50% -10%, rgb(var(--glass-tint-color) / var(--glass-tint-opacity)) 0%, transparent 68%),
-      rgb(var(--glass-bg) / var(--glass-opacity));
+    background: rgb(var(--glass-bg) / var(--glass-opacity));
     backdrop-filter: blur(var(--glass-blur)) saturate(180%);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
     border: 1px solid rgb(var(--glass-border-color) / var(--glass-primary-border));
@@ -144,9 +142,7 @@
   }
 
   .glass-light {
-    background:
-      radial-gradient(ellipse 110% 65% at 50% -10%, rgb(var(--glass-tint-color) / calc(var(--glass-tint-opacity) * 0.6)) 0%, transparent 68%),
-      rgb(var(--glass-bg) / var(--glass-light-opacity));
+    background: rgb(var(--glass-bg) / var(--glass-light-opacity));
     backdrop-filter: blur(14px) saturate(160%);
     -webkit-backdrop-filter: blur(14px) saturate(160%);
     border: 1px solid rgb(var(--glass-border-color) / calc(var(--glass-primary-border) * 0.65));
@@ -177,12 +173,8 @@
     inset: 0;
     border-radius: inherit;
     background:
-      /* Specular highlight — white light refracting along top edge */
-      linear-gradient(180deg, rgb(255 255 255 / var(--glass-specular)) 0%, rgb(255 255 255 / 0) var(--glass-specular-spread)),
-      /* Tinted ambient glow from primary/brand color */
-      radial-gradient(ellipse 80% 45% at 50% -5%, rgb(var(--glass-tint-color) / var(--glass-inner-glow)) 0%, transparent 60%),
-      /* Bottom depth vignette — adds perceived thickness */
-      radial-gradient(ellipse 60% 40% at 50% 110%, rgb(0 0 0 / var(--glass-depth-opacity)) 0%, transparent 70%);
+      /* Narrow top-edge specular highlight — realistic glass rim light */
+      linear-gradient(180deg, rgb(255 255 255 / var(--glass-specular)) 0%, rgb(255 255 255 / 0) var(--glass-specular-spread));
     pointer-events: none;
     z-index: 1;
   }
