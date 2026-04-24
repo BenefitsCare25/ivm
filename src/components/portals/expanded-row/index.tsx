@@ -191,7 +191,7 @@ export function ExpandedPanel({ item, portalId, sessionId, columnCount }: Expand
   return (
     <tr>
       <td colSpan={columnCount} className="p-0">
-        <div className="border-t border-border bg-muted/20 px-5 py-4 space-y-4">
+        <div className="border-t border-border bg-muted/60 px-5 py-4 space-y-4">
 
           <div className="flex items-start gap-2">
             <StatusIcon

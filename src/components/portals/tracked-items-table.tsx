@@ -67,7 +67,7 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
 
   return (
     <TooltipProvider>
-    <div className="rounded-lg border border-border overflow-hidden">
+    <div className="rounded-lg border border-border overflow-hidden bg-card">
       <table className="w-full text-sm">
         <thead>
           <tr className="bg-muted">
@@ -106,7 +106,7 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
               <Fragment key={item.id}>
                 <tr
                   className={`border-t border-border cursor-pointer select-none transition-colors ${
-                    isExpanded ? "bg-muted/40" : "hover:bg-muted/30"
+                    isExpanded ? "bg-muted/70" : "hover:bg-muted/50"
                   }`}
                   onClick={toggle}
                 >
