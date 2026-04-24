@@ -84,10 +84,10 @@ export function WizardAuthStep({
           <button
             type="button"
             onClick={() => setAuthMethod("COOKIES")}
-            className={`flex items-center gap-3 rounded-lg border p-4 text-left transition-colors ${
+            className={`flex items-center gap-3 rounded-2xl glass glass-shimmer p-4 text-left transition-shadow duration-200 ${
               authMethod === "COOKIES"
-                ? "border-primary bg-primary/5"
-                : "border-border hover:bg-muted/50"
+                ? "ring-2 ring-primary"
+                : "hover:shadow-[var(--glass-shadow-hover)]"
             }`}
           >
             <Cookie className="h-5 w-5 shrink-0" />
@@ -99,10 +99,10 @@ export function WizardAuthStep({
           <button
             type="button"
             onClick={() => setAuthMethod("CREDENTIALS")}
-            className={`flex items-center gap-3 rounded-lg border p-4 text-left transition-colors ${
+            className={`flex items-center gap-3 rounded-2xl glass glass-shimmer p-4 text-left transition-shadow duration-200 ${
               authMethod === "CREDENTIALS"
-                ? "border-primary bg-primary/5"
-                : "border-border hover:bg-muted/50"
+                ? "ring-2 ring-primary"
+                : "hover:shadow-[var(--glass-shadow-hover)]"
             }`}
           >
             <KeyRound className="h-5 w-5 shrink-0" />

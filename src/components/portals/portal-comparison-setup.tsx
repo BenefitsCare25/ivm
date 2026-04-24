@@ -165,7 +165,7 @@ export function PortalComparisonSetup({
       </CardHeader>
       <CardContent className="space-y-6">
         {showImport && (
-          <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+          <Card className="p-4 space-y-3">
             <div>
               <p className="text-sm font-medium text-foreground">
                 Copy comparison setup from another portal
@@ -218,7 +218,7 @@ export function PortalComparisonSetup({
               </div>
             )}
             {importError && <p className="text-xs text-destructive">{importError}</p>}
-          </div>
+          </Card>
         )}
 
         <GroupingFieldConfig

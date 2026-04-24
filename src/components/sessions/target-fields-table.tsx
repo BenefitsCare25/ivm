@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import type { TargetField } from "@/types/target";
 
 interface TargetFieldsTableProps {
@@ -8,14 +9,14 @@ interface TargetFieldsTableProps {
 export function TargetFieldsTable({ fields }: TargetFieldsTableProps) {
   if (fields.length === 0) {
     return (
-      <p className="rounded-lg border border-border bg-muted/30 p-4 text-center text-sm text-muted-foreground">
+      <Card className="p-4 text-center text-sm text-muted-foreground">
         No fillable fields detected in this target.
-      </p>
+      </Card>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
+    <Card className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-muted/50">
@@ -48,6 +49,6 @@ export function TargetFieldsTable({ fields }: TargetFieldsTableProps) {
           ))}
         </tbody>
       </table>
-    </div>
+    </Card>
   );
 }

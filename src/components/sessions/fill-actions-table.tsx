@@ -3,6 +3,7 @@
 import { RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import type { FillActionSummary, FillActionStatus } from "@/types/fill";
 
 interface FillActionsTableProps {
@@ -44,7 +45,7 @@ export function FillActionsTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
+    <Card className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-muted/30">
@@ -128,6 +129,6 @@ export function FillActionsTable({
           ))}
         </tbody>
       </table>
-    </div>
+    </Card>
   );
 }

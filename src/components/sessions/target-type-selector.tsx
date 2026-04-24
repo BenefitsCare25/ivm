@@ -46,9 +46,9 @@ export function TargetTypeSelector({ onSelect }: TargetTypeSelectorProps) {
             key={type}
             onClick={() => onSelect(type)}
             className={cn(
-              "flex flex-col items-center gap-3 rounded-lg border border-border bg-card p-6",
-              "text-center transition-colors",
-              "hover:border-foreground/20 hover:bg-muted/50",
+              "flex flex-col items-center gap-3 rounded-2xl glass glass-shimmer p-6",
+              "text-center transition-shadow duration-200",
+              "hover:shadow-[var(--glass-shadow-hover)]",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             )}
           >

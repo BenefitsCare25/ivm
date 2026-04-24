@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Trash2, Loader2, FileSliders, ExternalLink, Plus, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { TemplateRow, getFieldDisplayName } from "./template-row";
 import type { ComparisonTemplateSummary, DetectedClaimType, ProviderGroupSummary } from "@/types/portal";
 
@@ -222,7 +223,7 @@ export function TemplateList({
       <div className="pl-7 space-y-2">
         {/* Inline add form */}
         {showAddForm && (
-          <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+          <Card className="p-3 space-y-2">
             <p className="text-xs text-muted-foreground">
               {groupingFields.length > 0
                 ? <>Enter a name for this template (matching {groupingFields.map((f, i) => <><span key={f} className="font-mono text-foreground">{f}</span>{i < groupingFields.length - 1 ? ", " : ""}</>)})</>
@@ -267,7 +268,7 @@ export function TemplateList({
                 Cancel
               </Button>
             </div>
-          </div>
+          </Card>
         )}
 
         {/* Existing templates (pre-scrape or post-scrape not matched) */}
@@ -282,7 +283,7 @@ export function TemplateList({
           const matchedTemplates = templatesByLabel.get(ct.label) ?? [];
           const isCreating = creating === ct.label;
           return (
-            <div key={ct.label} className="rounded-lg border border-border p-3 space-y-2">
+            <Card key={ct.label} className="p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   {matchedTemplates.length > 0 ? (
@@ -438,7 +439,7 @@ export function TemplateList({
                   </div>
                 );
               })}
-            </div>
+            </Card>
           );
         })}
 
@@ -449,7 +450,7 @@ export function TemplateList({
               Previously configured (not seen in recent scrapes):
             </p>
             {orphaned.map((t) => (
-              <div key={t.id} className="rounded-lg border border-border border-dashed p-3 opacity-60">
+              <Card key={t.id} className="p-3 opacity-60">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-medium text-foreground">{t.name}</span>
                   <div className="flex items-center gap-1">
@@ -479,7 +480,7 @@ export function TemplateList({
                     </Button>
                   </div>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         )}

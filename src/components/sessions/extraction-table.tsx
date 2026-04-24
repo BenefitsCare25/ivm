@@ -5,6 +5,7 @@ import { Pencil, Check, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
 import { cn, confidenceVariant } from "@/lib/utils";
 import type { ExtractedField, FieldType } from "@/types/extraction";
 
@@ -63,14 +64,14 @@ export function ExtractionTable({ fields, onFieldsChange, readOnly = false }: Ex
 
   if (fields.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-muted/30 p-6 text-center">
+      <Card className="p-6 text-center">
         <p className="text-sm text-muted-foreground">No fields extracted from this document.</p>
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
+    <Card className="overflow-hidden">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-muted/50">
@@ -160,6 +161,6 @@ export function ExtractionTable({ fields, onFieldsChange, readOnly = false }: Ex
           ))}
         </tbody>
       </table>
-    </div>
+    </Card>
   );
 }

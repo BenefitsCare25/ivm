@@ -206,9 +206,9 @@ export function FieldDiscovery({
             {discoveredClaimTypes.map((ct, i) => {
               const label = groupingKeyLabel(ct.groupingKey);
               return (
-                <div
+                <Card
                   key={i}
-                  className="rounded-lg border border-border bg-muted/30 p-3 space-y-2"
+                  className="p-3 space-y-2"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-medium text-foreground">{label}</p>
@@ -227,7 +227,7 @@ export function FieldDiscovery({
                     </div>
                   </div>
                   <FieldChips fields={ct.detailFields} />
-                </div>
+                </Card>
               );
             })}
           </div>

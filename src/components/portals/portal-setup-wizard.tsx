@@ -384,7 +384,7 @@ export function PortalSetupWizard() {
                   <h4 className="text-sm font-medium text-foreground">
                     Detected Columns ({listSelectors.columns.length})
                   </h4>
-                  <div className="rounded-lg border border-border overflow-hidden">
+                  <Card className="overflow-hidden">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="bg-muted">
@@ -401,7 +401,7 @@ export function PortalSetupWizard() {
                         ))}
                       </tbody>
                     </table>
-                  </div>
+                  </Card>
                 </div>
               )}
             </>

@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo } from "react";
 import { ArrowRight, Check, X, Pencil, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
 import { cn, confidenceVariant } from "@/lib/utils";
 import type { FieldMapping } from "@/types/mapping";
 
@@ -75,9 +76,9 @@ export function MappingReviewTable({ mappings, onMappingsChange }: MappingReview
 
   if (mappings.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-muted/30 p-6 text-center">
+      <Card className="p-6 text-center">
         <p className="text-sm text-muted-foreground">No mappings available.</p>
-      </div>
+      </Card>
     );
   }
 
@@ -103,7 +104,7 @@ export function MappingReviewTable({ mappings, onMappingsChange }: MappingReview
         )}
       </div>
 
-      <div className="rounded-lg border border-border overflow-hidden">
+      <Card className="overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/50">
@@ -301,7 +302,7 @@ export function MappingReviewTable({ mappings, onMappingsChange }: MappingReview
             )}
           </tbody>
         </table>
-      </div>
+      </Card>
     </div>
   );
 }

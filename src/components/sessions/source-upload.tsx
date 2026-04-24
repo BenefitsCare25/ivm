@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FormError } from "@/components/ui/form-error";
+import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { getMimeIcon } from "@/lib/mime-icons";
 import {
@@ -174,7 +175,7 @@ export function SourceUpload({ sessionId, onUploadComplete }: SourceUploadProps)
           />
         </div>
       ) : (
-        <div className="rounded-lg border border-border bg-card p-4">
+        <Card className="p-4">
           <div className="flex items-center gap-3">
             <div className="rounded-lg bg-muted p-2">
               <FileIcon className="h-5 w-5 text-muted-foreground" />
@@ -217,7 +218,7 @@ export function SourceUpload({ sessionId, onUploadComplete }: SourceUploadProps)
               </Button>
             </div>
           )}
-        </div>
+        </Card>
       )}
 
       <FormError message={error} />

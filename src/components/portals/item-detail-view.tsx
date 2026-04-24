@@ -224,7 +224,7 @@ export function ItemDetailView({ item, portalId, sessionId, validations }: ItemD
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="overflow-hidden rounded-lg border border-border">
+                <Card className="overflow-hidden">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-muted">
@@ -258,7 +258,7 @@ export function ItemDetailView({ item, portalId, sessionId, validations }: ItemD
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </Card>
               </CardContent>
             </Card>
           </>

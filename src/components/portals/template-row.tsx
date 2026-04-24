@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Trash2, Loader2, ExternalLink, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import type { ComparisonTemplateSummary } from "@/types/portal";
 
 export function getFieldDisplayName(f: { portalFieldName?: string; fieldName?: string }, i: number): string {
@@ -21,7 +22,7 @@ export function TemplateRow({ t, portalId, deleting, onDelete }: TemplateRowProp
   const fieldCount = t.fields?.length ?? 0;
   const ruleCount = (t.businessRules?.length ?? 0) + (t.requiredDocuments?.length ?? 0);
   return (
-    <div className="rounded-lg border border-border p-3 space-y-2">
+    <Card className="p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <CheckCircle2 className="h-4 w-4 shrink-0 text-status-success" />
@@ -75,6 +76,6 @@ export function TemplateRow({ t, portalId, deleting, onDelete }: TemplateRowProp
           ))}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
