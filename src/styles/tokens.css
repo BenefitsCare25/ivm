@@ -118,45 +118,45 @@
   --status-error: 248 113 113;
   --status-info: 96 165 250;
 
-  /* ─── Liquid Glass System — Pristine Water Glass ─── */
-  --glass-bg: 24 24 30;
-  --glass-opacity: 0.95;
-  --glass-light-opacity: 0.90;
-  --glass-strong-opacity: 0.97;
-  --glass-input-opacity: 0.88;
+  /* ─── Liquid Glass System — Dark Mode ─── */
+  --glass-bg: 36 36 50;
+  --glass-opacity: 0.52;
+  --glass-light-opacity: 0.38;
+  --glass-strong-opacity: 0.70;
+  --glass-input-opacity: 0.75;
   --glass-blur: 40px;
   --glass-tint-color: 160 185 220;
   --glass-border-color: 255 255 255;
-  --glass-tint-opacity: 0.04;
-  --glass-primary-border: 0.18;
-  --glass-border-opacity: 0.14;
+  --glass-tint-opacity: 0.06;
+  --glass-primary-border: 0.22;
+  --glass-border-opacity: 0.16;
 
-  /* Specular & depth — subtle glass refraction */
-  --glass-specular: 0.10;
-  --glass-specular-spread: 20%;
+  /* Specular & depth */
+  --glass-specular: 0.13;
+  --glass-specular-spread: 22%;
   --glass-depth-opacity: 0.06;
-  --glass-inner-glow: 0.04;
+  --glass-inner-glow: 0.06;
 
   --glass-shadow:
-    0 4px 24px -4px rgba(0, 0, 0, 0.40),
-    0 1px 8px -1px rgba(0, 0, 0, 0.20),
-    inset 0 1px 0 rgba(255,255,255,0.10),
-    inset 0 0 0 1px rgba(255,255,255,0.07);
+    0 4px 28px -4px rgba(0, 0, 0, 0.55),
+    0 1px 8px -1px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255,255,255,0.12),
+    inset 0 0 0 1px rgba(255,255,255,0.08);
   --glass-shadow-hover:
-    0 8px 36px -4px rgba(0, 0, 0, 0.50),
-    0 2px 12px -2px rgba(0, 0, 0, 0.28),
-    inset 0 1px 0 rgba(255,255,255,0.15),
-    inset 0 0 0 1px rgba(255,255,255,0.10);
+    0 8px 40px -4px rgba(0, 0, 0, 0.65),
+    0 2px 14px -2px rgba(0, 0, 0, 0.40),
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    inset 0 0 0 1px rgba(255,255,255,0.12);
 
-  /* Orbs — visible cool glow so glass has depth to refract */
+  /* Orbs — boosted so glass has visible depth to refract */
   --orb-1: 120 150 200;
   --orb-2: 90 130 185;
   --orb-3: 145 168 205;
   --orb-4: 80 115 175;
-  --orb-1-alpha: 0.38;
-  --orb-2-alpha: 0.28;
-  --orb-3-alpha: 0.22;
-  --orb-4-alpha: 0.18;
+  --orb-1-alpha: 0.55;
+  --orb-2-alpha: 0.40;
+  --orb-3-alpha: 0.30;
+  --orb-4-alpha: 0.25;
 
   --bg-base: 10 10 14;
 }
