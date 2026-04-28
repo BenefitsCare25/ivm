@@ -212,6 +212,7 @@ async function processItemDetailCore(
         tamperingTargets: extraction.tamperingTargets,
         pdfRawFields: extraction.pdfRawFields,
         effectiveDetailData,
+        listData: (item.listData as Record<string, string>) ?? {},
         acceptableDocumentTypeIds: acceptableTypeIds,
         cachedDocTypes,
       });

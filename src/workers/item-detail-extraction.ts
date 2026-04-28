@@ -127,6 +127,7 @@ export async function runIntelligencePipeline({
   tamperingTargets,
   pdfRawFields,
   effectiveDetailData,
+  listData,
   acceptableDocumentTypeIds,
   cachedDocTypes,
 }: {
@@ -138,6 +139,7 @@ export async function runIntelligencePipeline({
   tamperingTargets: ExtractionResult["tamperingTargets"];
   pdfRawFields: Record<string, string>;
   effectiveDetailData: Record<string, string>;
+  listData?: Record<string, string>;
   acceptableDocumentTypeIds: string[];
   cachedDocTypes?: DocTypeRecord[];
 }): Promise<{ documentTypeId: string | null; documentTypeName: string | null; fileName: string }[]> {
@@ -214,7 +216,8 @@ export async function runIntelligencePipeline({
   }
 
   if (Object.keys(pdfRawFields).length > 0) {
-    checkForeignCurrency(trackedItemId, pdfRawFields, effectiveDetailData).catch((err) =>
+    const allPageData = { ...(listData ?? {}), ...effectiveDetailData };
+    checkForeignCurrency(trackedItemId, pdfRawFields, allPageData).catch((err) =>
       logger.warn({ err, trackedItemId }, "[worker] Currency check failed (non-fatal)")
     );
   }

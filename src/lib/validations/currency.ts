@@ -103,23 +103,51 @@ export async function checkForeignCurrency(
   logger.info({ trackedItemId, count: conversions.length }, "[currency] Foreign currency conversions saved");
 }
 
+const MONTH_ABBR: Record<string, string> = {
+  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
+};
+
 function findIncurredDate(fields: Record<string, string>): string | null {
   for (const [key, value] of Object.entries(fields)) {
     if (!isDateField(key) || !value) continue;
 
-    // Try multiple date formats
     const cleaned = value.trim();
-    const d = new Date(cleaned);
-    if (!isNaN(d.getTime())) {
-      return d.toISOString().split("T")[0];
+
+    // YYYY-MM-DD (ISO)
+    if (/^\d{4}-\d{2}-\d{2}/.test(cleaned)) {
+      const iso = cleaned.slice(0, 10);
+      if (!isNaN(new Date(iso).getTime())) return iso;
     }
 
     // DD/MM/YYYY or DD-MM-YYYY
     const ddmmyyyy = cleaned.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
     if (ddmmyyyy) {
       const [, dd, mm, yyyy] = ddmmyyyy;
-      const d2 = new Date(`${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`);
-      if (!isNaN(d2.getTime())) return d2.toISOString().split("T")[0];
+      const iso = `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+      if (!isNaN(new Date(iso).getTime())) return iso;
+    }
+
+    // DD Mon YYYY  (e.g. "20 Mar 2026")
+    const ddmonyyyy = cleaned.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/);
+    if (ddmonyyyy) {
+      const [, dd, mon, yyyy] = ddmonyyyy;
+      const mm = MONTH_ABBR[mon.toLowerCase()];
+      if (mm) {
+        const iso = `${yyyy}-${mm}-${dd.padStart(2, "0")}`;
+        if (!isNaN(new Date(iso).getTime())) return iso;
+      }
+    }
+
+    // Mon DD, YYYY  (e.g. "Mar 20, 2026")
+    const monddyyyy = cleaned.match(/^([A-Za-z]{3})\s+(\d{1,2}),?\s+(\d{4})$/);
+    if (monddyyyy) {
+      const [, mon, dd, yyyy] = monddyyyy;
+      const mm = MONTH_ABBR[mon.toLowerCase()];
+      if (mm) {
+        const iso = `${yyyy}-${mm}-${dd.padStart(2, "0")}`;
+        if (!isNaN(new Date(iso).getTime())) return iso;
+      }
     }
   }
   return null;
