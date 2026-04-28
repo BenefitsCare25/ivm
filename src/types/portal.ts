@@ -314,6 +314,7 @@ export interface FieldComparison {
   status: ComparisonFieldStatus;
   confidence: number;
   notes?: string;
+  sourceFile?: string;
 }
 
 export interface ComparisonResultSummary {

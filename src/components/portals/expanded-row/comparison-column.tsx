@@ -100,8 +100,16 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                       <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[200px]" title={field.pageValue ?? ""}>
                         {field.pageValue || "—"}
                       </td>
-                      <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[200px]" title={field.pdfValue ?? ""}>
-                        {field.pdfValue || "—"}
+                      <td className="px-2 py-1.5 text-muted-foreground max-w-[200px]">
+                        <div className="truncate" title={field.pdfValue ?? ""}>{field.pdfValue || "—"}</div>
+                        {field.sourceFile && (
+                          <div
+                            className="mt-0.5 truncate text-[10px] text-muted-foreground/60"
+                            title={field.sourceFile}
+                          >
+                            {field.sourceFile}
+                          </div>
+                        )}
                       </td>
                       <td className="px-2 py-1.5">
                         <ComparisonStatusBadge status={field.status} />

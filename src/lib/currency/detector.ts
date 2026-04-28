@@ -59,7 +59,7 @@ const CURRENCY_PATTERNS: CurrencyPattern[] = [
 ];
 
 // SGD detection — if any of these match, skip (not foreign)
-const SGD_PATTERN = /\bSGD\b|\bS\$|\bS\s*\$/i;
+export const SGD_PATTERN = /\bSGD\b|\bS\$|\bS\s*\$/i;
 
 /**
  * Parse a currency code and numeric amount from a raw string value.

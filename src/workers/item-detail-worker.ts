@@ -224,6 +224,7 @@ async function processItemDetailCore(
         listData: (item.listData as Record<string, string>) ?? {},
         effectiveDetailData,
         pdfFields: extraction.pdfFields,
+        pdfFieldSources: extraction.pdfFieldSources,
         fileExtractions: extraction.fileExtractions,
         provider,
         apiKey,

@@ -15,6 +15,7 @@ interface ComparisonInput {
   listData: Record<string, string>;
   effectiveDetailData: Record<string, string>;
   pdfFields: Record<string, string>;
+  pdfFieldSources?: Record<string, string>;
   fileExtractions: { fileName: string; documentType: string; fields: { label: string; value: string }[] }[];
   provider: AIProvider;
   apiKey: string;
@@ -34,7 +35,7 @@ interface ComparisonOutput {
 export async function runComparison(input: ComparisonInput): Promise<ComparisonOutput> {
   const {
     trackedItemId, portalId, listData, effectiveDetailData, pdfFields,
-    fileExtractions, provider, apiKey, textModel, baseURL,
+    pdfFieldSources, fileExtractions, provider, apiKey, textModel, baseURL,
     displayProvider, comparisonModel,
   } = input;
 
@@ -124,6 +125,11 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
       comparisonResult.matchCount = comparisonResult.fieldComparisons.filter((c) => c.status === "MATCH").length;
       comparisonResult.mismatchCount = comparisonResult.fieldComparisons.filter((c) => c.status === "MISMATCH").length;
     }
+
+    comparisonResult.fieldComparisons = annotateSourceFiles(
+      comparisonResult.fieldComparisons,
+      pdfFieldSources
+    );
 
     await saveComparisonResult(trackedItemId, comparisonResult, displayProvider, templateId, matchedTemplate);
   }
@@ -231,4 +237,15 @@ async function saveComparisonResult(
       });
     if (rdInserts.length > 0) await Promise.all(rdInserts);
   }
+}
+
+export function annotateSourceFiles<T extends { fieldName: string; sourceFile?: string }>(
+  comparisons: T[],
+  sources: Record<string, string> | undefined
+): T[] {
+  if (!sources) return comparisons;
+  return comparisons.map((fc) => {
+    const src = sources[fc.fieldName];
+    return src ? { ...fc, sourceFile: src } : fc;
+  });
 }

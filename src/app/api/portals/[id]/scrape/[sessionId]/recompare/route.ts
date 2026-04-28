@@ -6,6 +6,7 @@ import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { compareFields } from "@/lib/ai/comparison";
 import { getFullComparisonSystemPrompt, buildFullComparisonUserPrompt } from "@/lib/ai/prompt-builder";
 import { filterFieldsByTemplate, itemMatchesGroupingKey, filterComparisonsByTemplate } from "@/lib/comparison-templates";
+import { annotateSourceFiles } from "@/workers/item-detail-comparison";
 import { toInputJson } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import type { TemplateField, RequiredDocument, BusinessRule, BusinessRuleResult, RequiredDocumentCheck } from "@/types/portal";
@@ -91,14 +92,17 @@ export async function POST(
       const detailData = (item.detailData as Record<string, string>) ?? {};
       if (Object.keys(detailData).length === 0) return false;
 
-      // Reconstruct pdf fields from existing comparison result
+      // Reconstruct pdf fields and source file map from existing comparison result
       const existingComparisons = (item.comparisonResult?.fieldComparisons ?? []) as Array<{
         fieldName: string;
         pdfValue: string | null;
+        sourceFile?: string;
       }>;
       const pdfFields: Record<string, string> = {};
+      const pdfFieldSources: Record<string, string> = {};
       for (const c of existingComparisons) {
         if (c.pdfValue != null) pdfFields[c.fieldName] = c.pdfValue;
+        if (c.sourceFile) pdfFieldSources[c.fieldName] = c.sourceFile;
       }
 
       const { filteredPageFields, filteredPdfFields } = filterFieldsByTemplate(
@@ -141,6 +145,8 @@ export async function POST(
         result.matchCount = result.fieldComparisons.filter((c) => c.status === "MATCH").length;
         result.mismatchCount = result.fieldComparisons.filter((c) => c.status === "MISMATCH").length;
       }
+
+      result.fieldComparisons = annotateSourceFiles(result.fieldComparisons, pdfFieldSources);
 
       const comparisonData = {
         provider: displayProvider,

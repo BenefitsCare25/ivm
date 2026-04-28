@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
-import { parseCurrencyAmount, isAmountField, isDateField } from "@/lib/currency/detector";
+import { parseCurrencyAmount, isAmountField, isDateField, SGD_PATTERN } from "@/lib/currency/detector";
 import { resolveSgdRate } from "@/lib/currency";
 
 export interface CurrencyConversionMetadata {
@@ -35,27 +35,51 @@ export async function checkForeignCurrency(
   // Collect unique (currency, amount) pairs — multiple fields with the same value
   // (e.g. "Amount in Figures" and "Acknowledgement Receipt - Amount in Figures") would
   // otherwise produce duplicate conversion alerts for the same underlying amount.
-  const seen = new Map<string, { labels: string[]; parsed: ReturnType<typeof parseCurrencyAmount> }>();
+  type ParsedAmount = NonNullable<ReturnType<typeof parseCurrencyAmount>>;
+  const seen = new Map<string, { labels: string[]; parsed: ParsedAmount }>();
+  const seenCurrencies = new Set<string>();
+  // Bare-number amount fields (no currency prefix) collected for inferred-currency pass
+  const bareCandidates: [string, string][] = [];
+  const BARE_AMOUNT = /^[\d,]+\.?\d*$/;
 
   for (const [label, value] of Object.entries(pdfFields)) {
     if (!isAmountField(label)) continue;
 
     const parsed = parseCurrencyAmount(value);
-    if (!parsed) continue;
+    if (parsed) {
+      seenCurrencies.add(parsed.code);
+      const key = `${parsed.code}:${parsed.amount}`;
+      const existing = seen.get(key);
+      if (existing) existing.labels.push(label);
+      else seen.set(key, { labels: [label], parsed });
+    } else if (BARE_AMOUNT.test(value.trim()) && !SGD_PATTERN.test(value)) {
+      // No explicit currency — defer to inferred-currency pass below
+      bareCandidates.push([label, value]);
+    }
+  }
 
-    const key = `${parsed.code}:${parsed.amount}`;
-    const existing = seen.get(key);
-    if (existing) {
-      existing.labels.push(label);
-    } else {
-      seen.set(key, { labels: [label], parsed });
+  // If exactly one foreign currency was detected, apply it to bare-number fields.
+  // This handles fields like "Receipt Amount / Total Invoice: 27,030.50" where
+  // the PDF omits the currency code but the document is clearly non-SGD.
+  if (seenCurrencies.size === 1) {
+    const inferredCode = seenCurrencies.values().next().value as string;
+    for (const [label, value] of bareCandidates) {
+      const trimmed = value.trim();
+      const amount = parseFloat(trimmed.replace(/,/g, ""));
+      if (isNaN(amount) || amount <= 0) continue;
+
+      const key = `${inferredCode}:${amount}`;
+      if (seen.has(key)) {
+        seen.get(key)!.labels.push(label);
+      } else {
+        seen.set(key, { labels: [label], parsed: { code: inferredCode, amount, raw: trimmed } });
+      }
     }
   }
 
   const conversions: CurrencyConversionMetadata[] = [];
 
   for (const { labels, parsed } of seen.values()) {
-    if (!parsed) continue;
     const label = labels.join(" / ");
     try {
       const result = await resolveSgdRate(parsed.code, dateToUse);

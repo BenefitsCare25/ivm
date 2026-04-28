@@ -13,6 +13,7 @@ import { createHash } from "crypto";
 export interface ExtractionResult {
   pdfFields: Record<string, string>;
   pdfRawFields: Record<string, string>;
+  pdfFieldSources: Record<string, string>;
   fileExtractions: { fileName: string; documentType: string; fields: { label: string; value: string }[] }[];
   tamperingTargets: { fileName: string; fileHash: string }[];
   cachedDocTypes?: DocTypeRecord[];
@@ -43,6 +44,7 @@ export async function runExtraction({
 }): Promise<ExtractionResult> {
   const pdfFields: Record<string, string> = {};
   const pdfRawFields: Record<string, string> = {};
+  const pdfFieldSources: Record<string, string> = {};
   const fileExtractions: ExtractionResult["fileExtractions"] = [];
   const tamperingTargets: ExtractionResult["tamperingTargets"] = [];
 
@@ -87,6 +89,7 @@ export async function runExtraction({
         for (const field of extraction.fields) {
           pdfFields[field.label] = field.value;
           pdfRawFields[field.label] = field.rawText ?? field.value;
+          pdfFieldSources[field.label] = file.originalName;
         }
 
         fileExtractions.push({
@@ -115,7 +118,7 @@ export async function runExtraction({
     }
   }
 
-  return { pdfFields, pdfRawFields, fileExtractions, tamperingTargets, cachedDocTypes };
+  return { pdfFields, pdfRawFields, pdfFieldSources, fileExtractions, tamperingTargets, cachedDocTypes };
 }
 
 export async function runIntelligencePipeline({
