@@ -23,6 +23,7 @@ export type CreatePortalInput = z.infer<typeof createPortalSchema>;
 export const scrapeFiltersSchema = z.object({
   excludeByStatus: z.array(z.string().min(1).max(200)).max(50).default([]),
   excludeBySubmittedBy: z.array(z.string().min(1).max(200)).max(50).default([]),
+  excludeByClaimType: z.array(z.string().min(1).max(200)).max(50).default([]),
 });
 
 export type ScrapeFiltersInput = z.infer<typeof scrapeFiltersSchema>;

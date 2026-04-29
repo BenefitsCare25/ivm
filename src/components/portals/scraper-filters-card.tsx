@@ -20,6 +20,9 @@ export function ScraperFiltersCard({ portalId, initialFilters }: Props) {
   const [excludeBySubmittedBy, setExcludeBySubmittedBy] = useState<string[]>(
     initialFilters.excludeBySubmittedBy ?? []
   );
+  const [excludeByClaimType, setExcludeByClaimType] = useState<string[]>(
+    initialFilters.excludeByClaimType ?? []
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -36,6 +39,12 @@ export function ScraperFiltersCard({ portalId, initialFilters }: Props) {
   function removeSubmitter(i: number) {
     setExcludeBySubmittedBy((prev) => prev.filter((_, idx) => idx !== i));
   }
+  function addClaimType(val: string) {
+    if (!excludeByClaimType.includes(val)) setExcludeByClaimType((prev) => [...prev, val]);
+  }
+  function removeClaimType(i: number) {
+    setExcludeByClaimType((prev) => prev.filter((_, idx) => idx !== i));
+  }
 
   async function save() {
     setSaving(true);
@@ -46,7 +55,7 @@ export function ScraperFiltersCard({ portalId, initialFilters }: Props) {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          scrapeFilters: { excludeByStatus, excludeBySubmittedBy },
+          scrapeFilters: { excludeByStatus, excludeBySubmittedBy, excludeByClaimType },
         }),
       });
       if (!res.ok) {
@@ -63,7 +72,10 @@ export function ScraperFiltersCard({ portalId, initialFilters }: Props) {
     }
   }
 
-  const hasFilters = excludeByStatus.length > 0 || excludeBySubmittedBy.length > 0;
+  const hasFilters =
+    excludeByStatus.length > 0 ||
+    excludeBySubmittedBy.length > 0 ||
+    excludeByClaimType.length > 0;
 
   return (
     <Card>
@@ -126,6 +138,21 @@ export function ScraperFiltersCard({ portalId, initialFilters }: Props) {
           />
           <p className="text-[11px] text-muted-foreground">
             Items submitted by any name above will be excluded.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-foreground">
+            Exclude by Claim Type
+          </label>
+          <TagInput
+            tags={excludeByClaimType}
+            placeholder='e.g. "Outpatient" — press Enter to add'
+            onAdd={addClaimType}
+            onRemove={removeClaimType}
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Items where the <span className="font-mono">Claim Type</span> field matches any value above will be excluded.
           </p>
         </div>
 

@@ -76,10 +76,15 @@ async function processPortalScrape(
       const excludeStatuses = new Set(
         (filters.excludeByStatus ?? []).map((s) => s.trim().toLowerCase())
       );
+      const excludeClaimTypes = new Set(
+        (filters.excludeByClaimType ?? []).map((s) => s.trim().toLowerCase())
+      );
       const filteredRows = allRows.filter((row) => {
         const fields = row.fields as Record<string, string>;
         const statusVal = (fields["Status"] ?? "").trim().toLowerCase();
         if (excludeStatuses.size > 0 && excludeStatuses.has(statusVal)) return false;
+        const claimTypeVal = (fields["Claim Type"] ?? "").trim().toLowerCase();
+        if (excludeClaimTypes.size > 0 && excludeClaimTypes.has(claimTypeVal)) return false;
         return true;
       });
 

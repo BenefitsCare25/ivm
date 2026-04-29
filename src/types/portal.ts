@@ -3,11 +3,13 @@
 export interface ScrapeFilters {
   excludeByStatus: string[];
   excludeBySubmittedBy: string[];
+  excludeByClaimType: string[];
 }
 
 export const DEFAULT_SCRAPE_FILTERS: ScrapeFilters = {
   excludeByStatus: [],
   excludeBySubmittedBy: [],
+  excludeByClaimType: [],
 };
 
 // ─── Enums (mirror Prisma enums for client use) ─────────────────

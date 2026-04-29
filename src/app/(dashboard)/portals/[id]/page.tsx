@@ -136,6 +136,7 @@ export default async function PortalDetailPage({
     scrapeFilters: {
       excludeByStatus: ((portal.scrapeFilters as Record<string, unknown>)?.excludeByStatus as string[]) ?? [],
       excludeBySubmittedBy: ((portal.scrapeFilters as Record<string, unknown>)?.excludeBySubmittedBy as string[]) ?? [],
+      excludeByClaimType: ((portal.scrapeFilters as Record<string, unknown>)?.excludeByClaimType as string[]) ?? [],
     },
     defaultDocumentTypeIds: portal.defaultDocumentTypeIds,
     comparisonModel: portal.comparisonModel ?? null,
