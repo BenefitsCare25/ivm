@@ -307,6 +307,15 @@ export interface DetectedClaimType {
 
 // ─── Comparison Result ──────────────────────────────────────────
 
+export interface DocumentLineMatch {
+  /** Human-readable label of the matched line item (e.g. "Payable by MEDISAVE") */
+  label: string;
+  /** Value as it appears in the document (e.g. "167.70" or "-167.70") */
+  value: string;
+  /** Optional source file name when multiple documents are present */
+  sourceFile?: string;
+}
+
 export interface FieldComparison {
   fieldName: string;
   pageValue: string | null;
@@ -315,6 +324,8 @@ export interface FieldComparison {
   confidence: number;
   notes?: string;
   sourceFile?: string;
+  /** When status=MISMATCH, optional list of document line items where the portal value was found */
+  documentLineMatches?: DocumentLineMatch[];
 }
 
 export interface ComparisonResultSummary {

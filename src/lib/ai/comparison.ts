@@ -7,7 +7,7 @@ import { PROVIDER_MODELS } from "@/lib/validations/api-key";
 import { stripMarkdownFences } from "./parse";
 import { getComparisonSystemPrompt, getComparisonUserPrompt, getTemplatedComparisonUserPrompt } from "./prompts-comparison";
 import type { AIProvider } from "./types";
-import type { FieldComparison, ComparisonFieldStatus, TemplateField, BusinessRuleResult, RequiredDocumentCheck, DiagnosisAssessment } from "@/types/portal";
+import type { FieldComparison, ComparisonFieldStatus, TemplateField, BusinessRuleResult, RequiredDocumentCheck, DiagnosisAssessment, DocumentLineMatch } from "@/types/portal";
 
 export interface ComparisonRequest {
   pageFields: Record<string, string>;
@@ -133,6 +133,21 @@ const VALID_STATUSES: ComparisonFieldStatus[] = [
   "MATCH", "MISMATCH", "MISSING_IN_PDF", "MISSING_ON_PAGE", "UNCERTAIN",
 ];
 
+function parseDocumentLineMatches(raw: unknown): DocumentLineMatch[] {
+  if (!Array.isArray(raw)) return [];
+  const matches: DocumentLineMatch[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as Record<string, unknown>;
+    const label = e.label != null ? String(e.label).trim() : "";
+    const value = e.value != null ? String(e.value).trim() : "";
+    if (!label || !value) continue;
+    const sourceFile = e.sourceFile != null ? String(e.sourceFile) : undefined;
+    matches.push({ label, value, ...(sourceFile ? { sourceFile } : {}) });
+  }
+  return matches;
+}
+
 const VALID_RULE_STATUSES = ["PASS", "FAIL", "WARNING", "NOT_APPLICABLE"] as const;
 
 function parseComparisonResponse(rawText: string): Omit<ComparisonResponse, "rawResponse"> {
@@ -141,16 +156,20 @@ function parseComparisonResponse(rawText: string): Omit<ComparisonResponse, "raw
   try {
     const parsed = JSON.parse(cleaned);
     const comparisons: FieldComparison[] = (parsed.fieldComparisons ?? []).map(
-      (fc: Record<string, unknown>) => ({
-        fieldName: String(fc.fieldName ?? ""),
-        pageValue: fc.pageValue != null ? String(fc.pageValue) : null,
-        pdfValue: fc.pdfValue != null ? String(fc.pdfValue) : null,
-        status: VALID_STATUSES.includes(fc.status as ComparisonFieldStatus)
-          ? (fc.status as ComparisonFieldStatus)
-          : "UNCERTAIN",
-        confidence: typeof fc.confidence === "number" ? fc.confidence : 0.5,
-        notes: fc.notes ? String(fc.notes) : undefined,
-      })
+      (fc: Record<string, unknown>) => {
+        const documentLineMatches = parseDocumentLineMatches(fc.documentLineMatches);
+        return {
+          fieldName: String(fc.fieldName ?? ""),
+          pageValue: fc.pageValue != null ? String(fc.pageValue) : null,
+          pdfValue: fc.pdfValue != null ? String(fc.pdfValue) : null,
+          status: VALID_STATUSES.includes(fc.status as ComparisonFieldStatus)
+            ? (fc.status as ComparisonFieldStatus)
+            : "UNCERTAIN",
+          confidence: typeof fc.confidence === "number" ? fc.confidence : 0.5,
+          notes: fc.notes ? String(fc.notes) : undefined,
+          ...(documentLineMatches.length > 0 ? { documentLineMatches } : {}),
+        };
+      }
     );
 
     const matchCount = comparisons.filter((c) => c.status === "MATCH").length;

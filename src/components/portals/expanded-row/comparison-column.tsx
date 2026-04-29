@@ -1,6 +1,7 @@
 "use client";
 
-import { CheckCircle2, XCircle, ShieldAlert, TrendingUp, Stethoscope } from "lucide-react";
+import { Fragment } from "react";
+import { CheckCircle2, XCircle, ShieldAlert, TrendingUp, Stethoscope, CornerDownRight } from "lucide-react";
 import { ComparisonStatusBadge } from "../portal-status-badge";
 import type { FieldComparison, ValidationAlert, ComparisonSummary } from "@/types/portal";
 import { FWA_LABELS } from "@/types/portal";
@@ -87,35 +88,76 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                   </tr>
                 </thead>
                 <tbody>
-                  {comparisonResult.fieldComparisons.map((field, i) => (
-                    <tr
-                      key={i}
-                      className={`border-t border-border ${
-                        field.status === "MISMATCH" ? "bg-status-error/5" : ""
-                      }`}
-                    >
-                      <td className="px-2 py-1.5 font-medium text-foreground truncate max-w-[200px]" title={field.fieldName}>
-                        {field.fieldName}
-                      </td>
-                      <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[200px]" title={field.pageValue ?? ""}>
-                        {field.pageValue || "—"}
-                      </td>
-                      <td className="px-2 py-1.5 text-muted-foreground max-w-[200px]">
-                        <div className="truncate" title={field.pdfValue ?? ""}>{field.pdfValue || "—"}</div>
-                        {field.sourceFile && (
-                          <div
-                            className="mt-0.5 truncate text-[10px] text-muted-foreground/60"
-                            title={field.sourceFile}
-                          >
-                            {field.sourceFile}
-                          </div>
+                  {comparisonResult.fieldComparisons.map((field, i) => {
+                    const isMismatch = field.status === "MISMATCH";
+                    const lineMatches = field.documentLineMatches ?? [];
+                    const hasLineMatches = isMismatch && lineMatches.length > 0;
+                    return (
+                      <Fragment key={i}>
+                        <tr
+                          className={`border-t border-border ${isMismatch ? "bg-status-error/5" : ""}`}
+                        >
+                          <td className="px-2 py-1.5 font-medium text-foreground truncate max-w-[200px]" title={field.fieldName}>
+                            {field.fieldName}
+                          </td>
+                          <td className="px-2 py-1.5 text-muted-foreground truncate max-w-[200px]" title={field.pageValue ?? ""}>
+                            {field.pageValue || "—"}
+                          </td>
+                          <td className="px-2 py-1.5 text-muted-foreground max-w-[200px]">
+                            <div className="truncate" title={field.pdfValue ?? ""}>{field.pdfValue || "—"}</div>
+                            {field.sourceFile && (
+                              <div
+                                className="mt-0.5 truncate text-[10px] text-muted-foreground/60"
+                                title={field.sourceFile}
+                              >
+                                {field.sourceFile}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <ComparisonStatusBadge status={field.status} />
+                          </td>
+                        </tr>
+                        {hasLineMatches && (
+                          <tr className="bg-status-error/5">
+                            <td colSpan={4} className="px-2 pb-1.5 pt-0">
+                              <div className="flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5">
+                                <CornerDownRight className="h-3 w-3 shrink-0 mt-0.5 text-amber-500" />
+                                <div className="flex-1 min-w-0 space-y-0.5">
+                                  <p className="text-[11px] font-medium text-amber-300/90">
+                                    Submitted value <span className="font-mono">{field.pageValue || "—"}</span>{" "}
+                                    found in document as:
+                                  </p>
+                                  <ul className="space-y-0.5">
+                                    {lineMatches.map((match, j) => (
+                                      <li
+                                        key={j}
+                                        className="flex items-baseline gap-1.5 text-[11px] text-foreground/80"
+                                      >
+                                        <span className="text-muted-foreground">›</span>
+                                        <span className="font-medium truncate" title={match.label}>{match.label}</span>
+                                        <span className="font-mono text-muted-foreground shrink-0">
+                                          {match.value}
+                                        </span>
+                                        {match.sourceFile && (
+                                          <span
+                                            className="text-[10px] text-muted-foreground/60 truncate"
+                                            title={match.sourceFile}
+                                          >
+                                            ({match.sourceFile})
+                                          </span>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
                         )}
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <ComparisonStatusBadge status={field.status} />
-                      </td>
-                    </tr>
-                  ))}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

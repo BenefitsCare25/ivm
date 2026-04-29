@@ -31,7 +31,8 @@ You must return a JSON object with this exact structure:
       "pdfValue": "Value from the PDF (or null if not found)",
       "status": "MATCH" | "MISMATCH" | "MISSING_IN_PDF" | "MISSING_ON_PAGE" | "UNCERTAIN",
       "confidence": 0.0 to 1.0,
-      "notes": "Optional explanation of the comparison result"
+      "notes": "Optional explanation of the comparison result",
+      "documentLineMatches": [ { "label": "Line item label as it appears in the document", "value": "Matching value as it appears in the document" } ]
     }
   ],
   ${DIAGNOSIS_JSON_SCHEMA},
@@ -53,6 +54,12 @@ COMPARISON RULES:
 8. For monetary amounts: compare numerical values regardless of formatting. However, if the portal amount and document amount differ by a large factor (e.g. 50x–100x), note in the "notes" field that the amounts may be in different currencies (e.g. SGD vs PHP/IDR/THB) rather than a simple data error.
 9. For dates, compare the actual date regardless of format.
 10. Confidence: 0.95+ for clear match/mismatch, 0.7-0.94 for high-probability comparison, below 0.7 for uncertain.
+11. documentLineMatches (only when status="MISMATCH" on a numeric/monetary field):
+    - Scan ALL pdfFields for any line items whose numeric value equals the portal value (ignore sign and formatting — e.g. portal "167.70" matches document line "-167.70" or "$167.70").
+    - For each match, return an object { "label": <pdf field name>, "value": <pdf field value as it appears> }.
+    - Include MULTIPLE entries if the portal value appears in multiple line items.
+    - Omit the field entirely (or use an empty array) if status is not MISMATCH, or if the portal value does not appear anywhere else in the document.
+    - Do NOT include the line that is already shown as pdfValue.
 
 Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.`;
 }

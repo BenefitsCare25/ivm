@@ -43,7 +43,8 @@ Return ONLY valid JSON with this exact structure:
       "pdfValue": "Value from the PDF (or null if not found)",
       "status": "MATCH" | "MISMATCH" | "MISSING_IN_PDF" | "MISSING_ON_PAGE" | "UNCERTAIN",
       "confidence": 0.0 to 1.0,
-      "notes": "Optional explanation"
+      "notes": "Optional explanation",
+      "documentLineMatches": [ { "label": "Line item label as it appears in the document", "value": "Matching value as it appears in the document" } ]
     }
   ],
   "businessRuleResults": [
@@ -76,6 +77,12 @@ FIELD COMPARISON RULES:
 7. For monetary amounts, compare numerical values regardless of currency symbols.
 8. For dates, compare actual date regardless of format.
 9. Confidence: 0.95+ for clear match/mismatch, 0.7-0.94 for probable, below 0.7 for uncertain.
+10. documentLineMatches (only when status="MISMATCH" on a numeric/monetary field):
+    - Scan ALL PDF Extracted Fields for any line items whose numeric value equals the portal value (ignore sign and formatting — e.g. portal "167.70" matches document line "-167.70" or "$167.70").
+    - For each match, return an object { "label": <pdf field name>, "value": <pdf field value as it appears> }.
+    - Include MULTIPLE entries if the portal value appears in multiple line items.
+    - Omit the field entirely (or use an empty array) if status is not MISMATCH, or if the portal value does not appear anywhere else in the document.
+    - Do NOT include the line that is already shown as pdfValue.
 
 BUSINESS RULE EVALUATION:
 1. Evaluate each rule against ALL available data (portal fields, PDF fields, document types).
