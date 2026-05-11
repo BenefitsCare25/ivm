@@ -124,7 +124,7 @@ async function processItemDetailCore(
           { trackedItemId, existingCount, newCount },
           "[worker] Kept existing detailData — new scrape returned significantly fewer fields"
         );
-        effectiveDetailData = existingDetailData!;
+        effectiveDetailData = existingDetailData ?? {};
       }
 
       // ── Submitted By filter (detail-time) ──────────────────

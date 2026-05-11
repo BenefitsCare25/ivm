@@ -39,8 +39,8 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
     displayProvider, comparisonModel,
   } = input;
 
-  const hasDetailData = Object.keys(effectiveDetailData).length > 0;
-  const hasPdfFields = Object.keys(pdfFields).length > 0;
+  const hasDetailData = Object.keys(effectiveDetailData ?? {}).length > 0;
+  const hasPdfFields = Object.keys(pdfFields ?? {}).length > 0;
   const noDocuments = fileExtractions.length === 0;
   const extractionFailed = fileExtractions.length > 0 && !hasPdfFields;
 

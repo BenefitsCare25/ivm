@@ -138,7 +138,7 @@ export function ItemEventTimeline({
             const isSuccess = severity === "success";
             const isWarning = severity === "warning";
             const isExpanded = expanded.has(evt.id);
-            const hasPayload = Object.keys(evt.payload).length > 0;
+            const hasPayload = evt.payload !== null && typeof evt.payload === "object" && !Array.isArray(evt.payload) && Object.keys(evt.payload).length > 0;
 
             const DotColor = isError
               ? "bg-red-500"
