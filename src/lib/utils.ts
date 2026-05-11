@@ -8,6 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 const dateFormatter = new Intl.DateTimeFormat("en-SG", {
   dateStyle: "medium",
   timeStyle: "short",
+  timeZone: "Asia/Singapore",
 });
 
 export function formatDate(date: Date | string): string {
