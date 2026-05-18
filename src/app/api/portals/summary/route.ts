@@ -117,48 +117,44 @@ async function buildSnapshotSummary(userId: string, dateStr: string) {
     include: { portal: { select: { id: true, name: true, baseUrl: true } } },
   });
 
-  const statusBreakdown: Record<string, number> = {};
-  let totalSessions = 0, totalItems = 0, totalFlagged = 0, totalErrors = 0, totalFiles = 0;
+  const sum = (fn: (r: typeof rows[number]) => number) => rows.reduce((s, r) => s + fn(r), 0);
 
-  const byPortal = rows.map((r) => {
-    totalSessions += r.sessions;
-    totalItems += r.items;
-    totalFlagged += r.flagged;
-    totalErrors += r.errors;
-    totalFiles += r.files;
+  const statusBreakdown = Object.fromEntries(
+    Object.entries({
+      COMPARED: sum((r) => r.compared),
+      FLAGGED:  sum((r) => r.flagged),
+      ERROR:    sum((r) => r.errors),
+      SKIPPED:  sum((r) => r.skipped),
+      VERIFIED: sum((r) => r.verified),
+      REQUIRE_DOC: sum((r) => r.requireDoc),
+    }).filter(([, v]) => v > 0)
+  );
 
-    statusBreakdown["COMPARED"]    = (statusBreakdown["COMPARED"]    ?? 0) + r.compared;
-    statusBreakdown["FLAGGED"]     = (statusBreakdown["FLAGGED"]     ?? 0) + r.flagged;
-    statusBreakdown["ERROR"]       = (statusBreakdown["ERROR"]       ?? 0) + r.errors;
-    statusBreakdown["SKIPPED"]     = (statusBreakdown["SKIPPED"]     ?? 0) + r.skipped;
-    statusBreakdown["VERIFIED"]    = (statusBreakdown["VERIFIED"]    ?? 0) + r.verified;
-    statusBreakdown["REQUIRE_DOC"] = (statusBreakdown["REQUIRE_DOC"] ?? 0) + r.requireDoc;
-
-    return {
-      portalId: r.portalId,
-      name: r.portal.name,
-      baseUrl: r.portal.baseUrl,
-      sessions: r.sessions,
-      items: r.items,
-      files: r.files,
-      compared: r.compared,
-      flagged: r.flagged,
-      errors: r.errors,
-      skipped: r.skipped,
-      verified: r.verified,
-      requireDoc: r.requireDoc,
-    };
-  }).sort((a, b) => b.items - a.items);
-
-  // Strip zero-count statuses from breakdown
-  for (const key of Object.keys(statusBreakdown)) {
-    if (statusBreakdown[key] === 0) delete statusBreakdown[key];
-  }
+  const byPortal = rows.map((r) => ({
+    portalId: r.portalId,
+    name: r.portal.name,
+    baseUrl: r.portal.baseUrl,
+    sessions: r.sessions,
+    items: r.items,
+    files: r.files,
+    compared: r.compared,
+    flagged: r.flagged,
+    errors: r.errors,
+    skipped: r.skipped,
+    verified: r.verified,
+    requireDoc: r.requireDoc,
+  })).sort((a, b) => b.items - a.items);
 
   return {
     date: dateStr,
     source: "snapshot",
-    totals: { sessions: totalSessions, items: totalItems, flagged: totalFlagged, errors: totalErrors, files: totalFiles },
+    totals: {
+      sessions: sum((r) => r.sessions),
+      items:    sum((r) => r.items),
+      flagged:  sum((r) => r.flagged),
+      errors:   sum((r) => r.errors),
+      files:    sum((r) => r.files),
+    },
     statusBreakdown,
     byPortal,
   };

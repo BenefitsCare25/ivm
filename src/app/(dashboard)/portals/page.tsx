@@ -30,45 +30,38 @@ export default async function PortalsPage() {
 
   const portalIds = portals.map((p) => p.id);
 
-  // Persistent metrics sum (survives session retention cleanup)
-  const [metricsSum, liveInProgress] = portalIds.length > 0
+  const [metricsSum, sessionsWithProgress] = portalIds.length > 0
     ? await Promise.all([
         db.portalDailyMetrics.groupBy({
           by: ["portalId"],
           where: { portalId: { in: portalIds } },
           _sum: { items: true },
         }),
-        // Add items from sessions not yet snapshotted (still in-progress today)
-        db.trackedItem.groupBy({
-          by: ["scrapeSessionId"],
+        // Items not yet snapshotted (still in-progress) — scoped to sessions with active items
+        db.scrapeSession.findMany({
           where: {
-            scrapeSession: { portalId: { in: portalIds } },
-            status: { in: ["DISCOVERED", "PROCESSING"] },
+            portalId: { in: portalIds },
+            trackedItems: { some: { status: { in: ["DISCOVERED", "PROCESSING"] } } },
           },
-          _count: { id: true },
+          select: {
+            portalId: true,
+            _count: {
+              select: {
+                trackedItems: { where: { status: { in: ["DISCOVERED", "PROCESSING"] } } },
+              },
+            },
+          },
         }),
       ])
     : [[], []];
-
-  // Map in-progress session IDs → portalId
-  const activeSessionIds = liveInProgress.map((g) => g.scrapeSessionId);
-  const activeSessions = activeSessionIds.length > 0
-    ? await db.scrapeSession.findMany({
-        where: { id: { in: activeSessionIds } },
-        select: { id: true, portalId: true },
-      })
-    : [];
-  const sessionToPortal = new Map(activeSessions.map((s) => [s.id, s.portalId]));
 
   const portalItemCounts = new Map<string, number>();
   for (const row of metricsSum) {
     portalItemCounts.set(row.portalId, row._sum.items ?? 0);
   }
-  for (const group of liveInProgress) {
-    const portalId = sessionToPortal.get(group.scrapeSessionId);
-    if (portalId) {
-      portalItemCounts.set(portalId, (portalItemCounts.get(portalId) ?? 0) + group._count.id);
-    }
+  for (const s of sessionsWithProgress) {
+    const n = s._count.trackedItems;
+    if (n > 0) portalItemCounts.set(s.portalId, (portalItemCounts.get(s.portalId) ?? 0) + n);
   }
 
   const enriched: PortalSummary[] = portals.map((p) => {

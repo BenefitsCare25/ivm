@@ -6,10 +6,6 @@ export function toSGTDateStr(utcDate: Date): string {
   return sgt.toISOString().split("T")[0];
 }
 
-/**
- * Recompute and upsert the daily metrics snapshot for a portal on a given SGT date.
- * Called after a session's last item reaches terminal status.
- */
 export async function snapshotPortalDay(portalId: string, date: string): Promise<void> {
   const start = new Date(`${date}T00:00:00+08:00`);
   const end = new Date(`${date}T23:59:59.999+08:00`);
@@ -50,32 +46,26 @@ export async function snapshotPortalDay(portalId: string, date: string): Promise
   logger.debug({ portalId, date, items, sessions: sessions.length }, "[metrics] Portal daily snapshot saved");
 }
 
-/**
- * Backfill all existing sessions into PortalDailyMetrics.
- * Safe to run multiple times (upsert semantics).
- */
-export async function backfillPortalMetrics(): Promise<{ days: number; portals: number }> {
+export async function backfillPortalMetrics(userId?: string): Promise<{ days: number; portals: number }> {
   const sessions = await db.scrapeSession.findMany({
+    where: userId ? { portal: { userId } } : undefined,
     select: { portalId: true, createdAt: true },
   });
 
-  // Collect unique (portalId, date) pairs
   const pairs = new Set<string>();
   for (const s of sessions) {
-    const date = toSGTDateStr(s.createdAt);
-    pairs.add(`${s.portalId}:${date}`);
+    pairs.add(`${s.portalId}:${toSGTDateStr(s.createdAt)}`);
   }
 
-  let count = 0;
   const portalsSeen = new Set<string>();
+  await Promise.all(
+    [...pairs].map((key) => {
+      const [portalId, date] = key.split(":");
+      portalsSeen.add(portalId);
+      return snapshotPortalDay(portalId, date);
+    })
+  );
 
-  for (const key of pairs) {
-    const [portalId, date] = key.split(":");
-    await snapshotPortalDay(portalId, date);
-    portalsSeen.add(portalId);
-    count++;
-  }
-
-  logger.info({ days: count, portals: portalsSeen.size }, "[metrics] Backfill complete");
-  return { days: count, portals: portalsSeen.size };
+  logger.info({ days: pairs.size, portals: portalsSeen.size }, "[metrics] Backfill complete");
+  return { days: pairs.size, portals: portalsSeen.size };
 }

@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { ChevronLeft, ChevronRight, Activity, Flag, AlertTriangle, FileDown, ExternalLink } from "lucide-react";
+import { ChevronLeft, ChevronRight, Activity, Flag, FileDown, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { toSGTDateStr } from "@/lib/portal-metrics";
 
 interface SummaryTotals {
   sessions: number;
@@ -37,20 +37,17 @@ interface SummaryData {
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; barColor: string }> = {
-  COMPARED:    { label: "Matched",      color: "text-emerald-400",  barColor: "bg-emerald-500" },
-  FLAGGED:     { label: "Flagged",      color: "text-amber-400",    barColor: "bg-amber-500" },
-  VERIFIED:    { label: "Verified",     color: "text-sky-400",      barColor: "bg-sky-500" },
-  ERROR:       { label: "Error",        color: "text-red-400",      barColor: "bg-red-500" },
-  SKIPPED:     { label: "Skipped",      color: "text-muted-foreground", barColor: "bg-muted" },
-  REQUIRE_DOC: { label: "Need Doc",     color: "text-purple-400",   barColor: "bg-purple-500" },
-  PROCESSING:  { label: "Processing",   color: "text-blue-400",     barColor: "bg-blue-500" },
-  DISCOVERED:  { label: "Discovered",   color: "text-muted-foreground", barColor: "bg-muted/50" },
+  COMPARED:    { label: "Matched",    color: "text-emerald-400",      barColor: "bg-emerald-500" },
+  FLAGGED:     { label: "Flagged",    color: "text-amber-400",        barColor: "bg-amber-500" },
+  VERIFIED:    { label: "Verified",   color: "text-sky-400",          barColor: "bg-sky-500" },
+  ERROR:       { label: "Error",      color: "text-red-400",          barColor: "bg-red-500" },
+  SKIPPED:     { label: "Skipped",    color: "text-muted-foreground", barColor: "bg-muted" },
+  REQUIRE_DOC: { label: "Need Doc",   color: "text-purple-400",       barColor: "bg-purple-500" },
+  PROCESSING:  { label: "Processing", color: "text-blue-400",         barColor: "bg-blue-500" },
+  DISCOVERED:  { label: "Discovered", color: "text-muted-foreground", barColor: "bg-muted/50" },
 };
 
-function sgtToday(): string {
-  const nowSGT = new Date(Date.now() + 8 * 60 * 60 * 1000);
-  return nowSGT.toISOString().split("T")[0];
-}
+const STATUS_ORDER = ["COMPARED", "VERIFIED", "FLAGGED", "REQUIRE_DOC", "ERROR", "SKIPPED", "PROCESSING", "DISCOVERED"];
 
 function shiftDate(date: string, days: number): string {
   const d = new Date(`${date}T12:00:00Z`);
@@ -58,11 +55,9 @@ function shiftDate(date: string, days: number): string {
   return d.toISOString().split("T")[0];
 }
 
-function formatDisplayDate(date: string): string {
-  const today = sgtToday();
-  const yesterday = shiftDate(today, -1);
+function formatDisplayDate(date: string, today: string): string {
   if (date === today) return "Today";
-  if (date === yesterday) return "Yesterday";
+  if (date === shiftDate(today, -1)) return "Yesterday";
   return new Date(`${date}T12:00:00Z`).toLocaleDateString("en-SG", {
     day: "numeric", month: "short", year: "numeric",
   });
@@ -72,28 +67,25 @@ function StatusBar({ statusBreakdown }: { statusBreakdown: Record<string, number
   const total = Object.values(statusBreakdown).reduce((s, n) => s + n, 0);
   if (total === 0) return <div className="h-2 rounded-full bg-muted w-full" />;
 
-  const order = ["COMPARED", "VERIFIED", "FLAGGED", "REQUIRE_DOC", "ERROR", "SKIPPED", "PROCESSING", "DISCOVERED"];
-
   return (
     <div className="space-y-3">
       <div className="flex h-3 w-full rounded-full overflow-hidden gap-px">
-        {order.map((status) => {
+        {STATUS_ORDER.map((status) => {
           const count = statusBreakdown[status] ?? 0;
           if (!count) return null;
-          const pct = (count / total) * 100;
           const cfg = STATUS_CONFIG[status] ?? { barColor: "bg-muted" };
           return (
             <div
               key={status}
               className={`${cfg.barColor} transition-all`}
-              style={{ width: `${pct}%` }}
+              style={{ width: `${(count / total) * 100}%` }}
               title={`${STATUS_CONFIG[status]?.label ?? status}: ${count}`}
             />
           );
         })}
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1">
-        {order.map((status) => {
+        {STATUS_ORDER.map((status) => {
           const count = statusBreakdown[status] ?? 0;
           if (!count) return null;
           const cfg = STATUS_CONFIG[status];
@@ -118,11 +110,11 @@ function FlagRate({ flagged, items }: { flagged: number; items: number }) {
 }
 
 export function PortalDashboard() {
-  const [date, setDate] = useState(sgtToday);
+  const [date, setDate] = useState(() => toSGTDateStr(new Date()));
   const [data, setData] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const today = sgtToday();
+  const today = toSGTDateStr(new Date());
   const isToday = date === today;
 
   const load = useCallback(async (d: string) => {
@@ -141,37 +133,16 @@ export function PortalDashboard() {
   const next = () => { if (!isToday) setDate((d) => shiftDate(d, 1)); };
 
   const statCards = [
-    {
-      label: "Scrape Sessions",
-      value: data?.totals.sessions ?? 0,
-      icon: Activity,
-      iconClass: "text-sky-400",
-    },
-    {
-      label: "Items Processed",
-      value: data?.totals.items ?? 0,
-      icon: Activity,
-      iconClass: "text-emerald-400",
-    },
-    {
-      label: "Items Flagged",
-      value: data?.totals.flagged ?? 0,
-      icon: Flag,
-      iconClass: "text-amber-400",
-    },
-    {
-      label: "Files Downloaded",
-      value: data?.totals.files ?? 0,
-      icon: FileDown,
-      iconClass: "text-purple-400",
-    },
+    { label: "Scrape Sessions", value: data?.totals.sessions ?? 0, icon: Activity,  iconClass: "text-sky-400" },
+    { label: "Items Processed", value: data?.totals.items ?? 0,    icon: Activity,  iconClass: "text-emerald-400" },
+    { label: "Items Flagged",   value: data?.totals.flagged ?? 0,  icon: Flag,      iconClass: "text-amber-400" },
+    { label: "Files Downloaded",value: data?.totals.files ?? 0,    icon: FileDown,  iconClass: "text-purple-400" },
   ];
 
-  const isEmpty = !loading && data?.totals.items === 0 && data?.totals.sessions === 0;
+  const isEmpty = !loading && !data?.totals.sessions;
 
   return (
     <div className="space-y-4">
-      {/* Header row */}
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Daily Summary</h2>
         <div className="flex items-center gap-1">
@@ -179,7 +150,7 @@ export function PortalDashboard() {
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <span className="text-sm font-medium text-foreground min-w-[90px] text-center">
-            {formatDisplayDate(date)}
+            {formatDisplayDate(date, today)}
           </span>
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={next} disabled={isToday}>
             <ChevronRight className="h-4 w-4" />
@@ -187,7 +158,6 @@ export function PortalDashboard() {
         </div>
       </div>
 
-      {/* Stat cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {statCards.map(({ label, value, icon: Icon, iconClass }) => (
           <Card key={label} className="p-4">
@@ -204,24 +174,20 @@ export function PortalDashboard() {
 
       {isEmpty ? (
         <Card className="p-6 text-center text-sm text-muted-foreground">
-          No scrape sessions on {formatDisplayDate(date)}.
+          No scrape sessions on {formatDisplayDate(date, today)}.
         </Card>
-      ) : (
+      ) : data && (
         <>
-          {/* Status breakdown */}
-          {data && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium">Item Outcome Breakdown</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <StatusBar statusBreakdown={data.statusBreakdown} />
-              </CardContent>
-            </Card>
-          )}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">Item Outcome Breakdown</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StatusBar statusBreakdown={data.statusBreakdown} />
+            </CardContent>
+          </Card>
 
-          {/* Per-portal (company) table */}
-          {data && data.byPortal.length > 0 && (
+          {data.byPortal.length > 0 && (
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium">By Company / Portal URL</CardTitle>
@@ -251,12 +217,8 @@ export function PortalDashboard() {
                             <div className="font-medium text-foreground leading-tight">{row.name}</div>
                             <div className="flex items-center gap-1 mt-0.5">
                               <span className="text-xs text-muted-foreground truncate max-w-[200px]">{row.baseUrl}</span>
-                              <a
-                                href={row.baseUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-muted-foreground hover:text-foreground shrink-0"
-                              >
+                              <a href={row.baseUrl} target="_blank" rel="noopener noreferrer"
+                                className="text-muted-foreground hover:text-foreground shrink-0">
                                 <ExternalLink className="h-3 w-3" />
                               </a>
                             </div>
@@ -265,21 +227,17 @@ export function PortalDashboard() {
                           <td className="text-right px-3 py-3 font-medium text-foreground">{row.items}</td>
                           <td className="text-right px-3 py-3 text-emerald-400">{row.compared + row.verified}</td>
                           <td className="text-right px-3 py-3">
-                            {row.flagged > 0 ? (
-                              <span className="text-amber-400 font-medium">{row.flagged}</span>
-                            ) : (
-                              <span className="text-muted-foreground">0</span>
-                            )}
+                            {row.flagged > 0
+                              ? <span className="text-amber-400 font-medium">{row.flagged}</span>
+                              : <span className="text-muted-foreground">0</span>}
                           </td>
                           <td className="text-right px-3 py-3">
                             <FlagRate flagged={row.flagged} items={row.items} />
                           </td>
                           <td className="text-right px-3 py-3">
-                            {row.errors > 0 ? (
-                              <span className="text-red-400 font-medium">{row.errors}</span>
-                            ) : (
-                              <span className="text-muted-foreground">0</span>
-                            )}
+                            {row.errors > 0
+                              ? <span className="text-red-400 font-medium">{row.errors}</span>
+                              : <span className="text-muted-foreground">0</span>}
                           </td>
                           <td className="text-right px-4 py-3 text-muted-foreground">{row.files}</td>
                         </tr>
