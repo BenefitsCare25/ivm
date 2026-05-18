@@ -4,19 +4,39 @@ import { db } from "@/lib/db";
 import { errorResponse, UnauthorizedError } from "@/lib/errors";
 import { toSGTDateStr } from "@/lib/utils";
 
-function sgtDayRange(dateParam: string | null): { start: Date; end: Date; dateStr: string } {
-  if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+type ViewMode = "day" | "month" | "year";
+
+function parsePeriod(view: ViewMode, raw: string | null): {
+  period: string;
+  dateRange: { gte: string; lte: string } | null; // null = single-day live query
+  isCurrentPeriod: boolean;
+} {
+  const today = toSGTDateStr(new Date());
+  const currentMonth = today.slice(0, 7);
+  const currentYear = today.slice(0, 4);
+
+  if (view === "day") {
+    const period = raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : today;
+    return { period, dateRange: null, isCurrentPeriod: period === today };
+  }
+
+  if (view === "month") {
+    const period = raw && /^\d{4}-\d{2}$/.test(raw) ? raw : currentMonth;
+    const [y, m] = period.split("-").map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
     return {
-      start: new Date(`${dateParam}T00:00:00+08:00`),
-      end: new Date(`${dateParam}T23:59:59.999+08:00`),
-      dateStr: dateParam,
+      period,
+      dateRange: { gte: `${period}-01`, lte: `${period}-${String(lastDay).padStart(2, "0")}` },
+      isCurrentPeriod: period === currentMonth,
     };
   }
-  const dateStr = toSGTDateStr(new Date());
+
+  // year
+  const period = raw && /^\d{4}$/.test(raw) ? raw : currentYear;
   return {
-    start: new Date(`${dateStr}T00:00:00+08:00`),
-    end: new Date(`${dateStr}T23:59:59.999+08:00`),
-    dateStr,
+    period,
+    dateRange: { gte: `${period}-01-01`, lte: `${period}-12-31` },
+    isCurrentPeriod: period === currentYear,
   };
 }
 
@@ -26,34 +46,34 @@ export async function GET(request: Request) {
     if (!session?.user?.id) throw new UnauthorizedError();
 
     const { searchParams } = new URL(request.url);
-    const { start, end, dateStr } = sgtDayRange(searchParams.get("date"));
-    const todayStr = toSGTDateStr(new Date());
-    const isToday = dateStr === todayStr;
+    const view = (searchParams.get("view") ?? "day") as ViewMode;
+    const { period, dateRange, isCurrentPeriod } = parsePeriod(view, searchParams.get("period"));
 
-    // For today: live session query (captures in-progress items)
-    // For past dates: snapshot table (persists through retention cleanup)
-    if (isToday) {
-      return NextResponse.json(await buildLiveSummary(session.user.id, start, end, dateStr));
-    } else {
-      return NextResponse.json(await buildSnapshotSummary(session.user.id, dateStr));
+    // Day view: live query for today, snapshot for past
+    if (view === "day" && isCurrentPeriod) {
+      const start = new Date(`${period}T00:00:00+08:00`);
+      const end = new Date(`${period}T23:59:59.999+08:00`);
+      return NextResponse.json(await buildLiveSummary(session.user.id, start, end, period));
     }
+
+    // Month/year and past days: snapshot query over date range
+    const where = dateRange
+      ? { portal: { userId: session.user.id }, date: dateRange }
+      : { portal: { userId: session.user.id }, date: period };
+
+    return NextResponse.json(await buildSnapshotSummary(session.user.id, where, period, view));
   } catch (err) {
     return errorResponse(err);
   }
 }
 
-async function buildLiveSummary(userId: string, start: Date, end: Date, dateStr: string) {
+async function buildLiveSummary(userId: string, start: Date, end: Date, period: string) {
   const sessions = await db.scrapeSession.findMany({
-    where: {
-      portal: { userId },
-      createdAt: { gte: start, lte: end },
-    },
+    where: { portal: { userId }, createdAt: { gte: start, lte: end } },
     select: {
       id: true,
       portal: { select: { id: true, name: true, baseUrl: true } },
-      trackedItems: {
-        select: { status: true, _count: { select: { files: true } } },
-      },
+      trackedItems: { select: { status: true, _count: { select: { files: true } } } },
     },
   });
 
@@ -62,7 +82,6 @@ async function buildLiveSummary(userId: string, start: Date, end: Date, dateStr:
     portalId: string; name: string; baseUrl: string;
     sessions: number; items: number; files: number; statusCounts: Record<string, number>;
   }>();
-
   let totalItems = 0, totalFiles = 0;
 
   for (const s of sessions) {
@@ -84,7 +103,8 @@ async function buildLiveSummary(userId: string, start: Date, end: Date, dateStr:
   }
 
   return {
-    date: dateStr,
+    period,
+    view: "day",
     source: "live",
     totals: {
       sessions: sessions.length,
@@ -95,65 +115,82 @@ async function buildLiveSummary(userId: string, start: Date, end: Date, dateStr:
     },
     statusBreakdown,
     byPortal: Array.from(portalMap.values()).map((p) => ({
-      portalId: p.portalId,
-      name: p.name,
-      baseUrl: p.baseUrl,
-      sessions: p.sessions,
-      items: p.items,
-      files: p.files,
-      compared: p.statusCounts["COMPARED"] ?? 0,
-      flagged: p.statusCounts["FLAGGED"] ?? 0,
-      errors: p.statusCounts["ERROR"] ?? 0,
-      skipped: p.statusCounts["SKIPPED"] ?? 0,
-      verified: p.statusCounts["VERIFIED"] ?? 0,
-      requireDoc: p.statusCounts["REQUIRE_DOC"] ?? 0,
+      portalId: p.portalId, name: p.name, baseUrl: p.baseUrl,
+      sessions: p.sessions, items: p.items, files: p.files,
+      compared:   p.statusCounts["COMPARED"]    ?? 0,
+      flagged:    p.statusCounts["FLAGGED"]      ?? 0,
+      errors:     p.statusCounts["ERROR"]        ?? 0,
+      skipped:    p.statusCounts["SKIPPED"]      ?? 0,
+      verified:   p.statusCounts["VERIFIED"]     ?? 0,
+      requireDoc: p.statusCounts["REQUIRE_DOC"]  ?? 0,
     })).sort((a, b) => b.items - a.items),
   };
 }
 
-async function buildSnapshotSummary(userId: string, dateStr: string) {
+type SnapshotWhere = NonNullable<Parameters<typeof db.portalDailyMetrics.findMany>[0]>["where"];
+
+async function buildSnapshotSummary(
+  userId: string,
+  where: SnapshotWhere,
+  period: string,
+  view: ViewMode,
+) {
   const rows = await db.portalDailyMetrics.findMany({
-    where: { portal: { userId }, date: dateStr },
+    where,
     include: { portal: { select: { id: true, name: true, baseUrl: true } } },
   });
 
-  const sum = (fn: (r: typeof rows[number]) => number) => rows.reduce((s, r) => s + fn(r), 0);
+  // Aggregate by portal (needed for month/year views that span multiple rows per portal)
+  const portalMap = new Map<string, {
+    name: string; baseUrl: string;
+    sessions: number; items: number; files: number;
+    compared: number; flagged: number; errors: number;
+    skipped: number; verified: number; requireDoc: number;
+  }>();
+
+  for (const r of rows) {
+    if (!portalMap.has(r.portalId)) {
+      portalMap.set(r.portalId, { name: r.portal.name, baseUrl: r.portal.baseUrl, sessions: 0, items: 0, files: 0, compared: 0, flagged: 0, errors: 0, skipped: 0, verified: 0, requireDoc: 0 });
+    }
+    const p = portalMap.get(r.portalId)!;
+    p.sessions   += r.sessions;
+    p.items      += r.items;
+    p.files      += r.files;
+    p.compared   += r.compared;
+    p.flagged    += r.flagged;
+    p.errors     += r.errors;
+    p.skipped    += r.skipped;
+    p.verified   += r.verified;
+    p.requireDoc += r.requireDoc;
+  }
+
+  const byPortal = Array.from(portalMap.entries())
+    .map(([portalId, p]) => ({ portalId, ...p }))
+    .sort((a, b) => b.items - a.items);
+
+  const sum = (fn: (p: typeof byPortal[number]) => number) => byPortal.reduce((s, p) => s + fn(p), 0);
 
   const statusBreakdown = Object.fromEntries(
     Object.entries({
-      COMPARED: sum((r) => r.compared),
-      FLAGGED:  sum((r) => r.flagged),
-      ERROR:    sum((r) => r.errors),
-      SKIPPED:  sum((r) => r.skipped),
-      VERIFIED: sum((r) => r.verified),
-      REQUIRE_DOC: sum((r) => r.requireDoc),
+      COMPARED:    sum((p) => p.compared),
+      FLAGGED:     sum((p) => p.flagged),
+      ERROR:       sum((p) => p.errors),
+      SKIPPED:     sum((p) => p.skipped),
+      VERIFIED:    sum((p) => p.verified),
+      REQUIRE_DOC: sum((p) => p.requireDoc),
     }).filter(([, v]) => v > 0)
   );
 
-  const byPortal = rows.map((r) => ({
-    portalId: r.portalId,
-    name: r.portal.name,
-    baseUrl: r.portal.baseUrl,
-    sessions: r.sessions,
-    items: r.items,
-    files: r.files,
-    compared: r.compared,
-    flagged: r.flagged,
-    errors: r.errors,
-    skipped: r.skipped,
-    verified: r.verified,
-    requireDoc: r.requireDoc,
-  })).sort((a, b) => b.items - a.items);
-
   return {
-    date: dateStr,
+    period,
+    view,
     source: "snapshot",
     totals: {
-      sessions: sum((r) => r.sessions),
-      items:    sum((r) => r.items),
-      flagged:  sum((r) => r.flagged),
-      errors:   sum((r) => r.errors),
-      files:    sum((r) => r.files),
+      sessions: sum((p) => p.sessions),
+      items:    sum((p) => p.items),
+      flagged:  sum((p) => p.flagged),
+      errors:   sum((p) => p.errors),
+      files:    sum((p) => p.files),
     },
     statusBreakdown,
     byPortal,

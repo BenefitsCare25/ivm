@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { ChevronLeft, ChevronRight, Activity, Flag, FileDown, ExternalLink } from "lucide-react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { ChevronLeft, ChevronRight, Activity, Flag, FileDown, ExternalLink, Filter } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toSGTDateStr } from "@/lib/utils";
+
+type ViewMode = "day" | "month" | "year";
 
 interface SummaryTotals {
   sessions: number;
@@ -30,7 +32,9 @@ interface PortalRow {
 }
 
 interface SummaryData {
-  date: string;
+  period: string;
+  view: ViewMode;
+  source: string;
   totals: SummaryTotals;
   statusBreakdown: Record<string, number>;
   byPortal: PortalRow[];
@@ -49,18 +53,41 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; barColor: st
 
 const STATUS_ORDER = ["COMPARED", "VERIFIED", "FLAGGED", "REQUIRE_DOC", "ERROR", "SKIPPED", "PROCESSING", "DISCOVERED"];
 
-function shiftDate(date: string, days: number): string {
-  const d = new Date(`${date}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().split("T")[0];
+function currentPeriod(view: ViewMode): string {
+  const today = toSGTDateStr(new Date());
+  if (view === "day") return today;
+  if (view === "month") return today.slice(0, 7);
+  return today.slice(0, 4);
 }
 
-function formatDisplayDate(date: string, today: string): string {
-  if (date === today) return "Today";
-  if (date === shiftDate(today, -1)) return "Yesterday";
-  return new Date(`${date}T12:00:00Z`).toLocaleDateString("en-SG", {
-    day: "numeric", month: "short", year: "numeric",
-  });
+function shiftPeriod(period: string, view: ViewMode, dir: number): string {
+  if (view === "day") {
+    const d = new Date(`${period}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + dir);
+    return d.toISOString().split("T")[0];
+  }
+  if (view === "month") {
+    const [y, m] = period.split("-").map(Number);
+    const d = new Date(y, m - 1 + dir, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }
+  return String(Number(period) + dir);
+}
+
+function formatPeriodLabel(period: string, view: ViewMode): string {
+  if (view === "day") {
+    const today = toSGTDateStr(new Date());
+    if (period === today) return "Today";
+    if (period === shiftPeriod(today, "day", -1)) return "Yesterday";
+    return new Date(`${period}T12:00:00Z`).toLocaleDateString("en-SG", {
+      day: "numeric", month: "short", year: "numeric",
+    });
+  }
+  if (view === "month") {
+    const [y, m] = period.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString("en-SG", { month: "long", year: "numeric" });
+  }
+  return period;
 }
 
 function StatusBar({ statusBreakdown }: { statusBreakdown: Record<string, number> }) {
@@ -110,53 +137,133 @@ function FlagRate({ flagged, items }: { flagged: number; items: number }) {
 }
 
 export function PortalDashboard() {
-  const [date, setDate] = useState(() => toSGTDateStr(new Date()));
+  const [view, setView] = useState<ViewMode>("day");
+  const [period, setPeriod] = useState(() => currentPeriod("day"));
   const [data, setData] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [portalFilter, setPortalFilter] = useState<string>("all");
 
-  const today = toSGTDateStr(new Date());
-  const isToday = date === today;
+  const cap = currentPeriod(view);
+  const isCurrentPeriod = period === cap;
 
-  const load = useCallback(async (d: string) => {
+  const handleViewChange = (newView: ViewMode) => {
+    setView(newView);
+    setPeriod(currentPeriod(newView));
+    setPortalFilter("all");
+  };
+
+  const load = useCallback(async (v: ViewMode, p: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/portals/summary?date=${d}`);
+      const res = await fetch(`/api/portals/summary?view=${v}&period=${p}`);
       if (res.ok) setData(await res.json());
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { load(date); }, [date, load]);
+  useEffect(() => { load(view, period); }, [view, period, load]);
+  // Reset filter when period changes (selected portal may not exist in new period)
+  useEffect(() => { setPortalFilter("all"); }, [view, period]);
 
-  const prev = () => setDate((d) => shiftDate(d, -1));
-  const next = () => { if (!isToday) setDate((d) => shiftDate(d, 1)); };
+  const prev = () => setPeriod((p) => shiftPeriod(p, view, -1));
+  const next = () => { if (!isCurrentPeriod) setPeriod((p) => shiftPeriod(p, view, 1)); };
+
+  const displayPortals = useMemo(() => {
+    if (!data) return [];
+    if (portalFilter === "all") return data.byPortal;
+    return data.byPortal.filter((p) => p.portalId === portalFilter);
+  }, [data, portalFilter]);
+
+  const filteredTotals = useMemo((): SummaryTotals => {
+    if (!data) return { sessions: 0, items: 0, flagged: 0, errors: 0, files: 0 };
+    if (portalFilter === "all") return data.totals;
+    return displayPortals.reduce(
+      (acc, p) => ({
+        sessions: acc.sessions + p.sessions,
+        items: acc.items + p.items,
+        flagged: acc.flagged + p.flagged,
+        errors: acc.errors + p.errors,
+        files: acc.files + p.files,
+      }),
+      { sessions: 0, items: 0, flagged: 0, errors: 0, files: 0 }
+    );
+  }, [data, portalFilter, displayPortals]);
+
+  const filteredBreakdown = useMemo((): Record<string, number> => {
+    if (!data) return {};
+    if (portalFilter === "all") return data.statusBreakdown;
+    const breakdown: Record<string, number> = {};
+    const add = (key: string, val: number) => { if (val > 0) breakdown[key] = (breakdown[key] ?? 0) + val; };
+    for (const p of displayPortals) {
+      add("COMPARED", p.compared);
+      add("FLAGGED", p.flagged);
+      add("ERROR", p.errors);
+      add("SKIPPED", p.skipped);
+      add("VERIFIED", p.verified);
+      add("REQUIRE_DOC", p.requireDoc);
+    }
+    return breakdown;
+  }, [data, portalFilter, displayPortals]);
 
   const statCards = [
-    { label: "Scrape Sessions", value: data?.totals.sessions ?? 0, icon: Activity,  iconClass: "text-sky-400" },
-    { label: "Items Processed", value: data?.totals.items ?? 0,    icon: Activity,  iconClass: "text-emerald-400" },
-    { label: "Items Flagged",   value: data?.totals.flagged ?? 0,  icon: Flag,      iconClass: "text-amber-400" },
-    { label: "Files Downloaded",value: data?.totals.files ?? 0,    icon: FileDown,  iconClass: "text-purple-400" },
+    { label: "Scrape Sessions", value: filteredTotals.sessions, icon: Activity, iconClass: "text-sky-400" },
+    { label: "Items Processed", value: filteredTotals.items,    icon: Activity, iconClass: "text-emerald-400" },
+    { label: "Items Flagged",   value: filteredTotals.flagged,  icon: Flag,     iconClass: "text-amber-400" },
+    { label: "Files Downloaded",value: filteredTotals.files,    icon: FileDown, iconClass: "text-purple-400" },
   ];
 
   const isEmpty = !loading && !data?.totals.sessions;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Daily Summary</h2>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={prev}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="text-sm font-medium text-foreground min-w-[90px] text-center">
-            {formatDisplayDate(date, today)}
-          </span>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={next} disabled={isToday}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Summary</h2>
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-md border border-border overflow-hidden">
+            {(["day", "month", "year"] as ViewMode[]).map((v) => (
+              <button
+                key={v}
+                onClick={() => handleViewChange(v)}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${
+                  view === v
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {v.charAt(0).toUpperCase() + v.slice(1)}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={prev}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm font-medium text-foreground min-w-[110px] text-center">
+              {formatPeriodLabel(period, view)}
+            </span>
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={next} disabled={isCurrentPeriod}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
+
+      {data && data.byPortal.length > 1 && (
+        <div className="flex items-center gap-2">
+          <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <select
+            value={portalFilter}
+            onChange={(e) => setPortalFilter(e.target.value)}
+            className="text-xs bg-card border border-border rounded px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value="all">All portals</option>
+            {data.byPortal.map((p) => (
+              <option key={p.portalId} value={p.portalId}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {statCards.map(({ label, value, icon: Icon, iconClass }) => (
@@ -174,7 +281,7 @@ export function PortalDashboard() {
 
       {isEmpty ? (
         <Card className="p-6 text-center text-sm text-muted-foreground">
-          No scrape sessions on {formatDisplayDate(date, today)}.
+          No scrape sessions for {formatPeriodLabel(period, view)}.
         </Card>
       ) : data && (
         <>
@@ -183,11 +290,11 @@ export function PortalDashboard() {
               <CardTitle className="text-sm font-medium">Item Outcome Breakdown</CardTitle>
             </CardHeader>
             <CardContent>
-              <StatusBar statusBreakdown={data.statusBreakdown} />
+              <StatusBar statusBreakdown={filteredBreakdown} />
             </CardContent>
           </Card>
 
-          {data.byPortal.length > 0 && (
+          {displayPortals.length > 0 && (
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium">By Company / Portal URL</CardTitle>
@@ -208,7 +315,7 @@ export function PortalDashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {data.byPortal.map((row, i) => (
+                      {displayPortals.map((row, i) => (
                         <tr
                           key={row.portalId}
                           className={`border-b border-border/50 last:border-0 ${i % 2 === 0 ? "" : "bg-muted/20"}`}
