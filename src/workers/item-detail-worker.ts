@@ -16,8 +16,7 @@ import {
 import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-queue";
 import { runCrossItemChecks } from "@/lib/validations/cross-item";
 import { runFullCleanup } from "@/lib/storage/cleanup";
-import { snapshotPortalDay } from "@/lib/portal-metrics";
-import { toSGTDateStr } from "@/lib/utils";
+import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
 import { toInputJson } from "@/lib/utils";
 import { runExtraction } from "./item-detail-extraction";
 import { runIntelligencePipeline } from "./item-detail-extraction";
@@ -148,9 +147,7 @@ async function processItemDetailCore(
             runCrossItemChecks(item.scrapeSessionId).catch((err) =>
               logger.error({ err, sessionId: item.scrapeSessionId }, "[worker] Cross-item checks failed")
             );
-            snapshotPortalDay(updatedSession.portalId, toSGTDateStr(updatedSession.createdAt)).catch((err) =>
-              logger.error({ err, sessionId: item.scrapeSessionId }, "[worker] Portal metrics snapshot failed")
-            );
+            snapshotPortalDayAsync(updatedSession.portalId, updatedSession.createdAt, "filter-delete");
           }
           return { status: "COMPLETED", mismatchCount: 0 };
         }
@@ -265,9 +262,7 @@ async function processItemDetailCore(
         runCrossItemChecks(item.scrapeSessionId).catch((err) =>
           logger.error({ err, sessionId: item.scrapeSessionId }, "[worker] Cross-item checks failed")
         );
-        snapshotPortalDay(updatedSession.portalId, toSGTDateStr(updatedSession.createdAt)).catch((err) =>
-          logger.error({ err, sessionId: item.scrapeSessionId }, "[worker] Portal metrics snapshot failed")
-        );
+        snapshotPortalDayAsync(updatedSession.portalId, updatedSession.createdAt, "item-complete");
       }
 
       return { status: "COMPLETED", mismatchCount: comparison.mismatchCount };
@@ -306,9 +301,7 @@ async function processItemDetailCore(
           data: { itemsProcessed: { increment: 1 } },
         });
         if (updated.itemsProcessed === updated.itemsFound && updated.itemsFound > 0) {
-          snapshotPortalDay(updated.portalId, toSGTDateStr(updated.createdAt)).catch((err) =>
-            logger.error({ err, sessionId: errSession.id }, "[worker] Portal metrics snapshot failed")
-          );
+          snapshotPortalDayAsync(updated.portalId, updated.createdAt, "error-path");
         }
       }
     }

@@ -40,6 +40,13 @@ function parsePeriod(view: ViewMode, raw: string | null): {
   };
 }
 
+function toSGTInterval(dateRange: { gte: string; lte: string }) {
+  return {
+    start: new Date(`${dateRange.gte}T00:00:00+08:00`),
+    end: new Date(`${dateRange.lte}T23:59:59.999+08:00`),
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const session = await auth();
@@ -48,29 +55,24 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const view = (searchParams.get("view") ?? "day") as ViewMode;
     const { period, dateRange, isCurrentPeriod } = parsePeriod(view, searchParams.get("period"));
+    const userId = session.user.id;
 
-    // Current period always uses live query (most accurate)
     if (isCurrentPeriod) {
-      const start = new Date(`${dateRange.gte}T00:00:00+08:00`);
-      const end = new Date(`${dateRange.lte}T23:59:59.999+08:00`);
-      return NextResponse.json(await buildLiveSummary(session.user.id, start, end, period, view));
+      const { start, end } = toSGTInterval(dateRange);
+      return NextResponse.json(await buildLiveSummary(userId, start, end, period, view));
     }
 
-    // Past periods: try snapshot, fall back to live if metrics table is empty
     const where = view === "day"
-      ? { portal: { userId: session.user.id }, date: period }
-      : { portal: { userId: session.user.id }, date: dateRange };
+      ? { portal: { userId }, date: period }
+      : { portal: { userId }, date: dateRange };
 
-    const snapshot = await buildSnapshotSummary(session.user.id, where, period, view);
-
+    const snapshot = await buildSnapshotSummary(userId, where, period, view);
     if (snapshot.totals.items > 0) {
       return NextResponse.json(snapshot);
     }
 
-    // Snapshot empty — sessions may still exist (backfill not yet run)
-    const start = new Date(`${dateRange.gte}T00:00:00+08:00`);
-    const end = new Date(`${dateRange.lte}T23:59:59.999+08:00`);
-    return NextResponse.json(await buildLiveSummary(session.user.id, start, end, period, view));
+    const { start, end } = toSGTInterval(dateRange);
+    return NextResponse.json(await buildLiveSummary(userId, start, end, period, view));
   } catch (err) {
     return errorResponse(err);
   }

@@ -45,7 +45,6 @@ export default async function PortalsPage() {
       ])
     : [[], []];
 
-  // max(snapshot metrics, live session counts) — survives retention cleanup once backfill runs
   const portalItemCounts = new Map<string, number>();
   const metricsMap = new Map(metricsSum.map((r) => [r.portalId, r._sum.items ?? 0]));
   const liveMap = new Map(liveItemsSum.map((r) => [r.portalId, r._sum.itemsFound ?? 0]));

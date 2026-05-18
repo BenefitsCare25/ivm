@@ -2,6 +2,12 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { toSGTDateStr } from "@/lib/utils";
 
+export function snapshotPortalDayAsync(portalId: string, sessionCreatedAt: Date, logContext?: string): void {
+  snapshotPortalDay(portalId, toSGTDateStr(sessionCreatedAt)).catch((err) =>
+    logger.error({ err, portalId, context: logContext }, "[metrics] Portal daily snapshot failed")
+  );
+}
+
 export async function snapshotPortalDay(portalId: string, date: string): Promise<void> {
   const start = new Date(`${date}T00:00:00+08:00`);
   const end = new Date(`${date}T23:59:59.999+08:00`);

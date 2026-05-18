@@ -6,8 +6,7 @@ import {
   getItemDetailQueue,
   type ItemDetailJobData,
 } from "@/lib/queue/item-detail-queue";
-import { snapshotPortalDay } from "@/lib/portal-metrics";
-import { toSGTDateStr } from "@/lib/utils";
+import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
 
 export async function recoverStuckItems(): Promise<void> {
   const stuck = await db.trackedItem.findMany({
@@ -120,24 +119,20 @@ export async function handleFinalFailure(
       data: { status: "ERROR", errorMessage: err.message },
     });
 
-    // Only increment itemsProcessed if we actually transitioned the item (avoids double-count
-    // when the inner processItemDetailCore catch block already handled it)
-    if (result.count > 0) {
-      const session = await db.scrapeSession.findFirst({
-        where: { trackedItems: { some: { id: trackedItemId } } },
-        select: { id: true, portalId: true, createdAt: true, itemsFound: true },
-      });
-      if (session) {
-        const updated = await db.scrapeSession.update({
-          where: { id: session.id },
-          data: { itemsProcessed: { increment: 1 } },
-        });
-        if (updated.itemsProcessed === updated.itemsFound && updated.itemsFound > 0) {
-          snapshotPortalDay(session.portalId, toSGTDateStr(session.createdAt)).catch((snapErr) =>
-            logger.error({ err: snapErr, sessionId: session.id }, "[worker] Portal metrics snapshot failed")
-          );
-        }
-      }
+    if (result.count === 0) return;
+
+    const item = await db.trackedItem.findUnique({
+      where: { id: trackedItemId },
+      select: { scrapeSessionId: true },
+    });
+    if (!item) return;
+
+    const updated = await db.scrapeSession.update({
+      where: { id: item.scrapeSessionId },
+      data: { itemsProcessed: { increment: 1 } },
+    });
+    if (updated.itemsProcessed === updated.itemsFound && updated.itemsFound > 0) {
+      snapshotPortalDayAsync(updated.portalId, updated.createdAt, "final-failure");
     }
   } catch (dbErr) {
     logger.error({ dbErr, trackedItemId }, "[worker] Failed to update ERROR status on final failure");

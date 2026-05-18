@@ -3,8 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getItemDetailQueue } from "@/lib/queue/item-detail-queue";
 import { errorResponse, UnauthorizedError, NotFoundError } from "@/lib/errors";
-import { snapshotPortalDay } from "@/lib/portal-metrics";
-import { toSGTDateStr } from "@/lib/utils";
+import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
 
 export async function GET(
   _req: Request,
@@ -108,8 +107,7 @@ export async function POST(
       data: { status: "CANCELLED", completedAt: new Date() },
     });
 
-    // Preserve metrics before retention cleanup deletes session data
-    snapshotPortalDay(id, toSGTDateStr(scrapeSession.createdAt)).catch(() => {});
+    snapshotPortalDayAsync(id, scrapeSession.createdAt, "cancel");
 
     return NextResponse.json({ stopped: true, removed: pendingItems.length });
   } catch (err) {

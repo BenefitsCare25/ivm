@@ -7,9 +7,9 @@ import { compareFields } from "@/lib/ai/comparison";
 import { getFullComparisonSystemPrompt, buildFullComparisonUserPrompt } from "@/lib/ai/prompt-builder";
 import { filterFieldsByTemplate, itemMatchesGroupingKey, filterComparisonsByTemplate } from "@/lib/comparison-templates";
 import { annotateSourceFiles } from "@/workers/item-detail-comparison";
-import { toInputJson, toSGTDateStr } from "@/lib/utils";
+import { toInputJson } from "@/lib/utils";
 import { logger } from "@/lib/logger";
-import { snapshotPortalDay } from "@/lib/portal-metrics";
+import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
 import type { TemplateField, RequiredDocument, BusinessRule, BusinessRuleResult, RequiredDocumentCheck } from "@/types/portal";
 
 export async function POST(
@@ -238,7 +238,7 @@ export async function POST(
     }
 
     if (recompared > 0) {
-      snapshotPortalDay(id, toSGTDateStr(scrapeSession.createdAt)).catch(() => {});
+      snapshotPortalDayAsync(id, scrapeSession.createdAt, "recompare");
     }
 
     return NextResponse.json({ recompared, total: matchingItems.length });
