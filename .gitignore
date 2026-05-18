@@ -14,5 +14,5 @@ portal-files/
 portal-events/
 *.tar.gz
 *.pem
-.claude/worktrees/
+.claude/
 CLAUDE.md
