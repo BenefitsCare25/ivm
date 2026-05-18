@@ -16,7 +16,8 @@ import {
 import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-queue";
 import { runCrossItemChecks } from "@/lib/validations/cross-item";
 import { runFullCleanup } from "@/lib/storage/cleanup";
-import { snapshotPortalDay, toSGTDateStr } from "@/lib/portal-metrics";
+import { snapshotPortalDay } from "@/lib/portal-metrics";
+import { toSGTDateStr } from "@/lib/utils";
 import { toInputJson } from "@/lib/utils";
 import { runExtraction } from "./item-detail-extraction";
 import { runIntelligencePipeline } from "./item-detail-extraction";

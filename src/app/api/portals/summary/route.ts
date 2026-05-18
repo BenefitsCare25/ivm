@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { errorResponse, UnauthorizedError } from "@/lib/errors";
-import { toSGTDateStr } from "@/lib/portal-metrics";
+import { toSGTDateStr } from "@/lib/utils";
 
 function sgtDayRange(dateParam: string | null): { start: Date; end: Date; dateStr: string } {
   if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {

@@ -44,3 +44,8 @@ export function generateId(): string {
 export function toggleArrayItem<T>(arr: T[], item: T): T[] {
   return arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
 }
+
+export function toSGTDateStr(utcDate: Date): string {
+  const sgt = new Date(utcDate.getTime() + 8 * 60 * 60 * 1000);
+  return sgt.toISOString().split("T")[0];
+}

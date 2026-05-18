@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { ChevronLeft, ChevronRight, Activity, Flag, FileDown, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { toSGTDateStr } from "@/lib/portal-metrics";
+import { toSGTDateStr } from "@/lib/utils";
 
 interface SummaryTotals {
   sessions: number;

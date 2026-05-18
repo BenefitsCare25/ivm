@@ -1,10 +1,6 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
-
-export function toSGTDateStr(utcDate: Date): string {
-  const sgt = new Date(utcDate.getTime() + 8 * 60 * 60 * 1000);
-  return sgt.toISOString().split("T")[0];
-}
+import { toSGTDateStr } from "@/lib/utils";
 
 export async function snapshotPortalDay(portalId: string, date: string): Promise<void> {
   const start = new Date(`${date}T00:00:00+08:00`);
