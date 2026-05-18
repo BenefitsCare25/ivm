@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PortalList } from "@/components/portals/portal-list";
+import { PortalDashboard } from "@/components/portals/portal-dashboard";
 import type { PortalSummary } from "@/types/portal";
 
 export default async function PortalsPage() {
@@ -27,26 +28,43 @@ export default async function PortalsPage() {
     },
   });
 
-  // Count total tracked items per portal via a separate query
   const portalIds = portals.map((p) => p.id);
-  const itemCounts = portalIds.length > 0
-    ? await db.trackedItem.groupBy({
-        by: ["scrapeSessionId"],
-        where: {
-          scrapeSession: { portalId: { in: portalIds } },
-        },
-        _count: { id: true },
+
+  // Persistent metrics sum (survives session retention cleanup)
+  const [metricsSum, liveInProgress] = portalIds.length > 0
+    ? await Promise.all([
+        db.portalDailyMetrics.groupBy({
+          by: ["portalId"],
+          where: { portalId: { in: portalIds } },
+          _sum: { items: true },
+        }),
+        // Add items from sessions not yet snapshotted (still in-progress today)
+        db.trackedItem.groupBy({
+          by: ["scrapeSessionId"],
+          where: {
+            scrapeSession: { portalId: { in: portalIds } },
+            status: { in: ["DISCOVERED", "PROCESSING"] },
+          },
+          _count: { id: true },
+        }),
+      ])
+    : [[], []];
+
+  // Map in-progress session IDs → portalId
+  const activeSessionIds = liveInProgress.map((g) => g.scrapeSessionId);
+  const activeSessions = activeSessionIds.length > 0
+    ? await db.scrapeSession.findMany({
+        where: { id: { in: activeSessionIds } },
+        select: { id: true, portalId: true },
       })
     : [];
+  const sessionToPortal = new Map(activeSessions.map((s) => [s.id, s.portalId]));
 
-  // Build item count per portal
-  const sessionsWithPortalId = await db.scrapeSession.findMany({
-    where: { portalId: { in: portalIds } },
-    select: { id: true, portalId: true },
-  });
-  const sessionToPortal = new Map(sessionsWithPortalId.map((s) => [s.id, s.portalId]));
   const portalItemCounts = new Map<string, number>();
-  for (const group of itemCounts) {
+  for (const row of metricsSum) {
+    portalItemCounts.set(row.portalId, row._sum.items ?? 0);
+  }
+  for (const group of liveInProgress) {
     const portalId = sessionToPortal.get(group.scrapeSessionId);
     if (portalId) {
       portalItemCounts.set(portalId, (portalItemCounts.get(portalId) ?? 0) + group._count.id);
@@ -85,6 +103,8 @@ export default async function PortalsPage() {
           </Link>
         </Button>
       </div>
+
+      <PortalDashboard />
 
       {enriched.length === 0 ? (
         <EmptyState

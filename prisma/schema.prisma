@@ -349,9 +349,32 @@ model Portal {
   comparisonTemplates ComparisonTemplate[]
   comparisonConfigs   ComparisonConfig[]
   providerGroups      ProviderGroup[]
+  dailyMetrics        PortalDailyMetrics[]
 
   @@index([userId])
   @@map("portals")
+}
+
+model PortalDailyMetrics {
+  id         String   @id @default(cuid())
+  portalId   String
+  date       String   // YYYY-MM-DD in SGT
+  sessions   Int      @default(0)
+  items      Int      @default(0)
+  compared   Int      @default(0)
+  flagged    Int      @default(0)
+  errors     Int      @default(0)
+  skipped    Int      @default(0)
+  verified   Int      @default(0)
+  requireDoc Int      @default(0)
+  files      Int      @default(0)
+  updatedAt  DateTime @updatedAt
+
+  portal     Portal   @relation(fields: [portalId], references: [id], onDelete: Cascade)
+
+  @@unique([portalId, date])
+  @@index([date])
+  @@map("portal_daily_metrics")
 }
 
 model PortalCredential {

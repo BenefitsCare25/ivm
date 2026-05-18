@@ -16,6 +16,7 @@ import {
 import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-queue";
 import { runCrossItemChecks } from "@/lib/validations/cross-item";
 import { runFullCleanup } from "@/lib/storage/cleanup";
+import { snapshotPortalDay, toSGTDateStr } from "@/lib/portal-metrics";
 import { toInputJson } from "@/lib/utils";
 import { runExtraction } from "./item-detail-extraction";
 import { runIntelligencePipeline } from "./item-detail-extraction";
@@ -146,6 +147,9 @@ async function processItemDetailCore(
             runCrossItemChecks(item.scrapeSessionId).catch((err) =>
               logger.error({ err, sessionId: item.scrapeSessionId }, "[worker] Cross-item checks failed")
             );
+            snapshotPortalDay(updatedSession.portalId, toSGTDateStr(updatedSession.createdAt)).catch((err) =>
+              logger.error({ err, sessionId: item.scrapeSessionId }, "[worker] Portal metrics snapshot failed")
+            );
           }
           return { status: "COMPLETED", mismatchCount: 0 };
         }
@@ -260,6 +264,9 @@ async function processItemDetailCore(
         runCrossItemChecks(item.scrapeSessionId).catch((err) =>
           logger.error({ err, sessionId: item.scrapeSessionId }, "[worker] Cross-item checks failed")
         );
+        snapshotPortalDay(updatedSession.portalId, toSGTDateStr(updatedSession.createdAt)).catch((err) =>
+          logger.error({ err, sessionId: item.scrapeSessionId }, "[worker] Portal metrics snapshot failed")
+        );
       }
 
       return { status: "COMPLETED", mismatchCount: comparison.mismatchCount };
@@ -288,10 +295,21 @@ async function processItemDetailCore(
 
     const isFinalAttempt = job.attemptsMade >= (job.opts.attempts ?? 1);
     if (!successIncremented && isFinalAttempt) {
-      await db.scrapeSession.updateMany({
+      const errSession = await db.scrapeSession.findFirst({
         where: { trackedItems: { some: { id: trackedItemId } } },
-        data: { itemsProcessed: { increment: 1 } },
+        select: { id: true },
       });
+      if (errSession) {
+        const updated = await db.scrapeSession.update({
+          where: { id: errSession.id },
+          data: { itemsProcessed: { increment: 1 } },
+        });
+        if (updated.itemsProcessed === updated.itemsFound && updated.itemsFound > 0) {
+          snapshotPortalDay(updated.portalId, toSGTDateStr(updated.createdAt)).catch((err) =>
+            logger.error({ err, sessionId: errSession.id }, "[worker] Portal metrics snapshot failed")
+          );
+        }
+      }
     }
 
     return { status: "FAILED", mismatchCount: 0, errorMessage };
