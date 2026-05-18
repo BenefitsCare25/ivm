@@ -132,6 +132,8 @@ async function buildLiveSummary(userId: string, start: Date, end: Date, period: 
       skipped:    p.statusCounts["SKIPPED"]      ?? 0,
       verified:   p.statusCounts["VERIFIED"]     ?? 0,
       requireDoc: p.statusCounts["REQUIRE_DOC"]  ?? 0,
+      processing: p.statusCounts["PROCESSING"]   ?? 0,
+      discovered: p.statusCounts["DISCOVERED"]   ?? 0,
     })).sort((a, b) => b.items - a.items),
   };
 }

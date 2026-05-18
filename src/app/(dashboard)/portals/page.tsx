@@ -30,7 +30,7 @@ export default async function PortalsPage() {
 
   const portalIds = portals.map((p) => p.id);
 
-  const [metricsSum, liveItemsSum, sessionsWithProgress] = portalIds.length > 0
+  const [metricsSum, liveItemsSum] = portalIds.length > 0
     ? await Promise.all([
         db.portalDailyMetrics.groupBy({
           by: ["portalId"],
@@ -42,32 +42,15 @@ export default async function PortalsPage() {
           where: { portalId: { in: portalIds } },
           _sum: { itemsFound: true },
         }),
-        db.scrapeSession.findMany({
-          where: {
-            portalId: { in: portalIds },
-            trackedItems: { some: { status: { in: ["DISCOVERED", "PROCESSING"] } } },
-          },
-          select: {
-            portalId: true,
-            _count: {
-              select: {
-                trackedItems: { where: { status: { in: ["DISCOVERED", "PROCESSING"] } } },
-              },
-            },
-          },
-        }),
       ])
-    : [[], [], []];
+    : [[], []];
 
+  // max(snapshot metrics, live session counts) — survives retention cleanup once backfill runs
   const portalItemCounts = new Map<string, number>();
   const metricsMap = new Map(metricsSum.map((r) => [r.portalId, r._sum.items ?? 0]));
   const liveMap = new Map(liveItemsSum.map((r) => [r.portalId, r._sum.itemsFound ?? 0]));
   for (const pid of portalIds) {
     portalItemCounts.set(pid, Math.max(metricsMap.get(pid) ?? 0, liveMap.get(pid) ?? 0));
-  }
-  for (const s of sessionsWithProgress) {
-    const n = s._count.trackedItems;
-    if (n > 0) portalItemCounts.set(s.portalId, (portalItemCounts.get(s.portalId) ?? 0) + n);
   }
 
   const enriched: PortalSummary[] = portals.map((p) => {

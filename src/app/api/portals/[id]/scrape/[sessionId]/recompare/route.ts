@@ -7,8 +7,9 @@ import { compareFields } from "@/lib/ai/comparison";
 import { getFullComparisonSystemPrompt, buildFullComparisonUserPrompt } from "@/lib/ai/prompt-builder";
 import { filterFieldsByTemplate, itemMatchesGroupingKey, filterComparisonsByTemplate } from "@/lib/comparison-templates";
 import { annotateSourceFiles } from "@/workers/item-detail-comparison";
-import { toInputJson } from "@/lib/utils";
+import { toInputJson, toSGTDateStr } from "@/lib/utils";
 import { logger } from "@/lib/logger";
+import { snapshotPortalDay } from "@/lib/portal-metrics";
 import type { TemplateField, RequiredDocument, BusinessRule, BusinessRuleResult, RequiredDocumentCheck } from "@/types/portal";
 
 export async function POST(
@@ -27,7 +28,7 @@ export async function POST(
 
     const scrapeSession = await db.scrapeSession.findFirst({
       where: { id: sessionId, portalId: id },
-      select: { id: true },
+      select: { id: true, createdAt: true },
     });
     if (!scrapeSession) throw new NotFoundError("Session");
 
@@ -234,6 +235,10 @@ export async function POST(
         .forEach((r, idx) => {
           logger.warn({ err: r.reason, itemId: batch[idx].id }, "[recompare] Failed to recompare item");
         });
+    }
+
+    if (recompared > 0) {
+      snapshotPortalDay(id, toSGTDateStr(scrapeSession.createdAt)).catch(() => {});
     }
 
     return NextResponse.json({ recompared, total: matchingItems.length });

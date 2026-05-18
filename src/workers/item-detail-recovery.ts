@@ -6,6 +6,8 @@ import {
   getItemDetailQueue,
   type ItemDetailJobData,
 } from "@/lib/queue/item-detail-queue";
+import { snapshotPortalDay } from "@/lib/portal-metrics";
+import { toSGTDateStr } from "@/lib/utils";
 
 export async function recoverStuckItems(): Promise<void> {
   const stuck = await db.trackedItem.findMany({
@@ -111,12 +113,33 @@ export async function handleFinalFailure(
   job: Job<ItemDetailJobData>,
   err: Error
 ): Promise<void> {
+  const { trackedItemId } = job.data;
   try {
-    await db.trackedItem.updateMany({
-      where: { id: job.data.trackedItemId, status: "PROCESSING" },
+    const result = await db.trackedItem.updateMany({
+      where: { id: trackedItemId, status: "PROCESSING" },
       data: { status: "ERROR", errorMessage: err.message },
     });
+
+    // Only increment itemsProcessed if we actually transitioned the item (avoids double-count
+    // when the inner processItemDetailCore catch block already handled it)
+    if (result.count > 0) {
+      const session = await db.scrapeSession.findFirst({
+        where: { trackedItems: { some: { id: trackedItemId } } },
+        select: { id: true, portalId: true, createdAt: true, itemsFound: true },
+      });
+      if (session) {
+        const updated = await db.scrapeSession.update({
+          where: { id: session.id },
+          data: { itemsProcessed: { increment: 1 } },
+        });
+        if (updated.itemsProcessed === updated.itemsFound && updated.itemsFound > 0) {
+          snapshotPortalDay(session.portalId, toSGTDateStr(session.createdAt)).catch((snapErr) =>
+            logger.error({ err: snapErr, sessionId: session.id }, "[worker] Portal metrics snapshot failed")
+          );
+        }
+      }
+    }
   } catch (dbErr) {
-    logger.error({ dbErr, trackedItemId: job.data.trackedItemId }, "[worker] Failed to update ERROR status on final failure");
+    logger.error({ dbErr, trackedItemId }, "[worker] Failed to update ERROR status on final failure");
   }
 }

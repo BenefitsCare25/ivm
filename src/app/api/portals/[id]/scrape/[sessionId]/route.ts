@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getItemDetailQueue } from "@/lib/queue/item-detail-queue";
 import { errorResponse, UnauthorizedError, NotFoundError } from "@/lib/errors";
+import { snapshotPortalDay } from "@/lib/portal-metrics";
+import { toSGTDateStr } from "@/lib/utils";
 
 export async function GET(
   _req: Request,
@@ -77,7 +79,7 @@ export async function POST(
 
     const scrapeSession = await db.scrapeSession.findFirst({
       where: { id: sessionId, portalId: id },
-      select: { id: true },
+      select: { id: true, createdAt: true },
     });
     if (!scrapeSession) throw new NotFoundError("Session");
 
@@ -105,6 +107,9 @@ export async function POST(
       where: { id: sessionId },
       data: { status: "CANCELLED", completedAt: new Date() },
     });
+
+    // Preserve metrics before retention cleanup deletes session data
+    snapshotPortalDay(id, toSGTDateStr(scrapeSession.createdAt)).catch(() => {});
 
     return NextResponse.json({ stopped: true, removed: pendingItems.length });
   } catch (err) {

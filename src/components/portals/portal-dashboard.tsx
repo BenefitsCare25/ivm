@@ -29,6 +29,8 @@ interface PortalRow {
   skipped: number;
   verified: number;
   requireDoc: number;
+  processing?: number;
+  discovered?: number;
 }
 
 interface SummaryData {
@@ -153,6 +155,7 @@ export function PortalDashboard() {
   };
 
   const load = useCallback(async (v: ViewMode, p: string) => {
+    setData(null);
     setLoading(true);
     try {
       const res = await fetch(`/api/portals/summary?view=${v}&period=${p}`);
@@ -202,6 +205,8 @@ export function PortalDashboard() {
       add("SKIPPED", p.skipped);
       add("VERIFIED", p.verified);
       add("REQUIRE_DOC", p.requireDoc);
+      add("PROCESSING", p.processing ?? 0);
+      add("DISCOVERED", p.discovered ?? 0);
     }
     return breakdown;
   }, [data, portalFilter, displayPortals]);
