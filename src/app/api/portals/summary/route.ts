@@ -8,7 +8,7 @@ type ViewMode = "day" | "month" | "year";
 
 function parsePeriod(view: ViewMode, raw: string | null): {
   period: string;
-  dateRange: { gte: string; lte: string } | null; // null = single-day live query
+  dateRange: { gte: string; lte: string };
   isCurrentPeriod: boolean;
 } {
   const today = toSGTDateStr(new Date());
@@ -17,7 +17,7 @@ function parsePeriod(view: ViewMode, raw: string | null): {
 
   if (view === "day") {
     const period = raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : today;
-    return { period, dateRange: null, isCurrentPeriod: period === today };
+    return { period, dateRange: { gte: period, lte: period }, isCurrentPeriod: period === today };
   }
 
   if (view === "month") {
@@ -49,25 +49,34 @@ export async function GET(request: Request) {
     const view = (searchParams.get("view") ?? "day") as ViewMode;
     const { period, dateRange, isCurrentPeriod } = parsePeriod(view, searchParams.get("period"));
 
-    // Day view: live query for today, snapshot for past
-    if (view === "day" && isCurrentPeriod) {
-      const start = new Date(`${period}T00:00:00+08:00`);
-      const end = new Date(`${period}T23:59:59.999+08:00`);
-      return NextResponse.json(await buildLiveSummary(session.user.id, start, end, period));
+    // Current period always uses live query (most accurate)
+    if (isCurrentPeriod) {
+      const start = new Date(`${dateRange.gte}T00:00:00+08:00`);
+      const end = new Date(`${dateRange.lte}T23:59:59.999+08:00`);
+      return NextResponse.json(await buildLiveSummary(session.user.id, start, end, period, view));
     }
 
-    // Month/year and past days: snapshot query over date range
-    const where = dateRange
-      ? { portal: { userId: session.user.id }, date: dateRange }
-      : { portal: { userId: session.user.id }, date: period };
+    // Past periods: try snapshot, fall back to live if metrics table is empty
+    const where = view === "day"
+      ? { portal: { userId: session.user.id }, date: period }
+      : { portal: { userId: session.user.id }, date: dateRange };
 
-    return NextResponse.json(await buildSnapshotSummary(session.user.id, where, period, view));
+    const snapshot = await buildSnapshotSummary(session.user.id, where, period, view);
+
+    if (snapshot.totals.items > 0) {
+      return NextResponse.json(snapshot);
+    }
+
+    // Snapshot empty — sessions may still exist (backfill not yet run)
+    const start = new Date(`${dateRange.gte}T00:00:00+08:00`);
+    const end = new Date(`${dateRange.lte}T23:59:59.999+08:00`);
+    return NextResponse.json(await buildLiveSummary(session.user.id, start, end, period, view));
   } catch (err) {
     return errorResponse(err);
   }
 }
 
-async function buildLiveSummary(userId: string, start: Date, end: Date, period: string) {
+async function buildLiveSummary(userId: string, start: Date, end: Date, period: string, view: ViewMode) {
   const sessions = await db.scrapeSession.findMany({
     where: { portal: { userId }, createdAt: { gte: start, lte: end } },
     select: {
@@ -104,7 +113,7 @@ async function buildLiveSummary(userId: string, start: Date, end: Date, period: 
 
   return {
     period,
-    view: "day",
+    view,
     source: "live",
     totals: {
       sessions: sessions.length,
@@ -140,7 +149,6 @@ async function buildSnapshotSummary(
     include: { portal: { select: { id: true, name: true, baseUrl: true } } },
   });
 
-  // Aggregate by portal (needed for month/year views that span multiple rows per portal)
   const portalMap = new Map<string, {
     name: string; baseUrl: string;
     sessions: number; items: number; files: number;

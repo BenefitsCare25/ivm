@@ -30,14 +30,18 @@ export default async function PortalsPage() {
 
   const portalIds = portals.map((p) => p.id);
 
-  const [metricsSum, sessionsWithProgress] = portalIds.length > 0
+  const [metricsSum, liveItemsSum, sessionsWithProgress] = portalIds.length > 0
     ? await Promise.all([
         db.portalDailyMetrics.groupBy({
           by: ["portalId"],
           where: { portalId: { in: portalIds } },
           _sum: { items: true },
         }),
-        // Items not yet snapshotted (still in-progress) — scoped to sessions with active items
+        db.scrapeSession.groupBy({
+          by: ["portalId"],
+          where: { portalId: { in: portalIds } },
+          _sum: { itemsFound: true },
+        }),
         db.scrapeSession.findMany({
           where: {
             portalId: { in: portalIds },
@@ -53,11 +57,13 @@ export default async function PortalsPage() {
           },
         }),
       ])
-    : [[], []];
+    : [[], [], []];
 
   const portalItemCounts = new Map<string, number>();
-  for (const row of metricsSum) {
-    portalItemCounts.set(row.portalId, row._sum.items ?? 0);
+  const metricsMap = new Map(metricsSum.map((r) => [r.portalId, r._sum.items ?? 0]));
+  const liveMap = new Map(liveItemsSum.map((r) => [r.portalId, r._sum.itemsFound ?? 0]));
+  for (const pid of portalIds) {
+    portalItemCounts.set(pid, Math.max(metricsMap.get(pid) ?? 0, liveMap.get(pid) ?? 0));
   }
   for (const s of sessionsWithProgress) {
     const n = s._count.trackedItems;
