@@ -54,7 +54,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; barColor: st
   DISCOVERED:  { label: "Discovered", color: "text-muted-foreground", barColor: "bg-muted/50" },
 };
 
-const STATUS_ORDER = ["COMPARED", "VERIFIED", "FLAGGED", "REQUIRE_DOC", "ERROR", "SKIPPED"];
+const STATUS_ORDER = ["COMPARED", "VERIFIED", "FLAGGED", "ERROR", "SKIPPED"];
 
 function currentPeriod(view: ViewMode): string {
   const today = toSGTDateStr(new Date());
@@ -201,7 +201,7 @@ export function PortalDashboard() {
   const filteredBreakdown = useMemo((): Record<string, number> => {
     if (!data) return {};
     if (portalFilter === "all") {
-      const { DISCOVERED: _d, PROCESSING: _p, ...rest } = data.statusBreakdown;
+      const { DISCOVERED: _d, PROCESSING: _p, REQUIRE_DOC: _r, ...rest } = data.statusBreakdown;
       return rest;
     }
     const breakdown: Record<string, number> = {};
@@ -212,7 +212,6 @@ export function PortalDashboard() {
       add("ERROR", p.errors);
       add("SKIPPED", p.skipped);
       add("VERIFIED", p.verified);
-      add("REQUIRE_DOC", p.requireDoc);
     }
     return breakdown;
   }, [data, portalFilter, displayPortals]);
