@@ -73,6 +73,9 @@ MSYS_NO_PATHCONV=1 ssh -i "$KEY" "$REMOTE" "
 
   tar xzf /tmp/ivm-deploy.tar.gz
 
+  # Fix Windows CRLF line endings in shell scripts (tar from Windows preserves them)
+  sed -i 's/\r$//' /var/www/ivm/scripts/*.sh
+
   # Always symlink .env to persistent config — survives every deploy
   ln -sf /etc/ivm/.env /var/www/ivm/.env
 
