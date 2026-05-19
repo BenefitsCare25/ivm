@@ -93,7 +93,7 @@ async function buildLiveSummary(userId: string, start: Date, end: Date, period: 
     portalId: string; name: string; baseUrl: string;
     sessions: number; items: number; files: number; statusCounts: Record<string, number>;
   }>();
-  const NOT_PROCESSED = new Set(["DISCOVERED", "PROCESSING"]);
+  const NOT_PROCESSED = new Set(["DISCOVERED", "PROCESSING", "REQUIRE_DOC"]);
   let totalItems = 0, totalProcessed = 0, totalFiles = 0;
 
   for (const s of sessions) {
@@ -203,7 +203,7 @@ async function buildSnapshotSummary(
     totals: {
       sessions: sum((p) => p.sessions),
       items:    sum((p) => p.items),
-      processed: sum((p) => p.items),
+      processed: sum((p) => p.compared + p.verified + p.flagged + p.errors + p.skipped),
       flagged:  sum((p) => p.flagged),
       errors:   sum((p) => p.errors),
       files:    sum((p) => p.files),

@@ -54,7 +54,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; barColor: st
   DISCOVERED:  { label: "Discovered", color: "text-muted-foreground", barColor: "bg-muted/50" },
 };
 
-const STATUS_ORDER = ["COMPARED", "VERIFIED", "FLAGGED", "REQUIRE_DOC", "ERROR", "SKIPPED", "PROCESSING", "DISCOVERED"];
+const STATUS_ORDER = ["COMPARED", "VERIFIED", "FLAGGED", "REQUIRE_DOC", "ERROR", "SKIPPED"];
 
 function currentPeriod(view: ViewMode): string {
   const today = toSGTDateStr(new Date());
@@ -184,7 +184,7 @@ export function PortalDashboard() {
     if (portalFilter === "all") return data.totals;
     return displayPortals.reduce(
       (acc, p) => {
-        const processed = p.compared + p.verified + p.flagged + p.errors + p.skipped + p.requireDoc;
+        const processed = p.compared + p.verified + p.flagged + p.errors + p.skipped;
         return {
           sessions: acc.sessions + p.sessions,
           items: acc.items + p.items,
@@ -200,7 +200,10 @@ export function PortalDashboard() {
 
   const filteredBreakdown = useMemo((): Record<string, number> => {
     if (!data) return {};
-    if (portalFilter === "all") return data.statusBreakdown;
+    if (portalFilter === "all") {
+      const { DISCOVERED: _d, PROCESSING: _p, ...rest } = data.statusBreakdown;
+      return rest;
+    }
     const breakdown: Record<string, number> = {};
     const add = (key: string, val: number) => { if (val > 0) breakdown[key] = (breakdown[key] ?? 0) + val; };
     for (const p of displayPortals) {
@@ -210,8 +213,6 @@ export function PortalDashboard() {
       add("SKIPPED", p.skipped);
       add("VERIFIED", p.verified);
       add("REQUIRE_DOC", p.requireDoc);
-      add("PROCESSING", p.processing ?? 0);
-      add("DISCOVERED", p.discovered ?? 0);
     }
     return breakdown;
   }, [data, portalFilter, displayPortals]);
@@ -341,7 +342,7 @@ export function PortalDashboard() {
                             </div>
                           </td>
                           <td className="text-right px-3 py-3 text-muted-foreground">{row.sessions}</td>
-                          <td className="text-right px-3 py-3 font-medium text-foreground">{row.compared + row.verified + row.flagged + row.errors + row.skipped + row.requireDoc}</td>
+                          <td className="text-right px-3 py-3 font-medium text-foreground">{row.compared + row.verified + row.flagged + row.errors + row.skipped}</td>
                           <td className="text-right px-3 py-3 text-emerald-400">{row.compared + row.verified}</td>
                           <td className="text-right px-3 py-3">
                             {row.flagged > 0
@@ -349,7 +350,7 @@ export function PortalDashboard() {
                               : <span className="text-muted-foreground">0</span>}
                           </td>
                           <td className="text-right px-3 py-3">
-                            <FlagRate flagged={row.flagged} items={row.compared + row.verified + row.flagged + row.errors + row.skipped + row.requireDoc} />
+                            <FlagRate flagged={row.flagged} items={row.compared + row.verified + row.flagged + row.errors + row.skipped} />
                           </td>
                           <td className="text-right px-3 py-3">
                             {row.errors > 0
