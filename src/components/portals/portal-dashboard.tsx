@@ -11,6 +11,7 @@ type ViewMode = "day" | "month" | "year";
 interface SummaryTotals {
   sessions: number;
   items: number;
+  processed: number;
   flagged: number;
   errors: number;
   files: number;
@@ -179,17 +180,21 @@ export function PortalDashboard() {
   }, [data, portalFilter]);
 
   const filteredTotals = useMemo((): SummaryTotals => {
-    if (!data) return { sessions: 0, items: 0, flagged: 0, errors: 0, files: 0 };
+    if (!data) return { sessions: 0, items: 0, processed: 0, flagged: 0, errors: 0, files: 0 };
     if (portalFilter === "all") return data.totals;
     return displayPortals.reduce(
-      (acc, p) => ({
-        sessions: acc.sessions + p.sessions,
-        items: acc.items + p.items,
-        flagged: acc.flagged + p.flagged,
-        errors: acc.errors + p.errors,
-        files: acc.files + p.files,
-      }),
-      { sessions: 0, items: 0, flagged: 0, errors: 0, files: 0 }
+      (acc, p) => {
+        const processed = p.compared + p.verified + p.flagged + p.errors + p.skipped + p.requireDoc;
+        return {
+          sessions: acc.sessions + p.sessions,
+          items: acc.items + p.items,
+          processed: acc.processed + processed,
+          flagged: acc.flagged + p.flagged,
+          errors: acc.errors + p.errors,
+          files: acc.files + p.files,
+        };
+      },
+      { sessions: 0, items: 0, processed: 0, flagged: 0, errors: 0, files: 0 }
     );
   }, [data, portalFilter, displayPortals]);
 
@@ -213,7 +218,7 @@ export function PortalDashboard() {
 
   const statCards = [
     { label: "Scrape Sessions", value: filteredTotals.sessions, icon: Activity, iconClass: "text-sky-400" },
-    { label: "Items Processed", value: filteredTotals.items,    icon: Activity, iconClass: "text-emerald-400" },
+    { label: "Items Processed", value: filteredTotals.processed, icon: Activity, iconClass: "text-emerald-400" },
     { label: "Items Flagged",   value: filteredTotals.flagged,  icon: Flag,     iconClass: "text-amber-400" },
     { label: "Files Downloaded",value: filteredTotals.files,    icon: FileDown, iconClass: "text-purple-400" },
   ];
@@ -336,7 +341,7 @@ export function PortalDashboard() {
                             </div>
                           </td>
                           <td className="text-right px-3 py-3 text-muted-foreground">{row.sessions}</td>
-                          <td className="text-right px-3 py-3 font-medium text-foreground">{row.items}</td>
+                          <td className="text-right px-3 py-3 font-medium text-foreground">{row.compared + row.verified + row.flagged + row.errors + row.skipped + row.requireDoc}</td>
                           <td className="text-right px-3 py-3 text-emerald-400">{row.compared + row.verified}</td>
                           <td className="text-right px-3 py-3">
                             {row.flagged > 0
@@ -344,7 +349,7 @@ export function PortalDashboard() {
                               : <span className="text-muted-foreground">0</span>}
                           </td>
                           <td className="text-right px-3 py-3">
-                            <FlagRate flagged={row.flagged} items={row.items} />
+                            <FlagRate flagged={row.flagged} items={row.compared + row.verified + row.flagged + row.errors + row.skipped + row.requireDoc} />
                           </td>
                           <td className="text-right px-3 py-3">
                             {row.errors > 0

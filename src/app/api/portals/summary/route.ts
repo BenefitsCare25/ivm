@@ -93,7 +93,8 @@ async function buildLiveSummary(userId: string, start: Date, end: Date, period: 
     portalId: string; name: string; baseUrl: string;
     sessions: number; items: number; files: number; statusCounts: Record<string, number>;
   }>();
-  let totalItems = 0, totalFiles = 0;
+  const NOT_PROCESSED = new Set(["DISCOVERED", "PROCESSING"]);
+  let totalItems = 0, totalProcessed = 0, totalFiles = 0;
 
   for (const s of sessions) {
     const pid = s.portal.id;
@@ -105,6 +106,7 @@ async function buildLiveSummary(userId: string, start: Date, end: Date, period: 
     for (const item of s.trackedItems) {
       totalItems++;
       p.items++;
+      if (!NOT_PROCESSED.has(item.status)) totalProcessed++;
       const fc = item._count.files;
       totalFiles += fc;
       p.files += fc;
@@ -120,6 +122,7 @@ async function buildLiveSummary(userId: string, start: Date, end: Date, period: 
     totals: {
       sessions: sessions.length,
       items: totalItems,
+      processed: totalProcessed,
       flagged: statusBreakdown["FLAGGED"] ?? 0,
       errors: statusBreakdown["ERROR"] ?? 0,
       files: totalFiles,
@@ -200,6 +203,7 @@ async function buildSnapshotSummary(
     totals: {
       sessions: sum((p) => p.sessions),
       items:    sum((p) => p.items),
+      processed: sum((p) => p.items),
       flagged:  sum((p) => p.flagged),
       errors:   sum((p) => p.errors),
       files:    sum((p) => p.files),
