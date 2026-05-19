@@ -12,6 +12,10 @@ export const DEFAULT_SCRAPE_FILTERS: ScrapeFilters = {
   excludeByClaimType: [],
 };
 
+// ─── Auth Status ────────────────────────────────────────────────
+
+export type AuthStatus = "ok" | "warn" | "expired" | "missing";
+
 // ─── Enums (mirror Prisma enums for client use) ─────────────────
 
 export const PORTAL_AUTH_METHODS = ["COOKIES", "CREDENTIALS"] as const;

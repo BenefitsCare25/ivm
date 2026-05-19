@@ -5,6 +5,7 @@ import { enqueuePortalScrape } from "@/lib/queue/portal-scrape-queue";
 import { errorResponse, UnauthorizedError, NotFoundError, AppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { startScrapeSchema } from "@/lib/validations/portal";
+import { assertAuthValid } from "@/lib/portal-auth";
 
 export async function POST(
   req: Request,
@@ -18,8 +19,13 @@ export async function POST(
 
     const portal = await db.portal.findFirst({
       where: { id, userId: session.user.id },
+      select: { id: true, credential: {
+        select: { cookieData: true, cookieExpiresAt: true, encryptedUsername: true, encryptedPassword: true },
+      }},
     });
     if (!portal) throw new NotFoundError("Portal");
+
+    assertAuthValid(portal.credential);
 
     const body = startScrapeSchema.parse(await req.json().catch(() => ({})));
     const acceptableDocumentTypeIds = body.acceptableDocumentTypeIds ?? [];

@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormError } from "@/components/ui/form-error";
 import { formatDate } from "@/lib/utils";
-import type { ScrapeSessionStatus, DiscoveredClaimType, ScrapeFilters } from "@/types/portal";
+import type { ScrapeSessionStatus, DiscoveredClaimType, ScrapeFilters, AuthStatus } from "@/types/portal";
 import { FieldDiscovery } from "./field-discovery";
 import { ScraperFiltersCard } from "./scraper-filters-card";
 import { ProviderGroupsCard } from "./provider-groups-card";
@@ -68,8 +68,6 @@ interface PortalData {
   }>;
   sessions: SessionData[];
 }
-
-type AuthStatus = "ok" | "warn" | "expired" | "missing";
 
 export function PortalDetailView({ portal }: { portal: PortalData }) {
   const router = useRouter();
@@ -218,7 +216,11 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
         </div>
         <div className="flex items-center gap-2">
           {shouldRefresh && <AutoRefresh />}
-          <Button onClick={() => setScrapeModalOpen(true)} disabled={scraping}>
+          <Button
+            onClick={() => setScrapeModalOpen(true)}
+            disabled={scraping || authBad}
+            title={authBad ? "Update portal authentication before scraping" : undefined}
+          >
             {scraping ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (

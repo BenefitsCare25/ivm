@@ -1,7 +1,7 @@
 import { Job } from "bullmq";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
-import { resolveAuth } from "@/lib/playwright/auth";
+import { resolveAuth, isLoginPage } from "@/lib/playwright/auth";
 import { scrapeDetailPage, downloadFiles } from "@/lib/playwright/scraper";
 import { closeBrowser } from "@/lib/playwright/browser";
 import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
@@ -27,6 +27,31 @@ import type { BrowserContext, Page } from "playwright";
 
 const JOB_TIMEOUT_MS = 5 * 60 * 1000;
 
+const AUTH_ERROR_SIGNATURES = [
+  "Portal session expired",
+  "session expired",
+  "No authentication method",
+  "Cookie auth landed on login page",
+  "Failed to decrypt credentials",
+] as const;
+
+function isAuthError(message: string): boolean {
+  return AUTH_ERROR_SIGNATURES.some((sig) => message.includes(sig));
+}
+
+async function finalizeIfComplete(
+  session: { id: string; itemsProcessed: number; itemsFound: number; portalId: string; createdAt: Date },
+  trigger: string,
+): Promise<void> {
+  if (session.itemsProcessed === session.itemsFound && session.itemsFound > 0) {
+    await db.scrapeSession.update({ where: { id: session.id }, data: { completedAt: new Date() } });
+    runCrossItemChecks(session.id).catch((err) =>
+      logger.error({ err, sessionId: session.id }, "[worker] Cross-item checks failed")
+    );
+    snapshotPortalDayAsync(session.portalId, session.createdAt, trigger);
+  }
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
     promise,
@@ -49,6 +74,7 @@ async function processItemDetailCore(
   let successIncremented = false;
   let context: BrowserContext | undefined;
   let page: Page | undefined;
+  let scrapeSessionId: string | undefined;
 
   try {
     const item = await db.trackedItem.findUniqueOrThrow({
@@ -60,6 +86,7 @@ async function processItemDetailCore(
       },
     });
 
+    scrapeSessionId = item.scrapeSessionId;
     const portal = item.scrapeSession.portal;
     const detailSelectors = portal.detailSelectors as DetailSelectors;
 
@@ -105,6 +132,17 @@ async function processItemDetailCore(
         fields: Object.keys(detailData),
       });
 
+      // Detect mid-session auth expiration: 0 fields + page looks like login
+      if (Object.keys(detailData).length === 0 && page && !page.isClosed()) {
+        const loginDetected = await isLoginPage(page);
+        if (loginDetected) {
+          const msg = "Portal session expired — page redirected to login. Update cookies on the portal page and retry.";
+          logger.warn({ trackedItemId, url: page.url() }, "[worker] " + msg);
+          await emitFailureEvent(trackedItemId, "AUTH_FAIL", new Error(msg));
+          throw new Error(msg);
+        }
+      }
+
       const existingDetailData = item.detailData as Record<string, string> | null;
       const existingCount = existingDetailData ? Object.keys(existingDetailData).length : 0;
       const newCount = Object.keys(detailData).length;
@@ -143,12 +181,7 @@ async function processItemDetailCore(
             data: { itemsFound: { decrement: 1 } },
           });
           successIncremented = true;
-          if (updatedSession.itemsProcessed === updatedSession.itemsFound && updatedSession.itemsFound > 0) {
-            runCrossItemChecks(item.scrapeSessionId).catch((err) =>
-              logger.error({ err, sessionId: item.scrapeSessionId }, "[worker] Cross-item checks failed")
-            );
-            snapshotPortalDayAsync(updatedSession.portalId, updatedSession.createdAt, "filter-delete");
-          }
+          await finalizeIfComplete(updatedSession, "filter-delete");
           return { status: "COMPLETED", mismatchCount: 0 };
         }
       }
@@ -252,18 +285,12 @@ async function processItemDetailCore(
         fieldCount: Object.keys(effectiveDetailData).length,
       });
 
-      const updatedSession = await db.scrapeSession.update({
+      const completedSession = await db.scrapeSession.update({
         where: { id: item.scrapeSessionId },
         data: { itemsProcessed: { increment: 1 } },
       });
       successIncremented = true;
-
-      if (updatedSession.itemsProcessed === updatedSession.itemsFound && updatedSession.itemsFound > 0) {
-        runCrossItemChecks(item.scrapeSessionId).catch((err) =>
-          logger.error({ err, sessionId: item.scrapeSessionId }, "[worker] Cross-item checks failed")
-        );
-        snapshotPortalDayAsync(updatedSession.portalId, updatedSession.createdAt, "item-complete");
-      }
+      await finalizeIfComplete(completedSession, "item-complete");
 
       return { status: "COMPLETED", mismatchCount: comparison.mismatchCount };
     } finally {
@@ -289,21 +316,23 @@ async function processItemDetailCore(
       data: { status: "ERROR", errorMessage },
     });
 
-    const isFinalAttempt = job.attemptsMade >= (job.opts.attempts ?? 1);
-    if (!successIncremented && isFinalAttempt) {
-      const errSession = await db.scrapeSession.findFirst({
-        where: { trackedItems: { some: { id: trackedItemId } } },
-        select: { id: true },
+    if (scrapeSessionId && isAuthError(errorMessage)) {
+      const { count: cancelled } = await db.trackedItem.updateMany({
+        where: { scrapeSessionId, status: "DISCOVERED" },
+        data: { status: "ERROR", errorMessage: "Skipped — portal authentication expired. Update cookies and retry." },
       });
-      if (errSession) {
-        const updated = await db.scrapeSession.update({
-          where: { id: errSession.id },
-          data: { itemsProcessed: { increment: 1 } },
-        });
-        if (updated.itemsProcessed === updated.itemsFound && updated.itemsFound > 0) {
-          snapshotPortalDayAsync(updated.portalId, updated.createdAt, "error-path");
-        }
+      if (cancelled > 0) {
+        logger.warn({ sessionId: scrapeSessionId, cancelled }, "[worker] Auth failure circuit breaker — cancelled remaining DISCOVERED items");
       }
+    }
+
+    const isFinalAttempt = job.attemptsMade >= (job.opts.attempts ?? 1);
+    if (!successIncremented && isFinalAttempt && scrapeSessionId) {
+      const updated = await db.scrapeSession.update({
+        where: { id: scrapeSessionId },
+        data: { itemsProcessed: { increment: 1 } },
+      });
+      await finalizeIfComplete(updated, "error-path");
     }
 
     return { status: "FAILED", mismatchCount: 0, errorMessage };

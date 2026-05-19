@@ -99,6 +99,24 @@ export async function authenticateWithCredentials(
   return { context, page };
 }
 
+const LOGIN_URL_PATTERNS = [/\/login/i, /\/signin/i, /\/auth/i, /\/sso/i, /\/account\/login/i];
+
+export async function isLoginPage(page: Page, expectedUrl?: string): Promise<boolean> {
+  const currentUrl = page.url();
+  if (LOGIN_URL_PATTERNS.some((p) => p.test(currentUrl))) return true;
+
+  const hasPasswordInput = await page.$('input[type="password"]').then((el) => !!el).catch(() => false);
+  if (!hasPasswordInput) return false;
+
+  if (expectedUrl) {
+    const expectedPath = new URL(expectedUrl).pathname;
+    const currentPath = new URL(currentUrl).pathname;
+    return currentPath !== expectedPath;
+  }
+
+  return true;
+}
+
 /**
  * Resolves authentication strategy based on portal credential state.
  * Prefers cookies if available and not expired; falls back to credentials.
@@ -126,10 +144,18 @@ export async function resolveAuth(portal: {
       const page = await context.newPage();
       const targetUrl = portal.listPageUrl ?? portal.baseUrl;
       await page.goto(targetUrl, { waitUntil: "networkidle", timeout: 30_000 });
-      return { context, page };
-    }
 
-    logger.warn("[playwright] Cookies expired, falling back to credentials");
+      const loginDetected = await isLoginPage(page, targetUrl);
+      if (loginDetected) {
+        logger.warn({ finalUrl: page.url() }, "[playwright] Cookie auth landed on login page — session likely expired");
+        await context.close();
+        // Fall through to credential auth if available
+      } else {
+        return { context, page };
+      }
+    } else {
+      logger.warn("[playwright] Cookies expired, falling back to credentials");
+    }
   }
 
   // Fall back to credentials

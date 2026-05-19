@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enqueueItemDetailBatch } from "@/lib/queue/item-detail-queue";
 import { errorResponse, UnauthorizedError, NotFoundError } from "@/lib/errors";
+import { assertAuthValid } from "@/lib/portal-auth";
 import type { TrackedItemStatus } from "@/types/portal";
 
 /**
@@ -25,12 +26,17 @@ export async function POST(
     const { id, sessionId } = await params;
     const { type = "all" } = await req.json().catch(() => ({}));
 
-    // Ownership check FIRST — before any data modifications (covers skip branch too)
     const portal = await db.portal.findFirst({
       where: { id, userId: session.user.id },
-      select: { id: true, userId: true },
+      select: { id: true, userId: true, authMethod: true, credential: {
+        select: { cookieData: true, cookieExpiresAt: true, encryptedUsername: true, encryptedPassword: true },
+      }},
     });
     if (!portal) throw new NotFoundError("Portal");
+
+    if (type !== "skip") {
+      assertAuthValid(portal.credential);
+    }
 
     const scrapeSession = await db.scrapeSession.findFirst({
       where: { id: sessionId, portalId: id },

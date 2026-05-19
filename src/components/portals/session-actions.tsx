@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { RefreshCw, RotateCcw, Play, CheckCircle2, Square, Trash2, Loader2, SkipForward, FileSliders } from "lucide-react";
+import Link from "next/link";
+import { RefreshCw, RotateCcw, Play, CheckCircle2, Square, Trash2, Loader2, SkipForward, FileSliders, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ComparisonTemplateModal } from "./comparison-template-modal";
-import type { ProviderGroupSummary } from "@/types/portal";
+import type { ProviderGroupSummary, AuthStatus, ScrapeSessionStatus } from "@/types/portal";
 
 interface SessionActionsProps {
   portalId: string;
@@ -21,7 +22,8 @@ interface SessionActionsProps {
     VERIFIED?: number;
     REQUIRE_DOC?: number;
   };
-  sessionStatus: string;
+  sessionStatus: ScrapeSessionStatus;
+  authStatus?: AuthStatus;
 }
 
 export function SessionActions({
@@ -29,6 +31,7 @@ export function SessionActions({
   sessionId,
   counts,
   sessionStatus,
+  authStatus = "ok",
 }: SessionActionsProps) {
   const router = useRouter();
   const [loading, setLoading] = useState<"failed" | "unprocessed" | "skip" | "stop" | "delete" | null>(null);
@@ -46,6 +49,8 @@ export function SessionActions({
   const [unconfiguredConfigId, setUnconfiguredConfigId] = useState<string | null>(null);
   const [providerGroups, setProviderGroups] = useState<ProviderGroupSummary[]>([]);
 
+  const authBad = authStatus === "expired" || authStatus === "missing";
+
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const done = (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) + (counts.ERROR ?? 0) + (counts.SKIPPED ?? 0) + (counts.VERIFIED ?? 0) + (counts.REQUIRE_DOC ?? 0);
   const inFlight = (counts.PROCESSING ?? 0) + (counts.DISCOVERED ?? 0);
@@ -54,9 +59,10 @@ export function SessionActions({
 
   // Auto-retry failed items once when nothing else is running.
   // Uses sessionStorage to prevent re-triggering across re-renders and page refreshes.
+  // Skipped when auth is expired/missing — retrying without valid auth is wasteful.
   useEffect(() => {
     const errorCount = counts.ERROR ?? 0;
-    if (errorCount === 0 || inFlight > 0 || autoRetriedRef.current) return;
+    if (errorCount === 0 || inFlight > 0 || autoRetriedRef.current || authBad) return;
 
     const storageKey = `auto_retried_${sessionId}`;
     if (sessionStorage.getItem(storageKey)) return;
@@ -65,7 +71,7 @@ export function SessionActions({
     sessionStorage.setItem(storageKey, "1");
     reprocess("failed");
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [counts.ERROR, inFlight, sessionId]);
+  }, [counts.ERROR, inFlight, sessionId, authBad]);
 
   function fetchUnconfiguredTypes() {
     Promise.all([
@@ -126,7 +132,7 @@ export function SessionActions({
       if (res.ok) router.refresh();
       else {
         const body = await res.json().catch(() => ({}));
-        setActionError(body.message ?? "Failed to queue items — please try again");
+        setActionError(body.error ?? body.message ?? "Failed to queue items — please try again");
       }
     } catch {
       setActionError("Network error — please check your connection");
@@ -263,6 +269,24 @@ export function SessionActions({
         </div>
       )}
 
+      {/* Auth warning — shown when portal auth is expired or missing */}
+      {authBad && ((counts.ERROR ?? 0) > 0 || (counts.DISCOVERED ?? 0) > 0) && (
+        <div className="flex items-center gap-2 rounded-md bg-status-error/10 px-3 py-2 text-xs text-status-error">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1">
+            {authStatus === "expired"
+              ? "Portal cookies have expired. Update authentication on the portal page before retrying."
+              : "Authentication not configured. Set up cookies or credentials before retrying."}
+          </span>
+          <Link
+            href={`/portals/${portalId}`}
+            className="shrink-0 text-xs font-medium underline underline-offset-2 hover:opacity-80"
+          >
+            Portal settings
+          </Link>
+        </div>
+      )}
+
       {/* Action buttons */}
       <div className="flex flex-wrap gap-2">
         {/* Retry / Skip failed items */}
@@ -272,7 +296,8 @@ export function SessionActions({
               variant="outline"
               size="sm"
               onClick={() => reprocess("failed")}
-              disabled={loading !== null}
+              disabled={loading !== null || authBad}
+              title={authBad ? "Update portal authentication before retrying" : undefined}
             >
               {loading === "failed" ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -304,7 +329,8 @@ export function SessionActions({
             variant="outline"
             size="sm"
             onClick={() => reprocess("unprocessed")}
-            disabled={loading !== null}
+            disabled={loading !== null || authBad}
+            title={authBad ? "Update portal authentication before continuing" : undefined}
           >
             {loading === "unprocessed" ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />

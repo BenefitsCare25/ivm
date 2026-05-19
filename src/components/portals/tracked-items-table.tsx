@@ -11,10 +11,12 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import { Card } from "@/components/ui/card";
-import { ItemStatusBadge } from "./portal-status-badge";
+import { ItemStatusBadge, ITEM_STATUS_COLORS } from "./portal-status-badge";
 import { ExpandedPanel } from "./expanded-row";
 import type { TrackedItemStatus, FieldComparison, ItemFile, ComparisonSummary, ValidationAlert } from "@/types/portal";
 import { FWA_LABELS } from "@/types/portal";
+
+const STATUS_ORDER: TrackedItemStatus[] = ["COMPARED", "FLAGGED", "VERIFIED", "REQUIRE_DOC", "SKIPPED", "ERROR", "PROCESSING", "DISCOVERED"];
 
 interface FwaAlert {
   ruleType: string;
@@ -47,6 +49,7 @@ interface TrackedItemsTableProps {
 
 export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTableProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<TrackedItemStatus | null>(null);
 
   if (items.length === 0) {
     return (
@@ -55,6 +58,15 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
       </Card>
     );
   }
+
+  const statusCounts = new Map<TrackedItemStatus, number>();
+  for (const item of items) {
+    statusCounts.set(item.status, (statusCounts.get(item.status) ?? 0) + 1);
+  }
+
+  const filteredItems = statusFilter
+    ? items.filter((item) => item.status === statusFilter)
+    : items;
 
   const idKey = Object.keys(items[0].listData).find(
     (k) => items[0].listData[k] === items[0].portalItemId
@@ -68,6 +80,42 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
 
   return (
     <TooltipProvider>
+    <div className="space-y-2">
+      {/* Status filter pills */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => setStatusFilter(null)}
+          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+            statusFilter === null
+              ? "bg-foreground text-background"
+              : "bg-muted text-muted-foreground hover:bg-muted/80"
+          }`}
+        >
+          All {items.length}
+        </button>
+        {STATUS_ORDER
+          .filter((st) => (statusCounts.get(st) ?? 0) > 0)
+          .map((status) => (
+            <button
+              key={status}
+              onClick={() => setStatusFilter(statusFilter === status ? null : status)}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                statusFilter === status
+                  ? "ring-2 ring-foreground/30 " + (ITEM_STATUS_COLORS[status] ?? "bg-muted text-muted-foreground")
+                  : ITEM_STATUS_COLORS[status] ?? "bg-muted text-muted-foreground"
+              }`}
+            >
+              <span>{statusCounts.get(status)}</span>
+              <span className="opacity-70">{status}</span>
+            </button>
+          ))}
+        {statusFilter && (
+          <span className="text-xs text-muted-foreground">
+            Showing {filteredItems.length} of {items.length} items
+          </span>
+        )}
+      </div>
+
     <Card className="overflow-hidden">
       <table className="w-full text-sm">
         <thead>
@@ -99,7 +147,7 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
           </tr>
         </thead>
         <tbody>
-          {items.map((item) => {
+          {filteredItems.map((item) => {
             const isExpanded = expandedId === item.id;
             const toggle = () => setExpandedId(isExpanded ? null : item.id);
 
@@ -212,6 +260,7 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
         </tbody>
       </table>
     </Card>
+    </div>
     </TooltipProvider>
   );
 }

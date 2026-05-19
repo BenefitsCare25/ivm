@@ -18,11 +18,11 @@ import { requireAuth } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import { TrackedItemsTable } from "@/components/portals/tracked-items-table";
-import { ScrapeStatusBadge, ITEM_STATUS_COLORS } from "@/components/portals/portal-status-badge";
+import { ScrapeStatusBadge } from "@/components/portals/portal-status-badge";
 import { AutoRefresh } from "@/components/portals/auto-refresh";
 import { SessionActions } from "@/components/portals/session-actions";
 import { FWA_PRIORITY } from "@/types/portal";
-import type { ScrapeSessionStatus, FieldComparison, DiagnosisAssessment } from "@/types/portal";
+import type { ScrapeSessionStatus, FieldComparison, DiagnosisAssessment, AuthStatus } from "@/types/portal";
 
 
 export default async function SessionItemsPage({
@@ -35,16 +35,30 @@ export default async function SessionItemsPage({
 
   const portal = await db.portal.findFirst({
     where: { id, userId: session.user.id },
-    select: { id: true, name: true },
+    select: {
+      id: true, name: true, authMethod: true,
+      credential: {
+        select: { cookieData: true, cookieExpiresAt: true, encryptedUsername: true, encryptedPassword: true },
+      },
+    },
   });
   if (!portal) notFound();
+
+  const hasCredentials = !!(portal.credential?.encryptedUsername && portal.credential?.encryptedPassword);
+  const hasCookies = !!portal.credential?.cookieData;
+  const cookiesExpired = hasCookies && portal.credential?.cookieExpiresAt
+    ? portal.credential.cookieExpiresAt < new Date()
+    : false;
+  const authStatus: AuthStatus =
+    !hasCredentials && !hasCookies ? "missing" :
+    portal.authMethod === "COOKIES" && cookiesExpired && !hasCredentials ? "expired" :
+    "ok";
 
   const scrapeSession = await db.scrapeSession.findFirst({
     where: { id: sessionId, portalId: id },
     include: {
       trackedItems: {
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        take: 50,
         select: {
           id: true,
           portalItemId: true,
@@ -117,13 +131,14 @@ export default async function SessionItemsPage({
     statusCounts.map((s) => [s.status, s._count.id])
   );
 
-  // Only auto-refresh when the worker is actively running jobs.
-  // DISCOVERED items on a COMPLETED/CANCELLED session won't self-start —
-  // the user must click "Continue" to re-enqueue them.
+  // Auto-refresh when the worker is actively running jobs, OR when
+  // reprocessing was just triggered (COMPLETED + completedAt null = items
+  // re-enqueued but worker hasn't picked them up yet).
   const isActive =
     scrapeSession.status === "RUNNING" ||
     scrapeSession.status === "PENDING" ||
-    (breakdown["PROCESSING"] ?? 0) > 0;
+    (breakdown["PROCESSING"] ?? 0) > 0 ||
+    (scrapeSession.status === "COMPLETED" && !scrapeSession.completedAt);
 
   const processingCount = (breakdown["PROCESSING"] ?? 0);
   const discoveredCount = (breakdown["DISCOVERED"] ?? 0);
@@ -132,8 +147,6 @@ export default async function SessionItemsPage({
     if (processingCount > 0) displayStatus = "RUNNING";
     else if (discoveredCount > 0) displayStatus = "PENDING";
   }
-
-  const statusOrder = ["COMPARED", "FLAGGED", "VERIFIED", "REQUIRE_DOC", "SKIPPED", "ERROR", "PROCESSING", "DISCOVERED"];
 
   return (
     <div className="space-y-6">
@@ -195,22 +208,8 @@ export default async function SessionItemsPage({
           REQUIRE_DOC: breakdown["REQUIRE_DOC"] ?? 0,
         }}
         sessionStatus={scrapeSession.status}
+        authStatus={authStatus}
       />
-
-      {/* Status breakdown pills */}
-      <div className="flex flex-wrap gap-2">
-        {statusOrder
-          .filter((st) => (breakdown[st] ?? 0) > 0)
-          .map((status) => (
-            <div
-              key={status}
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${ITEM_STATUS_COLORS[status] ?? "bg-muted text-muted-foreground"}`}
-            >
-              <span>{breakdown[status]}</span>
-              <span className="opacity-70">{status}</span>
-            </div>
-          ))}
-      </div>
 
       <TrackedItemsTable
         items={scrapeSession.trackedItems.map((item) => ({
