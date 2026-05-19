@@ -184,6 +184,11 @@ export async function scrapeDetailPage(
 ): Promise<Record<string, string>> {
   await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
 
+  // SPA settle: wait for content to render before extracting fields
+  await page
+    .waitForFunction(() => document.body.innerText.length > 200, { timeout: 10_000 })
+    .catch(() => {});
+
   const fields: Record<string, string> = {};
 
   if (selectors.fieldSelectors && Object.keys(selectors.fieldSelectors).length > 0) {

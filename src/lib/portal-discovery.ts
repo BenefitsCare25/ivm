@@ -63,7 +63,14 @@ export async function discoverFields(
           ? detailUrl
           : new URL(detailUrl, portal.baseUrl).href;
 
-        const detailData = await scrapeDetailPage(page, absoluteUrl, detailSelectors);
+        let detailData = await scrapeDetailPage(page, absoluteUrl, detailSelectors);
+
+        // Retry once if SPA returned empty on cold start
+        if (Object.keys(detailData).length === 0) {
+          logger.warn({ groupingKey: key }, "[discovery] 0 fields on first attempt — retrying");
+          detailData = await scrapeDetailPage(page, absoluteUrl, detailSelectors);
+        }
+
         const detailFields = Object.keys(detailData);
 
         results.push({
