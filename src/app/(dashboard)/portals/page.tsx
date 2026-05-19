@@ -20,37 +20,13 @@ export default async function PortalsPage() {
       scrapeSessions: {
         orderBy: { createdAt: "desc" },
         take: 1,
-        select: { status: true, completedAt: true },
+        select: { status: true, completedAt: true, itemsFound: true, itemsProcessed: true },
       },
       _count: {
         select: { scrapeSessions: true },
       },
     },
   });
-
-  const portalIds = portals.map((p) => p.id);
-
-  const [metricsSum, liveItemsSum] = portalIds.length > 0
-    ? await Promise.all([
-        db.portalDailyMetrics.groupBy({
-          by: ["portalId"],
-          where: { portalId: { in: portalIds } },
-          _sum: { items: true },
-        }),
-        db.scrapeSession.groupBy({
-          by: ["portalId"],
-          where: { portalId: { in: portalIds } },
-          _sum: { itemsFound: true },
-        }),
-      ])
-    : [[], []];
-
-  const portalItemCounts = new Map<string, number>();
-  const metricsMap = new Map(metricsSum.map((r) => [r.portalId, r._sum.items ?? 0]));
-  const liveMap = new Map(liveItemsSum.map((r) => [r.portalId, r._sum.itemsFound ?? 0]));
-  for (const pid of portalIds) {
-    portalItemCounts.set(pid, Math.max(metricsMap.get(pid) ?? 0, liveMap.get(pid) ?? 0));
-  }
 
   const enriched: PortalSummary[] = portals.map((p) => {
     const lastSession = p.scrapeSessions[0] ?? null;
@@ -63,7 +39,8 @@ export default async function PortalsPage() {
       scheduleCron: p.scheduleCron,
       lastScrapeStatus: lastSession?.status ?? null,
       lastScrapeAt: lastSession?.completedAt?.toISOString() ?? null,
-      totalItems: portalItemCounts.get(p.id) ?? 0,
+      lastSessionProcessed: lastSession?.itemsProcessed ?? 0,
+      lastSessionFound: lastSession?.itemsFound ?? 0,
       createdAt: p.createdAt.toISOString(),
     };
   });

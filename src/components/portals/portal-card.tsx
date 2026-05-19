@@ -35,9 +35,14 @@ export function PortalCard({ portal }: PortalCardProps) {
             {portal.lastScrapeStatus && (
               <ScrapeStatusBadge status={portal.lastScrapeStatus} />
             )}
-            <span className="text-xs text-muted-foreground">
-              {portal.totalItems} items tracked
-            </span>
+            {portal.lastSessionFound > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {portal.lastSessionProcessed} / {portal.lastSessionFound} processed
+              </span>
+            )}
+            {portal.lastSessionFound === 0 && !portal.lastScrapeStatus && (
+              <span className="text-xs text-muted-foreground">0 items</span>
+            )}
           </div>
 
           {portal.lastScrapeAt && (
