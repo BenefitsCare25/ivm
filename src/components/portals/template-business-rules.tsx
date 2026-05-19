@@ -43,7 +43,13 @@ export function TemplateBusinessRules({ businessRules: initial, saving, onSave, 
   }
 
   function handleSave() {
-    const valid = rules.filter((r) => r.rule.trim() && r.category.trim());
+    const valid = rules
+      .filter((r) => r.rule.trim())
+      .map((r) => ({
+        ...r,
+        rule: r.rule.trim(),
+        category: r.category.trim() || "General",
+      }));
     onSave(valid);
   }
 
