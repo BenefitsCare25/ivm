@@ -38,18 +38,30 @@ export async function analyzePageStructure(
 
   let rawText: string;
 
-  // CLI proxy drops base64 image_url blocks — use Read-tool path instead
-  // Only applies to the OpenAI-compatible proxy, not Azure Foundry
-  if (request.baseURL && provider === "openai") {
-    rawText = await analyzeWithProxy(request);
-  } else if (provider === "anthropic" || provider === "azure-foundry") {
-    rawText = await analyzeWithAnthropic(request);
-  } else if (provider === "openai") {
-    rawText = await analyzeWithOpenAI(request);
-  } else if (provider === "gemini") {
-    rawText = await analyzeWithGemini(request);
-  } else {
-    throw new AppError(`Unsupported provider: ${provider}`, 400, "UNSUPPORTED_PROVIDER");
+  try {
+    // CLI proxy drops base64 image_url blocks — use Read-tool path instead
+    // Only applies to the OpenAI-compatible proxy, not Azure Foundry
+    if (request.baseURL && provider === "openai") {
+      rawText = await analyzeWithProxy(request);
+    } else if (provider === "anthropic" || provider === "azure-foundry") {
+      rawText = await analyzeWithAnthropic(request);
+    } else if (provider === "openai") {
+      rawText = await analyzeWithOpenAI(request);
+    } else if (provider === "gemini") {
+      rawText = await analyzeWithGemini(request);
+    } else {
+      throw new AppError(`Unsupported provider: ${provider}`, 400, "UNSUPPORTED_PROVIDER");
+    }
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    const status = (err as { status?: number }).status;
+    logger.error({ err, provider, url: request.url }, "[ai] Page analysis provider error");
+    throw new AppError(
+      `AI page analysis failed: ${msg.slice(0, 200)}`,
+      status && status >= 400 && status < 500 ? status : 502,
+      "AI_PROVIDER_ERROR"
+    );
   }
 
   const parsed = parsePageAnalysisResponse(rawText);

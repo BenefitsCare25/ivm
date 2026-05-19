@@ -1,17 +1,35 @@
 import { Page } from "playwright";
 import { logger } from "@/lib/logger";
 
-/**
- * Captures a full-page screenshot as a PNG buffer.
- * Used for AI page structure analysis during portal setup.
- */
+const MAX_SCREENSHOT_DIMENSION = 7500;
+
 export async function capturePageScreenshot(page: Page): Promise<Buffer> {
+  const { width, height } = await page.evaluate(() => ({
+    width: document.documentElement.scrollWidth,
+    height: document.documentElement.scrollHeight,
+  }));
+
+  const needsClip = width > MAX_SCREENSHOT_DIMENSION || height > MAX_SCREENSHOT_DIMENSION;
+
   const buffer = await page.screenshot({
-    fullPage: true,
+    fullPage: !needsClip,
     type: "png",
+    ...(needsClip
+      ? {
+          clip: {
+            x: 0,
+            y: 0,
+            width: Math.min(width, MAX_SCREENSHOT_DIMENSION),
+            height: Math.min(height, MAX_SCREENSHOT_DIMENSION),
+          },
+        }
+      : {}),
   });
 
-  logger.info({ size: buffer.length }, "[playwright] Captured page screenshot");
+  logger.info(
+    { size: buffer.length, pageWidth: width, pageHeight: height, clipped: needsClip },
+    "[playwright] Captured page screenshot"
+  );
 
   return Buffer.from(buffer);
 }
