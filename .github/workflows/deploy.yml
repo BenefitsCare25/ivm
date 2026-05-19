@@ -52,10 +52,12 @@ jobs:
 
       - name: Check for active scrape jobs
         run: |
-          scp -i ~/.ssh/deploy_key scripts/check-active-jobs.js azureuser@${{ secrets.VM_HOST }}:/tmp/check-active-jobs.js
-          RESULT=$(ssh -i ~/.ssh/deploy_key azureuser@${{ secrets.VM_HOST }} "
+          set -e
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no scripts/check-active-jobs.js azureuser@${{ secrets.VM_HOST }}:/tmp/check-active-jobs.js
+          RESULT=$(ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no azureuser@${{ secrets.VM_HOST }} "
+            set -e
             cd /var/www/ivm
-            source /etc/ivm/.env 2>/dev/null
+            source /etc/ivm/.env 2>/dev/null || true
             cp /tmp/check-active-jobs.js /var/www/ivm/_check.js
             node _check.js
             rm -f _check.js /tmp/check-active-jobs.js
