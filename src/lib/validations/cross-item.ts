@@ -19,18 +19,21 @@ const DATE_FIELD_PATTERNS = [
 ];
 
 const PATIENT_FIELD_PATTERNS = [
-  /employee/i, /claimant/i, /patient/i,
+  /claimant/i, /patient/i,
   /member.*name/i, /name.*member/i,
-  /employee.*name/i,
+  /employee/i, /employee.*name/i,
 ];
 
 function findFieldByPatterns(
   data: Record<string, string>,
   patterns: RegExp[]
 ): { key: string; value: string } | null {
-  for (const [key, value] of Object.entries(data)) {
-    if (patterns.some((p) => p.test(key)) && value.trim()) {
-      return { key, value: value.trim().toLowerCase() };
+  // Iterate patterns first so priority order is respected
+  for (const pattern of patterns) {
+    for (const [key, value] of Object.entries(data)) {
+      if (pattern.test(key) && value.trim()) {
+        return { key, value: value.trim().toLowerCase() };
+      }
     }
   }
   return null;
