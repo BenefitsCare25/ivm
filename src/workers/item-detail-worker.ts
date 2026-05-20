@@ -327,10 +327,20 @@ async function processItemDetailCore(
 
     await emitFailureEvent(trackedItemId, "ITEM_ERROR", err, screenshot);
 
-    await db.trackedItem.update({
+    // Check current status before updating — on timeout, handleFinalFailure
+    // already set ERROR and incremented itemsProcessed.
+    const currentItem = await db.trackedItem.findUnique({
       where: { id: trackedItemId },
-      data: { status: "ERROR", errorMessage },
+      select: { status: true },
     });
+    const alreadyHandled = currentItem?.status === "ERROR";
+
+    if (!alreadyHandled) {
+      await db.trackedItem.update({
+        where: { id: trackedItemId },
+        data: { status: "ERROR", errorMessage },
+      });
+    }
 
     if (scrapeSessionId && isAuthError(errorMessage)) {
       const { count: cancelled } = await db.trackedItem.updateMany({
@@ -355,7 +365,7 @@ async function processItemDetailCore(
     }
 
     const isFinalAttempt = job.attemptsMade >= (job.opts.attempts ?? 1);
-    if (!successIncremented && isFinalAttempt && scrapeSessionId) {
+    if (!alreadyHandled && !successIncremented && isFinalAttempt && scrapeSessionId) {
       const updated = await db.scrapeSession.update({
         where: { id: scrapeSessionId },
         data: { itemsProcessed: { increment: 1 } },

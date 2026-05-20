@@ -13,23 +13,36 @@ import type { PortalSummary } from "@/types/portal";
 export default async function PortalsPage() {
   const session = await requireAuth();
 
-  const portals = await db.portal.findMany({
-    where: { userId: session.user.id },
-    orderBy: { updatedAt: "desc" },
-    include: {
-      scrapeSessions: {
-        orderBy: { createdAt: "desc" },
-        take: 1,
-        select: { status: true, completedAt: true, itemsFound: true, itemsProcessed: true },
+  const [portals, metricsByPortal] = await Promise.all([
+    db.portal.findMany({
+      where: { userId: session.user.id },
+      orderBy: { updatedAt: "desc" },
+      include: {
+        scrapeSessions: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { status: true, completedAt: true },
+        },
       },
-      _count: {
-        select: { scrapeSessions: true },
-      },
-    },
-  });
+    }),
+    db.portalDailyMetrics.groupBy({
+      by: ["portalId"],
+      where: { portal: { userId: session.user.id } },
+      _sum: { items: true, compared: true, flagged: true, errors: true, skipped: true, verified: true },
+    }),
+  ]);
+
+  const metricsMap = new Map(
+    metricsByPortal.map((m) => [m.portalId, {
+      totalFound: m._sum.items ?? 0,
+      totalProcessed: (m._sum.compared ?? 0) + (m._sum.flagged ?? 0) + (m._sum.errors ?? 0)
+        + (m._sum.skipped ?? 0) + (m._sum.verified ?? 0),
+    }])
+  );
 
   const enriched: PortalSummary[] = portals.map((p) => {
     const lastSession = p.scrapeSessions[0] ?? null;
+    const metrics = metricsMap.get(p.id);
     return {
       id: p.id,
       name: p.name,
@@ -39,8 +52,8 @@ export default async function PortalsPage() {
       scheduleCron: p.scheduleCron,
       lastScrapeStatus: lastSession?.status ?? null,
       lastScrapeAt: lastSession?.completedAt?.toISOString() ?? null,
-      lastSessionProcessed: lastSession?.itemsProcessed ?? 0,
-      lastSessionFound: lastSession?.itemsFound ?? 0,
+      totalProcessed: metrics?.totalProcessed ?? 0,
+      totalFound: metrics?.totalFound ?? 0,
       createdAt: p.createdAt.toISOString(),
     };
   });

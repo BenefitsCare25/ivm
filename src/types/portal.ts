@@ -101,8 +101,8 @@ export interface PortalSummary {
   scheduleCron: string | null;
   lastScrapeStatus: ScrapeSessionStatus | null;
   lastScrapeAt: string | null;
-  lastSessionProcessed: number;
-  lastSessionFound: number;
+  totalProcessed: number;
+  totalFound: number;
   createdAt: string;
 }
 
