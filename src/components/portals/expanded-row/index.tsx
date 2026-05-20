@@ -188,6 +188,10 @@ export function ExpandedPanel({ item, portalId, sessionId, columnCount }: Expand
   const cfg = STATUS_CONFIG[item.status] ?? STATUS_CONFIG.DISCOVERED;
   const StatusIcon = cfg.icon;
 
+  const showLiveFeed = item.status === "PROCESSING" || item.status === "DISCOVERED";
+  const showEventHistory = item.status === "ERROR" && !item.comparisonResult;
+  const showDetailColumns = !showLiveFeed && !showEventHistory;
+
   return (
     <tr>
       <td colSpan={columnCount} className="p-0">
@@ -207,7 +211,7 @@ export function ExpandedPanel({ item, portalId, sessionId, columnCount }: Expand
             )}
           </div>
 
-          {(item.status === "PROCESSING" || item.status === "DISCOVERED") ? (
+          {showLiveFeed && (
             <div className="rounded-md border border-border bg-muted/30 px-4 py-3">
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Live Activity
@@ -219,7 +223,23 @@ export function ExpandedPanel({ item, portalId, sessionId, columnCount }: Expand
                 itemStatus={item.status}
               />
             </div>
-          ) : (
+          )}
+
+          {showEventHistory && (
+            <div className="rounded-md border border-status-error/20 bg-status-error/5 px-4 py-3">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-status-error/60">
+                Activity Log — what happened before the failure
+              </p>
+              <ProcessingFeed
+                portalId={portalId}
+                sessionId={sessionId}
+                itemId={item.id}
+                itemStatus={item.status}
+              />
+            </div>
+          )}
+
+          {showDetailColumns && (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-[0.8fr_2fr_1fr] overflow-hidden">
               <PortalDetailsColumn
                 detailData={item.detailData}

@@ -104,5 +104,5 @@ export const globalLimiter = createRateLimiter({ limit: 100, windowMs: 60_000 })
 /** 10 req/min per IP for auth routes (login, register) */
 export const authLimiter = createRateLimiter({ limit: 10, windowMs: 60_000 });
 
-/** 5 req/min per user for AI routes (extract, mapping) */
-export const aiLimiter = createRateLimiter({ limit: 5, windowMs: 60_000 });
+/** 20 req/min per user for AI routes (extract, mapping) */
+export const aiLimiter = createRateLimiter({ limit: 20, windowMs: 60_000 });

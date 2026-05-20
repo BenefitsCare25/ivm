@@ -57,6 +57,12 @@ export async function POST(
       type === "unprocessed" ? ["DISCOVERED"] :
                                ["ERROR", "DISCOVERED"];
 
+    // Count ERROR items being reset — they were already counted in itemsProcessed when they failed,
+    // so we must decrement to avoid double-counting when the retry completes.
+    const errorItemCount = statusFilter.includes("ERROR")
+      ? await db.trackedItem.count({ where: { scrapeSessionId: sessionId, status: "ERROR" } })
+      : 0;
+
     // Reset to DISCOVERED so the worker treats them as fresh
     await db.trackedItem.updateMany({
       where: { scrapeSessionId: sessionId, status: { in: statusFilter } },
@@ -85,11 +91,20 @@ export async function POST(
       { reprocess: true }
     );
 
-    // If session was stopped (CANCELLED), restore it to COMPLETED so the
-    // UI reflects that the list scrape finished and detail processing is resuming.
+    // Clear completedAt so the session page's isActive check enables auto-refresh.
+    // Decrement itemsProcessed for ERROR items that were already counted on first failure.
+    await db.scrapeSession.update({
+      where: { id: sessionId },
+      data: {
+        completedAt: null,
+        ...(errorItemCount > 0 ? { itemsProcessed: { decrement: errorItemCount } } : {}),
+      },
+    });
+
+    // Restore CANCELLED sessions to COMPLETED so the UI shows the list scrape is done.
     await db.scrapeSession.updateMany({
       where: { id: sessionId, status: "CANCELLED" },
-      data: { status: "COMPLETED", completedAt: null },
+      data: { status: "COMPLETED" },
     });
 
     return NextResponse.json({ requeued: count });

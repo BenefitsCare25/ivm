@@ -25,7 +25,7 @@ import { recoverStuckItems, handleFinalFailure } from "./item-detail-recovery";
 import type { DetailSelectors } from "@/types/portal";
 import type { BrowserContext, Page } from "playwright";
 
-const JOB_TIMEOUT_MS = 5 * 60 * 1000;
+const JOB_TIMEOUT_MS = 10 * 60 * 1000;
 
 const AUTH_ERROR_SIGNATURES = [
   "Portal session expired",
@@ -52,12 +52,28 @@ async function finalizeIfComplete(
   }
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+  onTimeout?: () => Promise<void>
+): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(async () => {
+      try {
+        if (onTimeout) await onTimeout();
+      } catch {
+        // best-effort — don't let cleanup errors mask the timeout
+      }
+      reject(new Error(`Timed out after ${ms / 1000}s: ${label}`));
+    }, ms);
+  });
+
   return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`Timed out after ${ms / 1000}s: ${label}`)), ms)
-    ),
+    promise.finally(() => { if (timeoutHandle !== undefined) clearTimeout(timeoutHandle); }),
+    timeoutPromise,
   ]);
 }
 
@@ -323,6 +339,12 @@ async function processItemDetailCore(
       });
       if (cancelled > 0) {
         logger.warn({ sessionId: scrapeSessionId, cancelled }, "[worker] Auth failure circuit breaker — cancelled remaining DISCOVERED items");
+        // Count the cancelled items into itemsProcessed so finalizeIfComplete fires correctly.
+        // The current failing item is incremented separately in the block below.
+        await db.scrapeSession.update({
+          where: { id: scrapeSessionId },
+          data: { itemsProcessed: { increment: cancelled } },
+        });
       }
     }
 
@@ -342,10 +364,15 @@ async function processItemDetailCore(
 async function processItemDetail(
   job: Job<ItemDetailJobData>
 ): Promise<ItemDetailJobResult> {
+  const timeoutMinutes = Math.round(JOB_TIMEOUT_MS / 60_000);
   return withTimeout(
     processItemDetailCore(job),
     JOB_TIMEOUT_MS,
-    `item:${job.data.trackedItemId}`
+    `item:${job.data.trackedItemId}`,
+    () => handleFinalFailure(
+      job,
+      new Error(`Processing timed out after ${timeoutMinutes} minutes — too many documents or AI took too long`)
+    )
   );
 }
 

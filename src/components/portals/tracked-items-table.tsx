@@ -150,6 +150,11 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
           {filteredItems.map((item) => {
             const isExpanded = expandedId === item.id;
             const toggle = () => setExpandedId(isExpanded ? null : item.id);
+            const statusIcon = item.status === "PROCESSING"
+              ? <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+              : item.status === "ERROR"
+              ? <AlertCircle className="h-3 w-3 text-status-error" />
+              : null;
 
             return (
               <Fragment key={item.id}>
@@ -170,15 +175,19 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
                   </td>
 
                   <td className="whitespace-nowrap px-3 py-2.5">
-                    <div className="flex items-center gap-1.5">
-                      {item.status === "PROCESSING" && (
-                        <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
-                      )}
-                      {item.status === "ERROR" && (
-                        <AlertCircle className="h-3 w-3 text-status-error" />
-                      )}
-                      <ItemStatusBadge status={item.status} />
-                    </div>
+                    {item.status === "ERROR" && item.errorMessage ? (
+                      <Tooltip content={item.errorMessage} side="right">
+                        <div className="inline-flex cursor-help items-center gap-1.5">
+                          {statusIcon}
+                          <ItemStatusBadge status={item.status} />
+                        </div>
+                      </Tooltip>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        {statusIcon}
+                        <ItemStatusBadge status={item.status} />
+                      </div>
+                    )}
                   </td>
 
                   <td className="whitespace-nowrap px-3 py-2.5">

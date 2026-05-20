@@ -6,7 +6,7 @@ const QUEUE_NAME = "item-detail";
 
 // Max time a single item job may run before being timed out by BullMQ stall detection.
 // Must be longer than the slowest possible job (Playwright + AI extraction + AI comparison).
-const LOCK_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const LOCK_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 
 export interface ItemDetailJobData {
   trackedItemId: string;
@@ -107,7 +107,7 @@ export function startItemDetailWorker(
     processor,
     {
       connection: conn,
-      concurrency: 3,
+      concurrency: 2,
       // Long lock so BullMQ doesn't stall-detect jobs mid-AI-call
       lockDuration: LOCK_DURATION_MS,
       // Check for stalled jobs every 30 seconds
