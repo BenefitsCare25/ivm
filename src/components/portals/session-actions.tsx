@@ -49,7 +49,7 @@ export function SessionActions({
   const [unconfiguredConfigId, setUnconfiguredConfigId] = useState<string | null>(null);
   const [providerGroups, setProviderGroups] = useState<ProviderGroupSummary[]>([]);
 
-  const authBad = authStatus === "expired" || authStatus === "missing";
+  const authBad = authStatus === "expired" || authStatus === "session_expired" || authStatus === "missing";
 
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const done = (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) + (counts.ERROR ?? 0) + (counts.SKIPPED ?? 0) + (counts.VERIFIED ?? 0) + (counts.REQUIRE_DOC ?? 0);
@@ -274,7 +274,9 @@ export function SessionActions({
         <div className="flex items-center gap-2 rounded-md bg-status-error/10 px-3 py-2 text-xs text-status-error">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span className="flex-1">
-            {authStatus === "expired"
+            {authStatus === "session_expired"
+              ? "Portal session expired during scraping. Update cookies on the portal page before retrying."
+              : authStatus === "expired"
               ? "Portal cookies have expired. Update authentication on the portal page before retrying."
               : "Authentication not configured. Set up cookies or credentials before retrying."}
           </span>

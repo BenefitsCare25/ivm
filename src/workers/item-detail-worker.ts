@@ -339,11 +339,17 @@ async function processItemDetailCore(
       });
       if (cancelled > 0) {
         logger.warn({ sessionId: scrapeSessionId, cancelled }, "[worker] Auth failure circuit breaker — cancelled remaining DISCOVERED items");
-        // Count the cancelled items into itemsProcessed so finalizeIfComplete fires correctly.
-        // The current failing item is incremented separately in the block below.
         await db.scrapeSession.update({
           where: { id: scrapeSessionId },
-          data: { itemsProcessed: { increment: cancelled } },
+          data: {
+            itemsProcessed: { increment: cancelled },
+            authExpiredAt: new Date(),
+          },
+        });
+      } else {
+        await db.scrapeSession.update({
+          where: { id: scrapeSessionId },
+          data: { authExpiredAt: new Date() },
         });
       }
     }

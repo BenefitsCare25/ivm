@@ -97,6 +97,7 @@ export async function POST(
       where: { id: sessionId },
       data: {
         completedAt: null,
+        authExpiredAt: null,
         ...(errorItemCount > 0 ? { itemsProcessed: { decrement: errorItemCount } } : {}),
       },
     });

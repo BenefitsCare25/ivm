@@ -14,7 +14,7 @@ export const DEFAULT_SCRAPE_FILTERS: ScrapeFilters = {
 
 // ─── Auth Status ────────────────────────────────────────────────
 
-export type AuthStatus = "ok" | "warn" | "expired" | "missing";
+export type AuthStatus = "ok" | "warn" | "expired" | "session_expired" | "missing";
 
 // ─── Enums (mirror Prisma enums for client use) ─────────────────
 

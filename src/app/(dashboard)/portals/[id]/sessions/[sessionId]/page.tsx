@@ -56,7 +56,18 @@ export default async function SessionItemsPage({
 
   const scrapeSession = await db.scrapeSession.findFirst({
     where: { id: sessionId, portalId: id },
-    include: {
+    select: {
+      id: true,
+      portalId: true,
+      status: true,
+      itemsFound: true,
+      itemsProcessed: true,
+      startedAt: true,
+      completedAt: true,
+      authExpiredAt: true,
+      errorMessage: true,
+      createdAt: true,
+      _count: { select: { trackedItems: true } },
       trackedItems: {
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: {
@@ -84,12 +95,13 @@ export default async function SessionItemsPage({
           },
         },
       },
-      _count: {
-        select: { trackedItems: true },
-      },
     },
   });
   if (!scrapeSession) notFound();
+
+  const effectiveAuthStatus: AuthStatus = scrapeSession.authExpiredAt && authStatus === "ok"
+    ? "session_expired"
+    : authStatus;
 
   // Fetch all FWA validation results per item
   const itemIds = scrapeSession.trackedItems.map((i) => i.id);
@@ -208,7 +220,7 @@ export default async function SessionItemsPage({
           REQUIRE_DOC: breakdown["REQUIRE_DOC"] ?? 0,
         }}
         sessionStatus={scrapeSession.status}
-        authStatus={authStatus}
+        authStatus={effectiveAuthStatus}
       />
 
       <TrackedItemsTable

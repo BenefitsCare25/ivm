@@ -403,6 +403,7 @@ model ScrapeSession {
   expectedDocumentSetId     String?
   startedAt                 DateTime?
   completedAt               DateTime?
+  authExpiredAt             DateTime?
   errorMessage              String?
   createdAt                 DateTime            @default(now())
 
