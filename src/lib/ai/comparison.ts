@@ -75,11 +75,12 @@ export async function compareFields(
 async function compareWithAnthropic(request: ComparisonRequest, userPrompt: string): Promise<string> {
   const client = new Anthropic({ apiKey: request.apiKey, ...(request.baseURL ? { baseURL: request.baseURL } : {}) });
   const timeout = request.baseURL ? 180_000 : 60_000; // CLI proxy needs more time; full prompts with business rules can be large
+  const maxTokens = request.systemPromptOverride ? 8192 : 4096;
 
   const response = await client.messages.create(
     {
       model: request.model ?? PROVIDER_MODELS.anthropic.defaults.text,
-      max_tokens: 4096,
+      max_tokens: maxTokens,
       system: request.systemPromptOverride ?? getComparisonSystemPrompt(),
       messages: [{ role: "user", content: userPrompt }],
     },
@@ -96,11 +97,12 @@ async function compareWithAnthropic(request: ComparisonRequest, userPrompt: stri
 async function compareWithOpenAI(request: ComparisonRequest, userPrompt: string): Promise<string> {
   const client = new OpenAI({ apiKey: request.apiKey, ...(request.baseURL ? { baseURL: request.baseURL } : {}) });
   const timeout = request.baseURL ? 180_000 : 60_000; // CLI proxy needs more time; full prompts with business rules can be large
+  const maxTokens = request.systemPromptOverride ? 8192 : 4096;
 
   const response = await client.chat.completions.create(
     {
       model: request.model ?? PROVIDER_MODELS.openai.defaults.text,
-      max_tokens: 4096,
+      max_tokens: maxTokens,
       messages: [
         { role: "system", content: request.systemPromptOverride ?? getComparisonSystemPrompt() },
         { role: "user", content: userPrompt },

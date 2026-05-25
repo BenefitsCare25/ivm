@@ -75,13 +75,13 @@ FIELD COMPARISON RULES:
 5. UNCERTAIN: Cannot determine with reasonable confidence.
 6. ONLY compare the explicit field pairs provided in the Field Mappings section. Do NOT add extra field comparisons beyond those pairs.
 7. For monetary amounts, compare numerical values regardless of currency symbols.
-8. For date fields: compare actual date regardless of format. Additionally, if the mapped document field has a different date, scan ALL other date fields in the PDF Extracted Fields (e.g., Visit Date, Bill Date, Admission Date, Service Date, Hospitalisation Period dates). If the portal date matches ANY date value found anywhere in the document, return MATCH — documents often have multiple dates (bill date vs visit date) and a match on any confirms the date is present.
+8. For date fields: compare actual date regardless of format. For FUZZY-mode date fields only: if the mapped document field has a different date, scan ALL other date fields in the PDF Extracted Fields (e.g., Visit Date, Bill Date, Admission Date, Service Date, Hospitalisation Period dates). If the portal date matches ANY date value found anywhere in the document, return MATCH with documentLineMatches showing which field(s) matched. This fallback does NOT apply to EXACT or NUMERIC mode date fields — those must strictly compare only the mapped field pair.
 9. Confidence: 0.95+ for clear match/mismatch, 0.7-0.94 for probable, below 0.7 for uncertain.
-10. documentLineMatches (only when status="MISMATCH" on a numeric/monetary field):
-    - Scan ALL PDF Extracted Fields for any line items whose numeric value equals the portal value (ignore sign and formatting — e.g. portal "167.70" matches document line "-167.70" or "$167.70").
+10. documentLineMatches (when status="MISMATCH" on a numeric/monetary field, OR when a FUZZY-mode date field returns MATCH via the fallback scan in rule 8):
+    - Scan ALL PDF Extracted Fields for any line items whose value equals the portal value (ignore sign and formatting for numeric — e.g. portal "167.70" matches document line "-167.70" or "$167.70"; ignore date format differences for dates).
     - For each match, return an object { "label": <pdf field name>, "value": <pdf field value as it appears> }.
     - Include MULTIPLE entries if the portal value appears in multiple line items.
-    - Omit the field entirely (or use an empty array) if status is not MISMATCH, or if the portal value does not appear anywhere else in the document.
+    - Omit the field entirely (or use an empty array) if the portal value does not appear anywhere else in the document.
     - Do NOT include the line that is already shown as pdfValue.
 
 BUSINESS RULE EVALUATION:

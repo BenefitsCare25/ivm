@@ -52,13 +52,13 @@ COMPARISON RULES:
 6. Compare ALL fields from both sources — do not skip any.
 7. Match fields by semantic meaning, not exact label match. "Incurred Date" and "Date of Service" likely refer to the same thing.
 8. For monetary amounts: compare numerical values regardless of formatting. However, if the portal amount and document amount differ by a large factor (e.g. 50x–100x), note in the "notes" field that the amounts may be in different currencies (e.g. SGD vs PHP/IDR/THB) rather than a simple data error.
-9. For dates, compare the actual date regardless of format.
+9. For dates, compare the actual date regardless of format. If the mapped document field has a different date, scan ALL other date fields in the PDF data (e.g., Visit Date, Bill Date, Admission Date, Service Date). If the portal date matches ANY date value found anywhere in the document, return MATCH with documentLineMatches showing which field(s) matched.
 10. Confidence: 0.95+ for clear match/mismatch, 0.7-0.94 for high-probability comparison, below 0.7 for uncertain.
-11. documentLineMatches (only when status="MISMATCH" on a numeric/monetary field):
-    - Scan ALL pdfFields for any line items whose numeric value equals the portal value (ignore sign and formatting — e.g. portal "167.70" matches document line "-167.70" or "$167.70").
+11. documentLineMatches (when status="MISMATCH" on a numeric/monetary field, OR when a date field returns MATCH via the fallback scan in rule 9):
+    - Scan ALL pdfFields for any line items whose value equals the portal value (ignore sign and formatting for numeric — e.g. portal "167.70" matches document line "-167.70" or "$167.70"; ignore date format differences for dates).
     - For each match, return an object { "label": <pdf field name>, "value": <pdf field value as it appears> }.
     - Include MULTIPLE entries if the portal value appears in multiple line items.
-    - Omit the field entirely (or use an empty array) if status is not MISMATCH, or if the portal value does not appear anywhere else in the document.
+    - Omit the field entirely (or use an empty array) if the portal value does not appear anywhere else in the document.
     - Do NOT include the line that is already shown as pdfValue.
 
 Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.`;
