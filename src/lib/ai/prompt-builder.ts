@@ -75,7 +75,7 @@ FIELD COMPARISON RULES:
 5. UNCERTAIN: Cannot determine with reasonable confidence.
 6. ONLY compare the explicit field pairs provided in the Field Mappings section. Do NOT add extra field comparisons beyond those pairs.
 7. For monetary amounts, compare numerical values regardless of currency symbols.
-8. For dates, compare actual date regardless of format.
+8. For date fields: compare actual date regardless of format. Additionally, if the mapped document field has a different date, scan ALL other date fields in the PDF Extracted Fields (e.g., Visit Date, Bill Date, Admission Date, Service Date, Hospitalisation Period dates). If the portal date matches ANY date value found anywhere in the document, return MATCH — documents often have multiple dates (bill date vs visit date) and a match on any confirms the date is present.
 9. Confidence: 0.95+ for clear match/mismatch, 0.7-0.94 for probable, below 0.7 for uncertain.
 10. documentLineMatches (only when status="MISMATCH" on a numeric/monetary field):
     - Scan ALL PDF Extracted Fields for any line items whose numeric value equals the portal value (ignore sign and formatting — e.g. portal "167.70" matches document line "-167.70" or "$167.70").
