@@ -139,6 +139,21 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Grouping key**: `claimant + visit date` — two claims with the same claimant name on the same date are flagged as `DUPLICATE` `ValidationResult` with `WARNING` severity
 - **Model**: `ValidationResult` — `trackedItemId`, `ruleType: "DUPLICATE"`, `status`, `message`, `metadata` (stores dateField, patientField, duplicateItemIds)
 
+### Portal Tracker — Foreign Currency Conversion
+- **Purpose**: Detect foreign-currency amounts in extracted PDF fields, convert to SGD using the incurred date's exchange rate
+- **Code**: `src/lib/validations/currency.ts` — `checkForeignCurrency()`, called by `item-detail-extraction.ts` after PDF extraction
+- **Currency detection**: `src/lib/currency/detector.ts` — `parseCurrencyAmount()` matches 18 currency patterns (USD, EUR, GBP, MYR, etc.), `isDateField()` matches incurred/service/visit/billing date labels
+- **Date resolution**: `findIncurredDate()` collects all date fields from portal page + PDF data, returns highest-priority match using `DATE_FIELD_PRIORITY` (Incurred Date > Service Date > Visit Date > Invoice Date > Discharge Date). Falls back to today if no date field found
+- **Date parsing**: `parseDate()` handles ISO, DD/MM/YYYY, MM/DD/YYYY (disambiguates by range — if first number > 12 it's DD/MM, if second > 12 it's MM/DD, both ≤ 12 defaults DD/MM for SG locale), `DD Mon YYYY`, `Mon DD, YYYY`
+- **Rate providers** (in order): 
+  1. MAS API (`src/lib/currency/mas-rates.ts`) — official SG government historical rates, 18 currencies, date-accurate with 10-day lookback for holidays
+  2. ExchangeRate-API (`src/lib/currency/exchangerate-api.ts`) — 160+ currencies, tries historical endpoint first (`/history/SGD/{Y}/{M}/{D}`), falls back to latest if plan doesn't support history
+- **Orchestrator**: `resolveSgdRate()` in `src/lib/currency/index.ts` — MAS first, ExchangeRate-API fallback
+- **RateResult type**: `rate`, `actualDate`, `isFallback`, `isFuture`, `isHistorical`, `source` ("mas" | "exchangerate-api")
+- **Caching**: ExchangeRate-API uses bounded `dateCache` (max 60 entries, 1-hour TTL, LRU eviction) + `failedHistorical` negative cache (prevents repeated 403s on free plan from burning API quota)
+- **UI**: `comparison-column.tsx` shows badges — ESTIMATED (future), NEAREST DATE (MAS fallback), LIVE (exchangerate-api non-historical only)
+- **Env var**: `EXCHANGE_RATE_API_KEY` — optional, from https://www.exchangerate-api.com (free plan: 1,500 req/mo, paid plans support historical endpoint)
+
 ### Portal Tracker — Comparison Template Business Rules
 - **Save behavior**: Only drops rows with empty rule description. If category is blank, auto-fills to "General". This prevents accidental data loss when users add an empty row then click Save
 - **Zod validation**: `businessRuleSchema` requires `id`, `rule` (min 1), `category` (min 1), `severity` (enum). Client-side `handleSave` ensures all sent rules pass validation

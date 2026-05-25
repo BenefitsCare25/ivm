@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
-import { parseCurrencyAmount, isAmountField, isDateField, SGD_PATTERN } from "@/lib/currency/detector";
+import { parseCurrencyAmount, isAmountField, isDateField, DATE_FIELD_PRIORITY, SGD_PATTERN } from "@/lib/currency/detector";
 import { resolveSgdRate } from "@/lib/currency";
 
 export interface CurrencyConversionMetadata {
@@ -13,6 +13,7 @@ export interface CurrencyConversionMetadata {
   raw: string;
   isFallback: boolean;
   isFuture: boolean;
+  isHistorical: boolean;
   source: "mas" | "exchangerate-api";
 }
 
@@ -96,6 +97,7 @@ export async function checkForeignCurrency(
         raw: parsed.raw,
         isFallback: result.isFallback,
         isFuture: result.isFuture,
+        isHistorical: result.isHistorical,
         source: result.source,
       });
     } catch (err) {
@@ -117,7 +119,7 @@ export async function checkForeignCurrency(
           trackedItemId,
           ruleType: "CURRENCY_CONVERSION",
           status: "WARNING",
-          message: `${conv.fieldLabel}: ${conv.originalCurrency} ${conv.originalAmount.toFixed(2)} ≈ SGD ${conv.sgdAmount.toFixed(2)} (rate ${conv.rate.toFixed(4)} on ${conv.rateDate}${conv.isFuture ? " — estimated, future date" : conv.isFallback && conv.source === "mas" ? " — nearest MAS business day" : conv.source === "exchangerate-api" ? " — live rate" : ""})`,
+          message: `${conv.fieldLabel}: ${conv.originalCurrency} ${conv.originalAmount.toFixed(2)} ≈ SGD ${conv.sgdAmount.toFixed(2)} (rate ${conv.rate.toFixed(4)} on ${conv.rateDate}${conv.isFuture ? " — estimated, future date" : conv.isFallback && conv.source === "mas" ? " — nearest MAS business day" : conv.source === "exchangerate-api" && !conv.isHistorical ? " — live rate" : ""})`,
           metadata: JSON.parse(JSON.stringify(conv)),
         },
       })
@@ -132,47 +134,80 @@ const MONTH_ABBR: Record<string, string> = {
   jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
 };
 
-function findIncurredDate(fields: Record<string, string>): string | null {
-  for (const [key, value] of Object.entries(fields)) {
-    if (!isDateField(key) || !value) continue;
+function parseDate(value: string): string | null {
+  const cleaned = value.trim();
 
-    const cleaned = value.trim();
+  // YYYY-MM-DD (ISO)
+  if (/^\d{4}-\d{2}-\d{2}/.test(cleaned)) {
+    const iso = cleaned.slice(0, 10);
+    if (!isNaN(new Date(iso).getTime())) return iso;
+  }
 
-    // YYYY-MM-DD (ISO)
-    if (/^\d{4}-\d{2}-\d{2}/.test(cleaned)) {
-      const iso = cleaned.slice(0, 10);
+  // DD/MM/YYYY or MM/DD/YYYY — disambiguate by range
+  const slashed = cleaned.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (slashed) {
+    const [, a, b, yyyy] = slashed;
+    const n1 = parseInt(a, 10);
+    const n2 = parseInt(b, 10);
+
+    let dd: string, mm: string;
+    if (n2 > 12) {
+      // Second number can't be a month → must be MM/DD/YYYY
+      mm = a; dd = b;
+    } else if (n1 > 12) {
+      // First number can't be a month → must be DD/MM/YYYY
+      dd = a; mm = b;
+    } else {
+      // Both ≤ 12: ambiguous — default DD/MM (SG locale)
+      dd = a; mm = b;
+    }
+
+    const iso = `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+    if (!isNaN(new Date(iso).getTime())) return iso;
+  }
+
+  // DD Mon YYYY  (e.g. "20 Mar 2026")
+  const ddmonyyyy = cleaned.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/);
+  if (ddmonyyyy) {
+    const [, dd, mon, yyyy] = ddmonyyyy;
+    const mm = MONTH_ABBR[mon.toLowerCase()];
+    if (mm) {
+      const iso = `${yyyy}-${mm}-${dd.padStart(2, "0")}`;
       if (!isNaN(new Date(iso).getTime())) return iso;
-    }
-
-    // DD/MM/YYYY or DD-MM-YYYY
-    const ddmmyyyy = cleaned.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-    if (ddmmyyyy) {
-      const [, dd, mm, yyyy] = ddmmyyyy;
-      const iso = `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
-      if (!isNaN(new Date(iso).getTime())) return iso;
-    }
-
-    // DD Mon YYYY  (e.g. "20 Mar 2026")
-    const ddmonyyyy = cleaned.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/);
-    if (ddmonyyyy) {
-      const [, dd, mon, yyyy] = ddmonyyyy;
-      const mm = MONTH_ABBR[mon.toLowerCase()];
-      if (mm) {
-        const iso = `${yyyy}-${mm}-${dd.padStart(2, "0")}`;
-        if (!isNaN(new Date(iso).getTime())) return iso;
-      }
-    }
-
-    // Mon DD, YYYY  (e.g. "Mar 20, 2026")
-    const monddyyyy = cleaned.match(/^([A-Za-z]{3})\s+(\d{1,2}),?\s+(\d{4})$/);
-    if (monddyyyy) {
-      const [, mon, dd, yyyy] = monddyyyy;
-      const mm = MONTH_ABBR[mon.toLowerCase()];
-      if (mm) {
-        const iso = `${yyyy}-${mm}-${dd.padStart(2, "0")}`;
-        if (!isNaN(new Date(iso).getTime())) return iso;
-      }
     }
   }
+
+  // Mon DD, YYYY  (e.g. "Mar 20, 2026")
+  const monddyyyy = cleaned.match(/^([A-Za-z]{3})\s+(\d{1,2}),?\s+(\d{4})$/);
+  if (monddyyyy) {
+    const [, mon, dd, yyyy] = monddyyyy;
+    const mm = MONTH_ABBR[mon.toLowerCase()];
+    if (mm) {
+      const iso = `${yyyy}-${mm}-${dd.padStart(2, "0")}`;
+      if (!isNaN(new Date(iso).getTime())) return iso;
+    }
+  }
+
   return null;
+}
+
+function findIncurredDate(fields: Record<string, string>): string | null {
+  // Collect all parseable date fields
+  const candidates: { key: string; iso: string }[] = [];
+  for (const [key, value] of Object.entries(fields)) {
+    if (!isDateField(key) || !value) continue;
+    const iso = parseDate(value);
+    if (iso) candidates.push({ key, iso });
+  }
+
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0].iso;
+
+  // Return the highest-priority match
+  for (const pattern of DATE_FIELD_PRIORITY) {
+    const match = candidates.find((c) => pattern.test(c.key));
+    if (match) return match.iso;
+  }
+
+  return candidates[0].iso;
 }

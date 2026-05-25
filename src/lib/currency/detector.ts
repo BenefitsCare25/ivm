@@ -88,5 +88,27 @@ export function isAmountField(label: string): boolean {
 
 /** Returns true if a field label looks like a date field suitable for incurred date. */
 export function isDateField(label: string): boolean {
-  return /incurred|service.date|treatment.date|visit.date|admission.date|discharge.date|invoice.date|bill.date|date.of.(visit|service|treatment|admission|discharge)/i.test(label);
+  return /incurred|service.date|treatment.date|visit.date|admission.date|discharge.date|invoice.date|bill(ing)?.date|receipt.date|claim.date|consultation.date|procedure.date|transaction.date|statement.date|date.of.(visit|service|treatment|admission|discharge|claim|invoice|bill|loss|consultation|procedure)/i.test(label);
 }
+
+/**
+ * Priority-ordered patterns for date field labels.
+ * Earlier entries are preferred when multiple date fields exist.
+ */
+export const DATE_FIELD_PRIORITY: RegExp[] = [
+  /incurred/i,
+  /service.date|date.of.service/i,
+  /visit.date|date.of.visit/i,
+  /treatment.date|date.of.treatment/i,
+  /admission.date|date.of.admission/i,
+  /consultation.date|date.of.consultation/i,
+  /procedure.date|date.of.procedure/i,
+  /invoice.date|date.of.invoice/i,
+  /bill(ing)?.date|date.of.bill/i,
+  /receipt.date/i,
+  /claim.date|date.of.claim/i,
+  /transaction.date/i,
+  /statement.date/i,
+  /discharge.date|date.of.discharge/i,
+  /date.of.loss/i,
+];

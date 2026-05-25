@@ -25,12 +25,14 @@ const MAS_FIELD_MAP: Record<string, { field: string; units: number }> = {
 
 export interface RateResult {
   rate: number;
-  /** The date MAS actually published this rate (may differ from requested date). */
+  /** The date the rate was actually published (may differ from requested date). */
   actualDate: string;
   /** True if actualDate !== requestedDate — i.e. we fell back to a nearby business day. */
   isFallback: boolean;
   /** True if the requested date was after today — rate is an estimate only. */
   isFuture: boolean;
+  /** True if the rate is date-specific historical data (not a live/latest rate). */
+  isHistorical: boolean;
   /** Which API sourced this rate. */
   source: "mas" | "exchangerate-api";
 }
@@ -93,6 +95,7 @@ export async function getSgdRate(currencyCode: string, date: string): Promise<Ra
         actualDate,
         isFallback: actualDate !== date,
         isFuture,
+        isHistorical: true,
         source: "mas",
       };
 

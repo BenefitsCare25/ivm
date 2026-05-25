@@ -205,6 +205,7 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                 fieldLabel?: string;
                 isFallback?: boolean;
                 isFuture?: boolean;
+                isHistorical?: boolean;
                 source?: "mas" | "exchangerate-api";
               } | null;
               return (
@@ -236,7 +237,7 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                               NEAREST DATE
                             </span>
                           )}
-                          {meta.source === "exchangerate-api" && (
+                          {meta.source === "exchangerate-api" && !meta.isHistorical && (
                             <span className="ml-1.5 inline-block rounded px-1 py-0.5 text-[9px] font-semibold bg-emerald-500/20 text-emerald-400">
                               LIVE
                             </span>
