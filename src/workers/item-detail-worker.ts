@@ -14,7 +14,6 @@ import {
   type ItemDetailJobResult,
 } from "@/lib/queue/item-detail-queue";
 import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-queue";
-import { runCrossItemChecks } from "@/lib/validations/cross-item";
 import { runFullCleanup } from "@/lib/storage/cleanup";
 import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
 import { toInputJson } from "@/lib/utils";
@@ -45,9 +44,6 @@ async function finalizeIfComplete(
 ): Promise<void> {
   if (session.itemsProcessed === session.itemsFound && session.itemsFound > 0) {
     await db.scrapeSession.update({ where: { id: session.id }, data: { completedAt: new Date() } });
-    runCrossItemChecks(session.id).catch((err) =>
-      logger.error({ err, sessionId: session.id }, "[worker] Cross-item checks failed")
-    );
     snapshotPortalDayAsync(session.portalId, session.createdAt, trigger);
   }
 }

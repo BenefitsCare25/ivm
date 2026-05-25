@@ -7,7 +7,6 @@ import {
   type ItemDetailJobData,
 } from "@/lib/queue/item-detail-queue";
 import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
-import { runCrossItemChecks } from "@/lib/validations/cross-item";
 
 export async function recoverStuckItems(): Promise<void> {
   const stuck = await db.trackedItem.findMany({
@@ -137,9 +136,6 @@ export async function handleFinalFailure(
         where: { id: item.scrapeSessionId },
         data: { completedAt: new Date() },
       });
-      runCrossItemChecks(item.scrapeSessionId).catch((err) =>
-        logger.error({ err, sessionId: item.scrapeSessionId }, "[worker] Cross-item checks failed")
-      );
       snapshotPortalDayAsync(updated.portalId, updated.createdAt, "final-failure");
     }
   } catch (dbErr) {
