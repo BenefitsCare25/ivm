@@ -86,11 +86,12 @@ FIELD COMPARISON RULES:
 
 BUSINESS RULE EVALUATION:
 1. Evaluate each rule against ALL available data (portal fields, PDF fields, document types).
-2. PASS: The condition is satisfied.
+2. PASS: The condition is satisfied — the claim complies with the rule.
 3. FAIL: The condition is violated — provide specific evidence.
 4. WARNING: The condition may be violated but evidence is ambiguous.
 5. NOT_APPLICABLE: The rule does not apply to this data (e.g., "check CPF deduction" when there is no CPF deduction).
 6. Always provide evidence — cite specific values from the data.
+7. EXCEPTION HANDLING: If a rule contains an exception or exemption clause (e.g., "required EXCEPT for X", "not needed for follow-up visits"), and the current claim satisfies the exception condition, return PASS — the claim is compliant because the exception applies. Do NOT return WARNING or FAIL just because an exception was triggered. Exceeding a requirement (e.g., submitting a referral letter even when not required for a follow-up) is not a violation.
 
 REQUIRED DOCUMENTS CHECK:
 1. Check if each required document type appears in the "Documents found" list.
