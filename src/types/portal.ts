@@ -184,11 +184,32 @@ export const MATCH_MODE_LABELS: Record<MatchMode, string> = {
   numeric: "Numeric (with tolerance)",
 };
 
+// Identifiers, dates, and codes must NOT default to numeric — e.g. an invoice
+// number or a "Due Date" should stay exact/fuzzy, not be parsed as a number.
+const NON_NUMERIC_FIELD_RE = /\b(no\.?|num(ber)?|id|code|ref(erence)?|date|type|name|status|description|remarks?|address|gender|nric|passport)\b/;
+// Monetary amount words, matched on word boundaries so "sum"≠"summary", "tax"≠… etc.
+const AMOUNT_FIELD_RE = /\b(amount|total|subtotal|balance|payable|receipt|fee|charge|price|cost|gst|paid|co-?pay|deductible|premium|settlement|reimburs\w*|outstanding)\b/;
+
+/**
+ * Suggest a default match mode + tolerance from a field name. Monetary-looking
+ * fields default to numeric (0.01 cent tolerance) so formatting differences
+ * ("$169.60" vs "169.6") never produce false mismatches. Identifier/date fields
+ * are explicitly excluded so they keep fuzzy/exact semantics.
+ */
+export function inferDefaultMode(fieldName: string): { mode: MatchMode; tolerance?: number } {
+  const lower = fieldName.toLowerCase();
+  if (NON_NUMERIC_FIELD_RE.test(lower)) return { mode: "fuzzy" };
+  if (AMOUNT_FIELD_RE.test(lower)) return { mode: "numeric", tolerance: 0.01 };
+  return { mode: "fuzzy" };
+}
+
 export interface TemplateField {
   portalFieldName: string;
   documentFieldName: string;
   mode: MatchMode;
   tolerance?: number;
+  /** Re-verify a MISMATCH on this field against the source document with vision. */
+  verifyWithVision?: boolean;
 }
 
 // ─── Required Documents ────────────────────────────────────────
@@ -221,11 +242,60 @@ export const BUSINESS_RULE_CATEGORIES = [
   "Compliance Check",
 ] as const;
 
+// Rule evaluation engine: "ai" = natural-language judged by the model,
+// "code" = deterministic field/operator/value check evaluated in code.
+export const BUSINESS_RULE_TYPES = ["ai", "code"] as const;
+export type BusinessRuleType = (typeof BUSINESS_RULE_TYPES)[number];
+
+export const CODE_RULE_OPERATORS = [
+  "eq", "ne", "gt", "gte", "lt", "lte", "is_empty", "not_empty",
+] as const;
+export type CodeRuleOperator = (typeof CODE_RULE_OPERATORS)[number];
+
+export const CODE_RULE_OPERATOR_LABELS: Record<CodeRuleOperator, string> = {
+  eq: "= equals",
+  ne: "≠ not equal",
+  gt: "> greater than",
+  gte: "≥ greater or equal",
+  lt: "< less than",
+  lte: "≤ less or equal",
+  is_empty: "is empty",
+  not_empty: "is not empty",
+};
+
+/** Operators that compare against a value/field; the rest are unary. */
+export const CODE_RULE_BINARY_OPERATORS: CodeRuleOperator[] = ["eq", "ne", "gt", "gte", "lt", "lte"];
+
 export interface BusinessRule {
   id: string;
   rule: string;
   category: string;
   severity: BusinessRuleSeverity;
+  /** Defaults to "ai" when omitted (back-compat with existing templates). */
+  type?: BusinessRuleType;
+  /** Re-verify a flagged result against the source document with a vision model. */
+  verifyWithVision?: boolean;
+  // ── Code-rule fields (only when type === "code") ──
+  /** Field name to evaluate (matched against portal + document fields). */
+  field?: string;
+  operator?: CodeRuleOperator;
+  /** Literal value to compare against (for binary operators). */
+  value?: string;
+  /** Alternative to `value` — compare against another field's value. */
+  compareField?: string;
+}
+
+// ─── Vision Verification (selective re-check) ──────────────────
+
+export const VISION_VERDICTS = ["CONFIRMED", "REFUTED", "UNCERTAIN"] as const;
+export type VisionVerdict = (typeof VISION_VERDICTS)[number];
+
+export interface VisionVerification {
+  verdict: VisionVerdict;
+  explanation: string;
+  /** File the verification was run against. */
+  sourceFile?: string;
+  model?: string;
 }
 
 // ─── AI Response Types (business rules + required docs) ────────
@@ -236,6 +306,10 @@ export interface BusinessRuleResult {
   status: "PASS" | "FAIL" | "WARNING" | "NOT_APPLICABLE";
   evidence: string;
   notes?: string;
+  /** Set for deterministic code-rule results so they pair to their source rule precisely. */
+  ruleId?: string;
+  /** Set when the result was re-checked against the source document with vision. */
+  visionVerification?: VisionVerification;
 }
 
 export interface RequiredDocumentCheck {
@@ -333,6 +407,8 @@ export interface FieldComparison {
   sourceFile?: string;
   /** When status=MISMATCH, optional list of document line items where the portal value was found */
   documentLineMatches?: DocumentLineMatch[];
+  /** Set when a MISMATCH was re-checked against the source document with vision. */
+  visionVerification?: VisionVerification;
 }
 
 export interface ComparisonResultSummary {

@@ -106,6 +106,9 @@ Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.`
 export function buildFullComparisonUserPrompt(config: FullPromptConfig): string {
   const { fields, businessRules, requiredDocuments, pageFields, pdfFields, documentTypesFound } = config;
 
+  // Code rules are evaluated deterministically in-process, not by the model.
+  const aiRules = businessRules.filter((r) => r.type !== "code");
+
   const fieldMappingLines = fields.map((f) => {
     const modeDesc =
       f.mode === "exact"
@@ -116,7 +119,7 @@ export function buildFullComparisonUserPrompt(config: FullPromptConfig): string 
     return `- Portal "${f.portalFieldName}" ↔ Document "${f.documentFieldName}" — ${modeDesc}`;
   });
 
-  const ruleLines = businessRules.map(
+  const ruleLines = aiRules.map(
     (r, i) => `${i + 1}. [${BUSINESS_RULE_SEVERITY_LABELS[r.severity]}] ${r.rule}`
   );
 
@@ -133,7 +136,7 @@ export function buildFullComparisonUserPrompt(config: FullPromptConfig): string 
     prompt += `\n## 1. Field Mappings (compare ONLY these pairs)\nIMPORTANT: Only compare the field pairs listed below. Do NOT compare any other fields — ignore all fields not listed here.\n${fieldMappingLines.join("\n")}\n`;
   }
 
-  if (businessRules.length > 0) {
+  if (aiRules.length > 0) {
     prompt += `\n## 2. Business Rules (evaluate each against ALL available data)\n${ruleLines.join("\n")}\n`;
   }
 
@@ -143,7 +146,7 @@ export function buildFullComparisonUserPrompt(config: FullPromptConfig): string 
 
   prompt += `\n## Portal Page Fields\n${JSON.stringify(pageFields)}\n`;
   prompt += `\n## PDF Extracted Fields\n${compactFields(pdfFields)}\n`;
-  prompt += `\nReturn the JSON comparison result with fieldComparisons${businessRules.length > 0 ? ", businessRuleResults" : ""}${requiredDocuments.length > 0 ? ", requiredDocumentsCheck" : ""}, and summary.`;
+  prompt += `\nReturn the JSON comparison result with fieldComparisons${aiRules.length > 0 ? ", businessRuleResults" : ""}${requiredDocuments.length > 0 ? ", requiredDocumentsCheck" : ""}, and summary.`;
 
   return prompt;
 }

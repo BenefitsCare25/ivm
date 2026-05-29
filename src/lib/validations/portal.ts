@@ -117,6 +117,7 @@ export const templateFieldSchema = z.object({
   documentFieldName: z.string().min(1).max(200),
   mode: z.enum(["fuzzy", "exact", "numeric"]),
   tolerance: z.number().min(0).max(1000).optional(),
+  verifyWithVision: z.boolean().optional(),
 });
 
 export const requiredDocumentSchema = z.object({
@@ -125,12 +126,30 @@ export const requiredDocumentSchema = z.object({
   group: z.string().max(100).optional(),
 });
 
-export const businessRuleSchema = z.object({
-  id: z.string().min(1).max(50),
-  rule: z.string().min(1).max(1000),
-  category: z.string().min(1).max(200),
-  severity: z.enum(["critical", "warning", "info"]),
-});
+export const businessRuleSchema = z
+  .object({
+    id: z.string().min(1).max(50),
+    // Code rules can have an empty description (the field/operator/value is the rule),
+    // so `rule` is only required for AI rules — enforced in the refinement below.
+    rule: z.string().max(1000).default(""),
+    category: z.string().min(1).max(200),
+    severity: z.enum(["critical", "warning", "info"]),
+    type: z.enum(["ai", "code"]).optional(),
+    verifyWithVision: z.boolean().optional(),
+    field: z.string().max(200).optional(),
+    operator: z
+      .enum(["eq", "ne", "gt", "gte", "lt", "lte", "is_empty", "not_empty"])
+      .optional(),
+    value: z.string().max(500).optional(),
+    compareField: z.string().max(200).optional(),
+  })
+  .refine(
+    (r) =>
+      r.type === "code"
+        ? !!r.field && !!r.operator
+        : r.rule.trim().length > 0,
+    { message: "AI rules need a description; code rules need a field and operator" }
+  );
 
 export const createComparisonTemplateSchema = z.object({
   name: z.string().min(1).max(200),

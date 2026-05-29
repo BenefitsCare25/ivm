@@ -219,18 +219,24 @@ export function filterFieldsByTemplate(
  * LLMs may return extra comparisons beyond what was requested — this enforces the template.
  * Matches by checking if the AI's fieldName starts with or equals a configured portalFieldName.
  */
+/**
+ * Whether an AI-returned comparison field name corresponds to a configured portal
+ * field. Allows the combined-name forms the model emits (e.g. "Claim Amount / Total").
+ * Shared so the template filter and vision re-check resolve fields identically.
+ */
+export function fieldNameMatchesPortal(comparisonFieldName: string, portalFieldName: string): boolean {
+  const name = comparisonFieldName.toLowerCase().trim();
+  const allowed = portalFieldName.toLowerCase().trim();
+  return name === allowed || name.startsWith(allowed + " /") || name.startsWith(allowed + "/");
+}
+
 export function filterComparisonsByTemplate(
   fieldComparisons: FieldComparison[],
   templateFields: TemplateField[]
 ): FieldComparison[] {
   if (templateFields.length === 0) return fieldComparisons;
 
-  const allowedNames = templateFields.map((f) => f.portalFieldName.toLowerCase().trim());
-
-  return fieldComparisons.filter((fc) => {
-    const name = fc.fieldName.toLowerCase().trim();
-    return allowedNames.some(
-      (allowed) => name === allowed || name.startsWith(allowed + " /") || name.startsWith(allowed + "/")
-    );
-  });
+  return fieldComparisons.filter((fc) =>
+    templateFields.some((tf) => fieldNameMatchesPortal(fc.fieldName, tf.portalFieldName))
+  );
 }

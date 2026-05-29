@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { MatchMode, TemplateField, ProviderGroupSummary } from "@/types/portal";
-import { MATCH_MODE_LABELS } from "@/types/portal";
+import { MATCH_MODE_LABELS, inferDefaultMode } from "@/types/portal";
 
 interface FieldOption {
   name: string;
@@ -43,7 +43,11 @@ export function ComparisonTemplateModal({
 
   function addField(name: string) {
     if (selectedFields.some((f) => f.portalFieldName === name)) return;
-    setSelectedFields((prev) => [...prev, { portalFieldName: name, documentFieldName: name, mode: "fuzzy" }]);
+    const inferred = inferDefaultMode(name);
+    setSelectedFields((prev) => [
+      ...prev,
+      { portalFieldName: name, documentFieldName: name, mode: inferred.mode, ...(inferred.tolerance !== undefined ? { tolerance: inferred.tolerance } : {}) },
+    ]);
   }
 
   function removeField(name: string) {

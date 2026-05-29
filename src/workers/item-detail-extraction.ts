@@ -16,6 +16,8 @@ export interface ExtractionResult {
   pdfFieldSources: Record<string, string>;
   fileExtractions: { fileName: string; documentType: string; fields: { label: string; value: string }[] }[];
   tamperingTargets: { fileName: string; fileHash: string }[];
+  /** Buffers downloaded during extraction, keyed by storagePath — reused for vision re-checks. */
+  fileBuffers: Map<string, Buffer>;
   cachedDocTypes?: DocTypeRecord[];
 }
 
@@ -47,6 +49,7 @@ export async function runExtraction({
   const pdfFieldSources: Record<string, string> = {};
   const fileExtractions: ExtractionResult["fileExtractions"] = [];
   const tamperingTargets: ExtractionResult["tamperingTargets"] = [];
+  const fileBuffers = new Map<string, Buffer>();
 
   for (const file of downloadedFiles) {
     if (file.mimeType === "application/pdf" || file.mimeType.startsWith("image/")) {
@@ -60,6 +63,7 @@ export async function runExtraction({
         const { getStorageAdapter } = await import("@/lib/storage");
         const storage = getStorageAdapter();
         const fileBuffer = await storage.download(file.storagePath);
+        fileBuffers.set(file.storagePath, fileBuffer);
 
         const fileHash = createHash("sha256").update(fileBuffer).digest("hex");
         await db.trackedItemFile.updateMany({
@@ -118,7 +122,7 @@ export async function runExtraction({
     }
   }
 
-  return { pdfFields, pdfRawFields, pdfFieldSources, fileExtractions, tamperingTargets, cachedDocTypes };
+  return { pdfFields, pdfRawFields, pdfFieldSources, fileExtractions, tamperingTargets, fileBuffers, cachedDocTypes };
 }
 
 export async function runIntelligencePipeline({

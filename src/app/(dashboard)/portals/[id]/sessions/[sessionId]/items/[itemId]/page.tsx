@@ -85,6 +85,7 @@ export default async function ItemDetailPage({
     status: ComparisonFieldStatus;
     confidence: number;
     notes?: string;
+    visionVerification?: { verdict: string; explanation: string; sourceFile?: string };
   }>;
 
   return (

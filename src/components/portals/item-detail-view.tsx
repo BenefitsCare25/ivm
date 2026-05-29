@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Download, CheckCircle2, XCircle, AlertTriangle, ShieldAlert, ShieldCheck } from "lucide-react";
+import { FileText, Download, CheckCircle2, XCircle, AlertTriangle, ShieldAlert, ShieldCheck, Eye } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ComparisonStatusBadge } from "./portal-status-badge";
@@ -16,6 +16,12 @@ interface FileData {
   downloadedAt: string | null;
 }
 
+interface VisionVerification {
+  verdict: string;
+  explanation: string;
+  sourceFile?: string;
+}
+
 interface ComparisonField {
   fieldName: string;
   pageValue: string | null;
@@ -23,6 +29,7 @@ interface ComparisonField {
   status: ComparisonFieldStatus;
   confidence: number;
   notes?: string;
+  visionVerification?: VisionVerification;
 }
 
 interface ComparisonData {
@@ -252,7 +259,18 @@ export function ItemDetailView({ item, portalId, sessionId, validations }: ItemD
                             {field.pdfValue ?? "—"}
                           </td>
                           <td className="px-3 py-2">
-                            <ComparisonStatusBadge status={field.status} />
+                            <div className="flex items-center gap-1.5">
+                              <ComparisonStatusBadge status={field.status} />
+                              {field.visionVerification && (
+                                <span
+                                  title={`Vision ${field.visionVerification.verdict}: ${field.visionVerification.explanation}`}
+                                  className="inline-flex items-center gap-0.5 rounded bg-accent/10 px-1 py-0.5 text-[10px] font-medium text-accent"
+                                >
+                                  <Eye className="h-3 w-3" />
+                                  {field.visionVerification.verdict}
+                                </span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -299,6 +317,8 @@ export function ItemDetailView({ item, portalId, sessionId, validations }: ItemD
                       icon: AlertTriangle,
                       cls: "text-muted-foreground",
                     };
+                    const severity = typeof v.metadata?.severity === "string" ? v.metadata.severity : null;
+                    const vision = v.metadata?.visionVerification as VisionVerification | undefined;
                     return (
                       <div
                         key={v.id}
@@ -307,12 +327,28 @@ export function ItemDetailView({ item, portalId, sessionId, validations }: ItemD
                         <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${cls}`} />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-foreground">{v.message}</p>
-                          <Badge
-                            variant={v.status === "FAIL" ? "error" : "secondary"}
-                            className="mt-1 text-xs"
-                          >
-                            {FWA_RULE_LABELS[v.ruleType] ?? formatFieldLabel(v.ruleType)}
-                          </Badge>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <Badge
+                              variant={v.status === "FAIL" ? "error" : "secondary"}
+                              className="text-xs"
+                            >
+                              {FWA_RULE_LABELS[v.ruleType] ?? formatFieldLabel(v.ruleType)}
+                            </Badge>
+                            {severity && (
+                              <Badge variant="outline" className="text-xs uppercase">
+                                {severity}
+                              </Badge>
+                            )}
+                            {vision && (
+                              <span
+                                title={`Vision ${vision.verdict}: ${vision.explanation}`}
+                                className="inline-flex items-center gap-0.5 rounded bg-accent/10 px-1 py-0.5 text-[10px] font-medium text-accent"
+                              >
+                                <Eye className="h-3 w-3" />
+                                {vision.verdict}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );

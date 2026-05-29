@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2, Loader2, Save } from "lucide-react";
+import { Plus, Trash2, Loader2, Save, Eye } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { TemplateField, MatchMode } from "@/types/portal";
+import { inferDefaultMode } from "@/types/portal";
 
 const MODES: { value: MatchMode; label: string }[] = [
   { value: "fuzzy", label: "Fuzzy" },
@@ -34,7 +35,27 @@ export function TemplateFieldMappings({ fields: initial, saving, onSave }: Props
   }
 
   function updateField(idx: number, patch: Partial<TemplateField>) {
-    setFields((prev) => prev.map((f, i) => (i === idx ? { ...f, ...patch } : f)));
+    setFields((prev) =>
+      prev.map((f, i) => {
+        if (i !== idx) return f;
+        const next = { ...f, ...patch };
+        // When a field is first named, auto-default amount-like fields to numeric
+        // (so "$169.60" vs "169.6" never falsely mismatches). Only on the initial
+        // naming and only while the mode is still the untouched default.
+        if (patch.portalFieldName !== undefined && !f.portalFieldName.trim() && patch.portalFieldName.trim() && f.mode === "fuzzy") {
+          const inferred = inferDefaultMode(patch.portalFieldName);
+          next.mode = inferred.mode;
+          if (inferred.tolerance !== undefined) next.tolerance = inferred.tolerance;
+        }
+        return next;
+      })
+    );
+  }
+
+  function toggleVision(idx: number) {
+    setFields((prev) =>
+      prev.map((f, i) => (i === idx ? { ...f, verifyWithVision: !f.verifyWithVision } : f))
+    );
   }
 
   function handleSave() {
@@ -60,6 +81,7 @@ export function TemplateFieldMappings({ fields: initial, saving, onSave }: Props
         </div>
         <p className="text-xs text-muted-foreground">
           Map portal field names to document field names. Only these fields will be AI-compared.
+          Amount-like fields default to <strong>Numeric</strong> so formatting differences never falsely mismatch.
         </p>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -69,14 +91,15 @@ export function TemplateFieldMappings({ fields: initial, saving, onSave }: Props
           </p>
         ) : (
           <>
-            <div className="grid grid-cols-[1fr_1fr_80px_28px] gap-1.5 text-xs font-medium text-muted-foreground px-1">
+            <div className="grid grid-cols-[1fr_1fr_80px_32px_28px] gap-1.5 text-xs font-medium text-muted-foreground px-1">
               <span>Portal field</span>
               <span>Document field</span>
               <span>Mode</span>
+              <span title="Re-verify a mismatch against the source document with a vision model">Vision</span>
               <span />
             </div>
             {fields.map((f, idx) => (
-              <div key={idx} className="grid grid-cols-[1fr_1fr_80px_28px] gap-1.5 items-center">
+              <div key={idx} className="grid grid-cols-[1fr_1fr_80px_32px_28px] gap-1.5 items-center">
                 <Input
                   value={f.portalFieldName}
                   onChange={(e) => updateField(idx, { portalFieldName: e.target.value })}
@@ -98,6 +121,19 @@ export function TemplateFieldMappings({ fields: initial, saving, onSave }: Props
                     <option key={m.value} value={m.value}>{m.label}</option>
                   ))}
                 </select>
+                <button
+                  type="button"
+                  onClick={() => toggleVision(idx)}
+                  title={f.verifyWithVision ? "Vision re-check ON — mismatches are re-verified against the document" : "Enable vision re-check on mismatch"}
+                  aria-pressed={f.verifyWithVision ?? false}
+                  className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
+                    f.verifyWithVision
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-border text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                </button>
                 <Button
                   variant="ghost"
                   size="sm"

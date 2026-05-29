@@ -6,11 +6,14 @@ import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { compareFields } from "@/lib/ai/comparison";
 import { getFullComparisonSystemPrompt, buildFullComparisonUserPrompt } from "@/lib/ai/prompt-builder";
 import { filterFieldsByTemplate, itemMatchesGroupingKey, filterComparisonsByTemplate } from "@/lib/comparison-templates";
+import { withCodeRuleResults } from "@/lib/business-rules/evaluate-code-rules";
+import { buildBusinessRuleValidations } from "@/lib/business-rules/persist";
+import { runVisionChecks, type VisionCheckFile } from "@/lib/ai/vision-checks";
 import { annotateSourceFiles } from "@/workers/item-detail-comparison";
 import { toInputJson } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
-import type { TemplateField, RequiredDocument, BusinessRule, BusinessRuleResult, RequiredDocumentCheck } from "@/types/portal";
+import type { TemplateField, RequiredDocument, BusinessRule, RequiredDocumentCheck } from "@/types/portal";
 
 export async function POST(
   req: NextRequest,
@@ -62,6 +65,7 @@ export async function POST(
       },
       include: {
         comparisonResult: true,
+        files: true,
       },
     });
 
@@ -77,14 +81,13 @@ export async function POST(
       return NextResponse.json({ recompared: 0 });
     }
 
-    const { provider, apiKey, textModel, baseURL, displayProvider } = await resolveProviderAndKey(session.user.id);
+    const { provider, apiKey, textModel, visionModel, baseURL, displayProvider } = await resolveProviderAndKey(session.user.id);
     const templateFields = template.fields as unknown as TemplateField[];
     const templateRequiredDocuments = template.requiredDocuments as unknown as RequiredDocument[];
     const templateBusinessRules = template.businessRules as unknown as BusinessRule[];
     const resolvedTemplateId = template.id;
     const useFullPrompt = templateBusinessRules.length > 0 || templateRequiredDocuments.length > 0;
 
-    const brByRuleMap = new Map(templateBusinessRules.map((br) => [br.rule, br]));
     const rdByNameMap = new Map(templateRequiredDocuments.map((rd) => [rd.documentTypeName, rd]));
     const CONCURRENCY = 5;
     let recompared = 0;
@@ -149,6 +152,46 @@ export async function POST(
 
       result.fieldComparisons = annotateSourceFiles(result.fieldComparisons, pdfFieldSources);
 
+      // Merge deterministic code-rule results (evaluated in-process). Note: recompare
+      // only has the previously-compared PDF fields available (files are not re-extracted),
+      // so a code rule referencing an un-mapped PDF field resolves to NOT_APPLICABLE here.
+      const mergedData = {
+        ...filteredPdfFields,
+        ...((item.listData as Record<string, string>) ?? {}),
+        ...detailData,
+      };
+      result.businessRuleResults = withCodeRuleResults(
+        result.businessRuleResults,
+        templateBusinessRules,
+        mergedData
+      );
+
+      // Selective vision re-verification — same path as the worker, using the
+      // item's stored files (skipped gracefully if files were cleaned by retention).
+      const visionFiles: VisionCheckFile[] = item.files
+        .filter((f) => f.mimeType === "application/pdf" || f.mimeType.startsWith("image/"))
+        .map((f) => ({ originalName: f.originalName, storagePath: f.storagePath, mimeType: f.mimeType }));
+      if (
+        visionFiles.length > 0 &&
+        (templateFields.some((f) => f.verifyWithVision) || templateBusinessRules.some((r) => r.verifyWithVision))
+      ) {
+        try {
+          await runVisionChecks({
+            comparisonResult: result,
+            fields: templateFields,
+            businessRules: templateBusinessRules,
+            files: visionFiles,
+            pdfFieldSources,
+            provider,
+            apiKey,
+            visionModel,
+            baseURL,
+          });
+        } catch (visionErr) {
+          logger.warn({ err: visionErr, itemId: item.id }, "[recompare] Vision verification failed (non-fatal)");
+        }
+      }
+
       const comparisonData = {
         provider: displayProvider,
         templateId: resolvedTemplateId,
@@ -173,28 +216,23 @@ export async function POST(
         },
       });
 
+      const { validations: ruleValidations, anyFlag: ruleFlag } = buildBusinessRuleValidations(
+        templateBusinessRules,
+        result.businessRuleResults ?? []
+      );
+
       const validationInserts = [
-        ...(result.businessRuleResults ?? [])
-          .filter((r: BusinessRuleResult) => r.status !== "PASS")
-          .map((r: BusinessRuleResult) => {
-            const matchedRule = brByRuleMap.get(r.rule);
-            return db.validationResult.create({
-              data: {
-                trackedItemId: item.id,
-                ruleType: "BUSINESS_RULE",
-                status: r.status === "FAIL" ? "FAIL" : "WARNING",
-                message: `${r.category}: ${r.rule}`,
-                metadata: toInputJson({
-                  rule: r.rule,
-                  category: r.category,
-                  severity: matchedRule?.severity ?? "warning",
-                  evidence: r.evidence,
-                  notes: r.notes,
-                  aiStatus: r.status,
-                }),
-              },
-            });
-          }),
+        ...ruleValidations.map((v) =>
+          db.validationResult.create({
+            data: {
+              trackedItemId: item.id,
+              ruleType: v.ruleType,
+              status: v.status,
+              message: v.message,
+              metadata: toInputJson(v.metadata),
+            },
+          })
+        ),
         ...(result.requiredDocumentsCheck ?? [])
           .filter((d: RequiredDocumentCheck) => !d.found)
           .map((d: RequiredDocumentCheck) => {
@@ -217,11 +255,10 @@ export async function POST(
       if (validationInserts.length > 0) await Promise.all(validationInserts);
 
       const hasMismatch = result.mismatchCount > 0;
-      const hasRuleFailure = result.businessRuleResults?.some((r: BusinessRuleResult) => r.status === "FAIL") ?? false;
       const hasMissingDoc = result.requiredDocumentsCheck?.some((d: RequiredDocumentCheck) => !d.found) ?? false;
       await db.trackedItem.update({
         where: { id: item.id },
-        data: { status: (hasMismatch || hasRuleFailure || hasMissingDoc) ? "FLAGGED" : "COMPARED" },
+        data: { status: (hasMismatch || ruleFlag || hasMissingDoc) ? "FLAGGED" : "COMPARED" },
       });
       return true;
     }
@@ -230,11 +267,11 @@ export async function POST(
       const batch = matchingItems.slice(i, i + CONCURRENCY);
       const results = await Promise.allSettled(batch.map(processOne));
       recompared += results.filter((r) => r.status === "fulfilled" && r.value === true).length;
-      results
-        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
-        .forEach((r, idx) => {
+      results.forEach((r, idx) => {
+        if (r.status === "rejected") {
           logger.warn({ err: r.reason, itemId: batch[idx].id }, "[recompare] Failed to recompare item");
-        });
+        }
+      });
     }
 
     if (recompared > 0) {

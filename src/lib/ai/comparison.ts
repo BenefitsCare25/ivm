@@ -50,32 +50,49 @@ export async function compareFields(
       ? getTemplatedComparisonUserPrompt(request.pageFields, request.pdfFields, request.templateFields)
       : getComparisonUserPrompt(request.pageFields, request.pdfFields));
 
-  let rawText: string;
+  let result: { text: string; truncated: boolean };
 
   if (provider === "anthropic" || provider === "azure-foundry") {
-    rawText = await compareWithAnthropic(request, userPrompt);
+    result = await compareWithAnthropic(request, userPrompt);
   } else if (provider === "openai") {
-    rawText = await compareWithOpenAI(request, userPrompt);
+    result = await compareWithOpenAI(request, userPrompt);
   } else if (provider === "gemini") {
-    rawText = await compareWithGemini(request, userPrompt);
+    result = await compareWithGemini(request, userPrompt);
   } else {
     throw new AppError(`Unsupported provider: ${provider}`, 400, "UNSUPPORTED_PROVIDER");
   }
 
-  const parsed = parseComparisonResponse(rawText);
+  if (result.truncated) {
+    logger.error(
+      { provider, hasFullPrompt: !!request.systemPromptOverride },
+      "[ai] Comparison response truncated (max_tokens) — result would be incomplete"
+    );
+    throw new AppError(
+      "AI comparison response was truncated (hit token limit). Reduce the number of fields/rules in this template or split the claim type.",
+      500,
+      "AI_RESPONSE_TRUNCATED"
+    );
+  }
+
+  const parsed = parseComparisonResponse(result.text);
 
   logger.info(
     { matchCount: parsed.matchCount, mismatchCount: parsed.mismatchCount },
     "[ai] Field comparison completed"
   );
 
-  return { ...parsed, rawResponse: rawText };
+  return { ...parsed, rawResponse: result.text };
 }
 
-async function compareWithAnthropic(request: ComparisonRequest, userPrompt: string): Promise<string> {
+// Full prompts (business rules + required docs + many fields) can produce large
+// JSON; give them ample headroom so the response is never silently truncated.
+const FULL_PROMPT_MAX_TOKENS = 16384;
+const BASIC_MAX_TOKENS = 4096;
+
+async function compareWithAnthropic(request: ComparisonRequest, userPrompt: string): Promise<{ text: string; truncated: boolean }> {
   const client = new Anthropic({ apiKey: request.apiKey, ...(request.baseURL ? { baseURL: request.baseURL } : {}) });
   const timeout = request.baseURL ? 180_000 : 60_000; // CLI proxy needs more time; full prompts with business rules can be large
-  const maxTokens = request.systemPromptOverride ? 8192 : 4096;
+  const maxTokens = request.systemPromptOverride ? FULL_PROMPT_MAX_TOKENS : BASIC_MAX_TOKENS;
 
   const response = await client.messages.create(
     {
@@ -91,13 +108,13 @@ async function compareWithAnthropic(request: ComparisonRequest, userPrompt: stri
   if (!textBlock || textBlock.type !== "text") {
     throw new AppError("AI returned no text response", 500, "AI_EMPTY_RESPONSE");
   }
-  return textBlock.text;
+  return { text: textBlock.text, truncated: response.stop_reason === "max_tokens" };
 }
 
-async function compareWithOpenAI(request: ComparisonRequest, userPrompt: string): Promise<string> {
+async function compareWithOpenAI(request: ComparisonRequest, userPrompt: string): Promise<{ text: string; truncated: boolean }> {
   const client = new OpenAI({ apiKey: request.apiKey, ...(request.baseURL ? { baseURL: request.baseURL } : {}) });
   const timeout = request.baseURL ? 180_000 : 60_000; // CLI proxy needs more time; full prompts with business rules can be large
-  const maxTokens = request.systemPromptOverride ? 8192 : 4096;
+  const maxTokens = request.systemPromptOverride ? FULL_PROMPT_MAX_TOKENS : BASIC_MAX_TOKENS;
 
   const response = await client.chat.completions.create(
     {
@@ -111,10 +128,13 @@ async function compareWithOpenAI(request: ComparisonRequest, userPrompt: string)
     { signal: AbortSignal.timeout(timeout) }
   );
 
-  return response.choices[0]?.message?.content ?? "";
+  return {
+    text: response.choices[0]?.message?.content ?? "",
+    truncated: response.choices[0]?.finish_reason === "length",
+  };
 }
 
-async function compareWithGemini(request: ComparisonRequest, userPrompt: string): Promise<string> {
+async function compareWithGemini(request: ComparisonRequest, userPrompt: string): Promise<{ text: string; truncated: boolean }> {
   const genAI = new GoogleGenerativeAI(request.apiKey);
   const model = genAI.getGenerativeModel({ model: request.model ?? PROVIDER_MODELS.gemini.defaults.text });
 
@@ -128,7 +148,8 @@ async function compareWithGemini(request: ComparisonRequest, userPrompt: string)
       timer = setTimeout(() => reject(new Error("Gemini timeout")), 30_000);
     }),
   ]);
-  return result.response.text();
+  const truncated = result.response.candidates?.[0]?.finishReason === "MAX_TOKENS";
+  return { text: result.response.text(), truncated };
 }
 
 const VALID_STATUSES: ComparisonFieldStatus[] = [
