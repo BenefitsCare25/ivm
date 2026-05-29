@@ -59,7 +59,27 @@ export async function GET(request: Request) {
 
     if (isCurrentPeriod) {
       const { start, end } = toSGTInterval(dateRange);
-      return NextResponse.json(await buildLiveSummary(userId, start, end, period, view));
+
+      // Day view: every session for today still exists (younger than retention) — read live.
+      if (view === "day") {
+        return NextResponse.json(await buildLiveSummary(userId, start, end, period, view));
+      }
+
+      // Month/year view of the current period spans days that retention cleanup may have
+      // already purged from scrapeSession. Read those days from the persistent daily-metrics
+      // snapshots, and overlay only today from live data (today's snapshot may be mid-scrape).
+      const today = toSGTDateStr(new Date());
+      const todayStart = new Date(`${today}T00:00:00+08:00`);
+      const [snapshot, live] = await Promise.all([
+        buildSnapshotSummary(
+          userId,
+          { portal: { userId }, date: { gte: dateRange.gte, lt: today } },
+          period,
+          view,
+        ),
+        buildLiveSummary(userId, todayStart, end, period, view),
+      ]);
+      return NextResponse.json(mergeSummaries(snapshot, live, period, view));
     }
 
     const where = view === "day"
@@ -207,6 +227,77 @@ async function buildSnapshotSummary(
       flagged:  sum((p) => p.flagged),
       errors:   sum((p) => p.errors),
       files:    sum((p) => p.files),
+    },
+    statusBreakdown,
+    byPortal,
+  };
+}
+
+const PORTAL_NUMERIC_FIELDS = [
+  "sessions", "items", "files", "compared", "flagged",
+  "errors", "skipped", "verified", "requireDoc", "processing", "discovered",
+] as const;
+
+type PortalRow = { portalId: string; name: string; baseUrl: string } & Record<
+  (typeof PORTAL_NUMERIC_FIELDS)[number], number
+>;
+type LooseSummary = {
+  byPortal: Array<
+    { portalId: string; name: string; baseUrl: string } &
+      Partial<Record<(typeof PORTAL_NUMERIC_FIELDS)[number], number>>
+  >;
+};
+
+function normalizePortalRow(p: LooseSummary["byPortal"][number]): PortalRow {
+  const row = { portalId: p.portalId, name: p.name, baseUrl: p.baseUrl } as PortalRow;
+  for (const f of PORTAL_NUMERIC_FIELDS) {
+    row[f] = p[f] ?? 0;
+  }
+  return row;
+}
+
+// Combine snapshot (purged historical days) with live (today) for the current month/year view.
+// Date ranges are disjoint — snapshot covers [start, today), live covers today — so summing never double-counts.
+function mergeSummaries(snapshot: LooseSummary, live: LooseSummary, period: string, view: ViewMode) {
+  const map = new Map<string, PortalRow>();
+  for (const p of [...snapshot.byPortal, ...live.byPortal]) {
+    const existing = map.get(p.portalId);
+    if (!existing) {
+      map.set(p.portalId, normalizePortalRow(p));
+      continue;
+    }
+    for (const f of PORTAL_NUMERIC_FIELDS) {
+      existing[f] += p[f] ?? 0;
+    }
+  }
+
+  const byPortal = Array.from(map.values()).sort((a, b) => b.items - a.items);
+  const sum = (fn: (p: PortalRow) => number) => byPortal.reduce((s, p) => s + fn(p), 0);
+
+  const statusBreakdown = Object.fromEntries(
+    Object.entries({
+      COMPARED:    sum((p) => p.compared),
+      FLAGGED:     sum((p) => p.flagged),
+      ERROR:       sum((p) => p.errors),
+      SKIPPED:     sum((p) => p.skipped),
+      VERIFIED:    sum((p) => p.verified),
+      REQUIRE_DOC: sum((p) => p.requireDoc),
+      PROCESSING:  sum((p) => p.processing),
+      DISCOVERED:  sum((p) => p.discovered),
+    }).filter(([, v]) => v > 0)
+  );
+
+  return {
+    period,
+    view,
+    source: "snapshot+live",
+    totals: {
+      sessions:  sum((p) => p.sessions),
+      items:     sum((p) => p.items),
+      processed: sum((p) => p.compared + p.verified + p.flagged + p.errors + p.skipped),
+      flagged:   sum((p) => p.flagged),
+      errors:    sum((p) => p.errors),
+      files:     sum((p) => p.files),
     },
     statusBreakdown,
     byPortal,
