@@ -11,7 +11,7 @@ interface ClassifiedDocument {
 }
 
 interface ValidationCheck {
-  ruleType: "DOC_TYPE_MATCH" | "MISSING_DOC" | "REQUIRED_FIELD" | "DUPLICATE";
+  ruleType: "DOC_TYPE_MATCH" | "MISSING_DOC" | "REQUIRED_FIELD";
   status: "PASS" | "FAIL" | "WARNING";
   message: string;
   metadata: Record<string, unknown>;

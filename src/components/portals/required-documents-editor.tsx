@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useId } from "react";
+import { useState, useEffect, useId, useRef } from "react";
 import Link from "next/link";
 import { Plus, Trash2, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { normalize as norm } from "@/lib/normalize";
 import type { RequiredDocument, RequiredDocumentRule } from "@/types/portal";
 
 const RULES: { value: RequiredDocumentRule; label: string }[] = [
@@ -18,8 +19,6 @@ interface LibraryType {
   aliases: string[];
   isActive: boolean;
 }
-
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 interface Props {
   value: RequiredDocument[];
@@ -36,6 +35,15 @@ interface Props {
 export function RequiredDocumentsEditor({ value: docs, onChange }: Props) {
   const [library, setLibrary] = useState<LibraryType[]>([]);
   const listId = useId();
+
+  // Stable per-row keys so editing/removing a row never reorders inputs by index
+  // (which would misplace focus / in-progress edits). The id list is kept in
+  // lockstep with `docs`: appended on add, spliced on remove, truncated/extended
+  // to match any externally-changed value.
+  const rowIds = useRef<string[]>([]);
+  const idCounter = useRef(0);
+  while (rowIds.current.length < docs.length) rowIds.current.push(`rd-${idCounter.current++}`);
+  if (rowIds.current.length > docs.length) rowIds.current.length = docs.length;
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +73,7 @@ export function RequiredDocumentsEditor({ value: docs, onChange }: Props) {
     onChange([...docs, { documentTypeName: "", rule: "required" }]);
   }
   function removeDoc(idx: number) {
+    rowIds.current.splice(idx, 1);
     onChange(docs.filter((_, i) => i !== idx));
   }
   function updateDoc(idx: number, patch: Partial<RequiredDocument>) {
@@ -98,7 +107,7 @@ export function RequiredDocumentsEditor({ value: docs, onChange }: Props) {
               ? libByNorm.get(norm(d.documentTypeName))
               : undefined;
             return (
-              <div key={idx} className="space-y-0.5">
+              <div key={rowIds.current[idx]} className="space-y-0.5">
                 <div className="grid grid-cols-[1fr_110px_80px_28px] gap-1.5 items-center">
                   <Input
                     list={listId}

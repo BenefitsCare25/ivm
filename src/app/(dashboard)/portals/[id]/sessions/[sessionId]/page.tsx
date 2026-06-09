@@ -21,7 +21,7 @@ import { TrackedItemsTable } from "@/components/portals/tracked-items-table";
 import { ScrapeStatusBadge } from "@/components/portals/portal-status-badge";
 import { AutoRefresh } from "@/components/portals/auto-refresh";
 import { SessionActions } from "@/components/portals/session-actions";
-import { FWA_PRIORITY } from "@/types/portal";
+import { FWA_PRIORITY, FWA_RULE_TYPES } from "@/types/portal";
 import type { ScrapeSessionStatus, FieldComparison, DiagnosisAssessment, AuthStatus } from "@/types/portal";
 
 
@@ -109,7 +109,7 @@ export default async function SessionItemsPage({
     ? await db.validationResult.findMany({
         where: {
           trackedItemId: { in: itemIds },
-          ruleType: { in: ["TAMPERING", "DUPLICATE", "DOC_TYPE_MATCH", "BUSINESS_RULE", "REQUIRED_DOCUMENT", "CURRENCY_CONVERSION"] },
+          ruleType: { in: Array.from(FWA_RULE_TYPES) },
         },
         select: { id: true, trackedItemId: true, ruleType: true, status: true, message: true, metadata: true },
       })

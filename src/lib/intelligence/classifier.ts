@@ -1,5 +1,8 @@
 import { db } from "@/lib/db";
 import { createChildLogger } from "@/lib/logger";
+import { normalize } from "@/lib/normalize";
+
+export { normalize };
 
 const log = createChildLogger({ module: "intelligence-classifier" });
 
@@ -15,10 +18,6 @@ export interface DocTypeRecord {
   name: string;
   aliases: unknown;
   requiredFields?: unknown;
-}
-
-export function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function jaroWinkler(a: string, b: string): number {

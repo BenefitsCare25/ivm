@@ -158,7 +158,7 @@ export async function runIntelligencePipeline({
   await db.validationResult.deleteMany({
     where: {
       trackedItemId,
-      ruleType: { in: ["DUPLICATE", "TAMPERING", "REQUIRED_FIELD", "DOC_TYPE_MATCH"] },
+      ruleType: { in: ["TAMPERING", "REQUIRED_FIELD", "DOC_TYPE_MATCH"] },
     },
   });
 

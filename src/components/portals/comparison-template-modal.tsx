@@ -72,8 +72,14 @@ export function ComparisonTemplateModal({
     );
   }
 
-  const hasContent =
-    selectedFields.length > 0 || requiredDocs.some((d) => d.documentTypeName.trim());
+  const reqDocCount = requiredDocs.filter((d) => d.documentTypeName.trim()).length;
+  const hasContent = selectedFields.length > 0 || reqDocCount > 0;
+  const saveLabel = [
+    selectedFields.length > 0 ? `${selectedFields.length} field${selectedFields.length > 1 ? "s" : ""}` : null,
+    reqDocCount > 0 ? `${reqDocCount} doc${reqDocCount > 1 ? "s" : ""}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   async function handleSave() {
     if (!hasContent) return;
@@ -261,7 +267,7 @@ export function ComparisonTemplateModal({
             disabled={!hasContent || saving}
           >
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save Template ({selectedFields.length} fields)
+            Save Template{saveLabel ? ` (${saveLabel})` : ""}
           </Button>
         </div>
       </Card>
