@@ -20,8 +20,6 @@ const aliasArray = z
 export const createDocumentTypeSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   aliases: aliasArray,
-  /** Optional provider/hospital scope, e.g. "SGH", "Raffles". */
-  category: z.string().trim().max(120).optional().nullable(),
   requiredFields: z
     .array(z.string().trim().min(1).max(200))
     .max(100)
@@ -37,7 +35,6 @@ export const learnAliasSchema = z.object({
   documentTypeName: z.string().trim().min(1).max(200),
   /** The label the AI produced that should map to the canonical type. */
   alias: z.string().trim().min(1).max(200),
-  category: z.string().trim().max(120).optional().nullable(),
 });
 
 export type CreateDocumentTypeInput = z.infer<typeof createDocumentTypeSchema>;

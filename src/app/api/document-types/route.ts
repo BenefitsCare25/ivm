@@ -40,7 +40,6 @@ export async function POST(req: NextRequest) {
         userId: session.user.id,
         name: parsed.data.name,
         aliases: toInputJson(parsed.data.aliases),
-        category: parsed.data.category ?? null,
         requiredFields: toInputJson(parsed.data.requiredFields),
         isActive: parsed.data.isActive,
       },

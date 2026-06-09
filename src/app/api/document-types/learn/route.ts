@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid feedback");
     }
-    const { documentTypeName, alias, category } = parsed.data;
+    const { documentTypeName, alias } = parsed.data;
 
     const existing = await db.documentType.findFirst({
       where: { userId: session.user.id, name: documentTypeName },
@@ -50,7 +50,6 @@ export async function POST(req: NextRequest) {
         userId: session.user.id,
         name: documentTypeName,
         aliases: toInputJson(aliasIsName ? [] : [alias]),
-        category: category ?? null,
         requiredFields: toInputJson([]),
         isActive: true,
       },

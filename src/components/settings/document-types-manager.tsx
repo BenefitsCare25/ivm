@@ -12,14 +12,13 @@ interface DocumentType {
   id: string;
   name: string;
   aliases: string[];
-  category: string | null;
   requiredFields: string[];
   isActive: boolean;
 }
 
-type Draft = Pick<DocumentType, "name" | "aliases" | "category" | "requiredFields" | "isActive">;
+type Draft = Pick<DocumentType, "name" | "aliases" | "requiredFields" | "isActive">;
 
-const EMPTY_DRAFT: Draft = { name: "", aliases: [], category: "", requiredFields: [], isActive: true };
+const EMPTY_DRAFT: Draft = { name: "", aliases: [], requiredFields: [], isActive: true };
 
 /** Labelled wrapper around the shared TagInput, with case-insensitive dedup. */
 function LabeledTags({
@@ -115,7 +114,6 @@ export function DocumentTypesManager() {
         body: JSON.stringify({
           name: dt.name,
           aliases: dt.aliases,
-          category: dt.category,
           requiredFields: dt.requiredFields,
           isActive: dt.isActive,
         }),
@@ -162,8 +160,7 @@ export function DocumentTypesManager() {
           aliases (e.g. &ldquo;Final Bill&rdquo;, &ldquo;Summary Bill&rdquo;, &ldquo;Hospital Statement&rdquo; for a
           Tax Invoice). Aliases are matched automatically during verification, so adding a new
           naming variant fixes missing-document false positives without losing the old ones.
-          Use <span className="font-medium">Category</span> for a provider scope (SGH, Raffles…) and
-          toggle <span className="font-medium">Active</span> to retire an outdated format while keeping it recognised.
+          Toggle <span className="font-medium">Active</span> to retire an outdated format while keeping it recognised.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -175,20 +172,12 @@ export function DocumentTypesManager() {
 
         {/* Add new */}
         <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
-          <div className="grid gap-2 sm:grid-cols-[1fr_160px]">
-            <Input
-              value={draft.name}
-              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-              placeholder="New document type name (e.g. Summary Tax Invoice)"
-              className="h-8 text-sm"
-            />
-            <Input
-              value={draft.category ?? ""}
-              onChange={(e) => setDraft({ ...draft, category: e.target.value })}
-              placeholder="Category (optional)"
-              className="h-8 text-sm"
-            />
-          </div>
+          <Input
+            value={draft.name}
+            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            placeholder="New document type name (e.g. Summary Tax Invoice)"
+            className="h-8 text-sm"
+          />
           <LabeledTags
             label="Aliases"
             icon={<Tag className="h-3 w-3" />}
@@ -220,19 +209,11 @@ export function DocumentTypesManager() {
                 key={dt.id}
                 className={`space-y-2 rounded-lg border border-border p-3 ${dt.isActive ? "" : "opacity-60"}`}
               >
-                <div className="grid gap-2 sm:grid-cols-[1fr_160px]">
-                  <Input
-                    value={dt.name}
-                    onChange={(e) => patchLocal(dt.id, { name: e.target.value })}
-                    className="h-8 text-sm font-medium"
-                  />
-                  <Input
-                    value={dt.category ?? ""}
-                    onChange={(e) => patchLocal(dt.id, { category: e.target.value })}
-                    placeholder="Category"
-                    className="h-8 text-sm"
-                  />
-                </div>
+                <Input
+                  value={dt.name}
+                  onChange={(e) => patchLocal(dt.id, { name: e.target.value })}
+                  className="h-8 text-sm font-medium"
+                />
                 <LabeledTags
                   label="Aliases"
                   icon={<Tag className="h-3 w-3" />}
@@ -241,7 +222,7 @@ export function DocumentTypesManager() {
                   placeholder="Add an alias, press Enter"
                 />
                 <LabeledTags
-                  label="Key fields (for duplicate / completeness checks)"
+                  label="Key fields (for completeness check)"
                   icon={<Tag className="h-3 w-3" />}
                   tags={dt.requiredFields}
                   onChange={(requiredFields) => patchLocal(dt.id, { requiredFields })}

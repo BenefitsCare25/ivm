@@ -33,7 +33,6 @@ export async function PATCH(
     const data: Prisma.DocumentTypeUpdateManyMutationInput = {};
     if (parsed.data.name !== undefined) data.name = parsed.data.name;
     if (parsed.data.aliases !== undefined) data.aliases = toInputJson(parsed.data.aliases);
-    if (parsed.data.category !== undefined) data.category = parsed.data.category ?? null;
     if (parsed.data.requiredFields !== undefined) data.requiredFields = toInputJson(parsed.data.requiredFields);
     if (parsed.data.isActive !== undefined) data.isActive = parsed.data.isActive;
 

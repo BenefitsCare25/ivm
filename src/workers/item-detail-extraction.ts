@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { extractFieldsFromDocument } from "@/lib/ai";
-import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDocTypeMatch, checkDuplicate, checkTampering } from "@/lib/intelligence";
+import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDocTypeMatch, checkTampering } from "@/lib/intelligence";
 import type { DocTypeRecord } from "@/lib/intelligence";
 import { emitItemEvent, emitFailureEvent } from "@/lib/portal-events";
 import { checkForeignCurrency } from "@/lib/validations/currency";
@@ -184,20 +184,16 @@ export async function runIntelligencePipeline({
 
       if (classification.documentTypeId) {
         const matchedDocType = docTypeById?.get(classification.documentTypeId);
-        const keyFields = (matchedDocType?.requiredFields as string[]) ?? [];
-
-        const intelligenceResults = await Promise.allSettled([
-          validateRequiredFields(
+        // Completeness check only — the document-fingerprint duplicate check was
+        // removed; duplicate detection is handled by cross-item checks.
+        try {
+          await validateRequiredFields(
             { name: matchedDocType?.name ?? ext.documentType, requiredFields: matchedDocType?.requiredFields },
             ext.fields,
             { trackedItemId }
-          ),
-          checkDuplicate(userId, classification.documentTypeId, keyFields, ext.fields, {
-            trackedItemId,
-          }),
-        ]);
-        for (const r of intelligenceResults) {
-          if (r.status === "rejected") logger.warn({ err: r.reason, trackedItemId }, "[worker] Intelligence check failed (non-fatal)");
+          );
+        } catch (err) {
+          logger.warn({ err, trackedItemId }, "[worker] Completeness check failed (non-fatal)");
         }
       }
     } catch (intErr) {
