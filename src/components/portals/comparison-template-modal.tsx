@@ -5,7 +5,8 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { MatchMode, TemplateField, ProviderGroupSummary } from "@/types/portal";
+import { RequiredDocumentsEditor } from "./required-documents-editor";
+import type { MatchMode, TemplateField, RequiredDocument, ProviderGroupSummary } from "@/types/portal";
 import { MATCH_MODE_LABELS, inferDefaultMode } from "@/types/portal";
 
 interface FieldOption {
@@ -37,6 +38,7 @@ export function ComparisonTemplateModal({
   onSkip,
 }: ComparisonTemplateModalProps) {
   const [selectedFields, setSelectedFields] = useState<TemplateField[]>([]);
+  const [requiredDocs, setRequiredDocs] = useState<RequiredDocument[]>([]);
   const [selectedProviderGroupId, setSelectedProviderGroupId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,8 +72,11 @@ export function ComparisonTemplateModal({
     );
   }
 
+  const hasContent =
+    selectedFields.length > 0 || requiredDocs.some((d) => d.documentTypeName.trim());
+
   async function handleSave() {
-    if (selectedFields.length === 0) return;
+    if (!hasContent) return;
     setSaving(true);
     setError(null);
     try {
@@ -84,6 +89,7 @@ export function ComparisonTemplateModal({
           providerGroupId: selectedProviderGroupId,
           groupingKey,
           fields: selectedFields,
+          requiredDocuments: requiredDocs.filter((d) => d.documentTypeName.trim()),
         }),
       });
       if (!res.ok) {
@@ -235,6 +241,13 @@ export function ComparisonTemplateModal({
             <p className="text-sm text-muted-foreground">No fields available to configure.</p>
           )}
 
+          <div className="border-t border-border pt-3">
+            <p className="text-xs font-medium text-muted-foreground mb-2">
+              Required Documents (optional)
+            </p>
+            <RequiredDocumentsEditor value={requiredDocs} onChange={setRequiredDocs} />
+          </div>
+
           {error && <p className="text-sm text-destructive">{error}</p>}
         </CardContent>
 
@@ -245,7 +258,7 @@ export function ComparisonTemplateModal({
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={selectedFields.length === 0 || saving}
+            disabled={!hasContent || saving}
           >
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save Template ({selectedFields.length} fields)

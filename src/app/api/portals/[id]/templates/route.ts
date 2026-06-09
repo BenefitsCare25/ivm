@@ -68,6 +68,8 @@ export async function POST(
         name: data.name,
         groupingKey: toInputJson(data.groupingKey),
         fields: toInputJson(data.fields),
+        requiredDocuments: toInputJson(data.requiredDocuments),
+        businessRules: toInputJson(data.businessRules),
       },
     });
 
