@@ -184,8 +184,7 @@ export async function runIntelligencePipeline({
 
       if (classification.documentTypeId) {
         const matchedDocType = docTypeById?.get(classification.documentTypeId);
-        // Completeness check only — the document-fingerprint duplicate check was
-        // removed; duplicate detection is handled by cross-item checks.
+        // Completeness check only — document duplicate detection was removed.
         try {
           await validateRequiredFields(
             { name: matchedDocType?.name ?? ext.documentType, requiredFields: matchedDocType?.requiredFields },
