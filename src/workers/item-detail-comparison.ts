@@ -8,9 +8,18 @@ import { buildBusinessRuleValidations } from "@/lib/business-rules/persist";
 import { runVisionChecks, type VisionCheckFile } from "@/lib/ai/vision-checks";
 import { withEventTracking } from "@/lib/portal-events";
 import { toInputJson } from "@/lib/utils";
+import {
+  recognizeDocuments,
+  reconcileRequiredDocChecks,
+  buildBillStatusSignal,
+  buildDocumentTypesFound,
+  buildRequiredDocValidations,
+  buildBillStatusValidation,
+} from "@/lib/intelligence";
 import type { AIProvider } from "@/lib/ai/types";
+import type { DocTypeRecord } from "@/lib/intelligence";
 import type { MatchedTemplate } from "@/lib/comparison-templates";
-import type { TemplateField, RequiredDocument, RequiredDocumentCheck, TrackedItemStatus } from "@/types/portal";
+import type { TemplateField, RequiredDocumentCheck, BillStatusSignal, TrackedItemStatus } from "@/types/portal";
 
 interface ComparisonInput {
   trackedItemId: string;
@@ -31,6 +40,8 @@ interface ComparisonInput {
   baseURL?: string;
   displayProvider: string;
   comparisonModel: string | null;
+  /** User's Document Type library — used for alias-aware document recognition. */
+  cachedDocTypes?: DocTypeRecord[];
 }
 
 interface ComparisonOutput {
@@ -44,13 +55,18 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
   const {
     trackedItemId, portalId, listData, effectiveDetailData, pdfFields,
     pdfFieldSources, fileExtractions, downloadedFiles, fileBuffers, provider, apiKey, textModel,
-    visionModel, baseURL, displayProvider, comparisonModel,
+    visionModel, baseURL, displayProvider, comparisonModel, cachedDocTypes,
   } = input;
 
   const hasDetailData = Object.keys(effectiveDetailData ?? {}).length > 0;
   const hasPdfFields = Object.keys(pdfFields ?? {}).length > 0;
   const noDocuments = fileExtractions.length === 0;
   const extractionFailed = fileExtractions.length > 0 && !hasPdfFields;
+
+  // Alias-aware, deterministic recognition of every submitted document
+  // (canonical type, billing-document family, interim/final bill status).
+  const recognizedDocs = recognizeDocuments(fileExtractions, cachedDocTypes ?? []);
+  const billStatusSignal = buildBillStatusSignal(recognizedDocs);
 
   let comparisonResult;
   let templateId: string | null = null;
@@ -65,7 +81,9 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
     let comparePdfFields = pdfFields;
     let templateFields: TemplateField[] | undefined;
 
-    const documentTypesFound = fileExtractions.map((e) => e.documentType);
+    // Feed the LLM the raw type AND the alias-resolved canonical name + billing
+    // family, so it can match required documents even when the title differs.
+    const documentTypesFound = buildDocumentTypesFound(recognizedDocs);
 
     if (template) {
       templateId = template.id;
@@ -151,6 +169,17 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
       pdfFieldSources
     );
 
+    // ── Deterministic required-document reconciliation ──
+    // Alias library + billing-document family matching corrects the LLM's
+    // false "not found" results (e.g. interim summary bill ↔ Summary Tax Invoice).
+    if (matchedTemplate && matchedTemplate.requiredDocuments.length > 0) {
+      comparisonResult.requiredDocumentsCheck = reconcileRequiredDocChecks(
+        comparisonResult.requiredDocumentsCheck,
+        matchedTemplate.requiredDocuments,
+        recognizedDocs
+      );
+    }
+
     // ── Selective vision re-verification of flagged fields / rules ──
     if (
       matchedTemplate &&
@@ -177,10 +206,19 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
       }
     }
 
-    ruleFlag = await saveComparisonResult(trackedItemId, comparisonResult, displayProvider, templateId, matchedTemplate);
+    const documentTypesByFile = Object.fromEntries(
+      fileExtractions.map((e) => [e.fileName, e.documentType])
+    );
+    ruleFlag = await saveComparisonResult(
+      trackedItemId, comparisonResult, displayProvider, templateId, matchedTemplate, billStatusSignal, documentTypesByFile
+    );
   }
 
   const hasMismatch = (comparisonResult?.mismatchCount ?? 0) > 0;
+  // Any unfound required document surfaces the item for review. Deterministic
+  // synonym/alias matching has already flipped false positives to found, so what
+  // remains is either genuinely missing (FAIL) or low-confidence (WARNING —
+  // "manual review recommended"); both warrant a human look.
   const hasMissingDoc = comparisonResult?.requiredDocumentsCheck?.some(
     (d: RequiredDocumentCheck) => !d.found
   ) ?? false;
@@ -205,6 +243,8 @@ async function saveComparisonResult(
   displayProvider: string,
   templateId: string | null,
   matchedTemplate: MatchedTemplate | null,
+  billStatusSignal: BillStatusSignal | null,
+  documentTypesByFile: Record<string, string>,
 ): Promise<boolean> {
   const comparisonsJson = toInputJson(comparisonResult.fieldComparisons);
   const diagnosisJson = comparisonResult.diagnosisAssessment
@@ -219,6 +259,7 @@ async function saveComparisonResult(
     mismatchCount: comparisonResult.mismatchCount,
     summary: comparisonResult.summary,
     diagnosisAssessment: diagnosisJson,
+    documentTypesByFile: toInputJson(documentTypesByFile),
     completedAt: new Date(),
   };
   await db.comparisonResult.upsert({
@@ -228,7 +269,7 @@ async function saveComparisonResult(
   });
 
   await db.validationResult.deleteMany({
-    where: { trackedItemId, ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT"] } },
+    where: { trackedItemId, ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT", "BILL_STATUS"] } },
   });
 
   let ruleFlag = false;
@@ -256,27 +297,27 @@ async function saveComparisonResult(
     }
   }
 
-  if (comparisonResult.requiredDocumentsCheck && matchedTemplate) {
-    const rdByName = new Map(matchedTemplate.requiredDocuments.map((rd: RequiredDocument) => [rd.documentTypeName, rd]));
-    const rdInserts = comparisonResult.requiredDocumentsCheck
-      .filter((d: RequiredDocumentCheck) => !d.found)
-      .map((d: RequiredDocumentCheck) => {
-        const matchedReqDoc = rdByName.get(d.documentTypeName);
-        return db.validationResult.create({
+  const billRow = buildBillStatusValidation(billStatusSignal);
+  const extraRows = [
+    ...(matchedTemplate
+      ? buildRequiredDocValidations(comparisonResult.requiredDocumentsCheck, matchedTemplate.requiredDocuments)
+      : []),
+    ...(billRow ? [billRow] : []),
+  ];
+  if (extraRows.length > 0) {
+    await Promise.all(
+      extraRows.map((v) =>
+        db.validationResult.create({
           data: {
             trackedItemId,
-            ruleType: "REQUIRED_DOCUMENT",
-            status: "FAIL",
-            message: `Required document not found: ${d.documentTypeName}`,
-            metadata: toInputJson({
-              documentTypeName: d.documentTypeName,
-              group: matchedReqDoc?.group ?? null,
-              notes: d.notes,
-            }),
+            ruleType: v.ruleType,
+            status: v.status,
+            message: v.message,
+            metadata: toInputJson(v.metadata),
           },
-        });
-      });
-    if (rdInserts.length > 0) await Promise.all(rdInserts);
+        })
+      )
+    );
   }
 
   return ruleFlag;

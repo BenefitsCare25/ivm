@@ -13,6 +13,15 @@ import { annotateSourceFiles } from "@/workers/item-detail-comparison";
 import { toInputJson } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
+import {
+  fetchDocTypes,
+  recognizeDocuments,
+  reconcileRequiredDocChecks,
+  buildBillStatusSignal,
+  buildDocumentTypesFound,
+  buildRequiredDocValidations,
+  buildBillStatusValidation,
+} from "@/lib/intelligence";
 import type { TemplateField, RequiredDocument, BusinessRule, RequiredDocumentCheck } from "@/types/portal";
 
 export async function POST(
@@ -88,7 +97,7 @@ export async function POST(
     const resolvedTemplateId = template.id;
     const useFullPrompt = templateBusinessRules.length > 0 || templateRequiredDocuments.length > 0;
 
-    const rdByNameMap = new Map(templateRequiredDocuments.map((rd) => [rd.documentTypeName, rd]));
+    const cachedDocTypes = await fetchDocTypes(session.user.id).catch(() => []);
     const CONCURRENCY = 5;
     let recompared = 0;
 
@@ -109,6 +118,28 @@ export async function POST(
         if (c.sourceFile) pdfFieldSources[c.fieldName] = c.sourceFile;
       }
 
+      // Rebuild per-file document evidence from the stored comparison so the
+      // deterministic recogniser (alias library, billing family, bill status)
+      // runs identically to the worker. The original document-type labels are
+      // restored from the persisted `documentTypesByFile` snapshot (files are
+      // not re-extracted on recompare); falls back to "" only for legacy results
+      // written before that column existed.
+      const docTypesByFile = (item.comparisonResult?.documentTypesByFile as Record<string, string> | null) ?? {};
+      const fieldsByFile = new Map<string, { label: string; value: string }[]>();
+      for (const c of existingComparisons) {
+        if (c.pdfValue == null) continue;
+        const file = c.sourceFile ?? "document";
+        const arr = fieldsByFile.get(file) ?? [];
+        arr.push({ label: c.fieldName, value: c.pdfValue });
+        fieldsByFile.set(file, arr);
+      }
+      const reconstructedExtractions = Array.from(fieldsByFile.entries()).map(
+        ([fileName, fields]) => ({ fileName, documentType: docTypesByFile[fileName] ?? "", fields })
+      );
+      const recognizedDocs = recognizeDocuments(reconstructedExtractions, cachedDocTypes);
+      const billStatusSignal = buildBillStatusSignal(recognizedDocs);
+      const documentTypesFound = buildDocumentTypesFound(recognizedDocs);
+
       const { filteredPageFields, filteredPdfFields } = filterFieldsByTemplate(
         detailData,
         pdfFields,
@@ -128,7 +159,7 @@ export async function POST(
         requiredDocuments: templateRequiredDocuments,
         pageFields: filteredPageFields,
         pdfFields: filteredPdfFields,
-        documentTypesFound: [],
+        documentTypesFound,
       }) : undefined;
 
       const result = await compareFields({
@@ -151,6 +182,15 @@ export async function POST(
       }
 
       result.fieldComparisons = annotateSourceFiles(result.fieldComparisons, pdfFieldSources);
+
+      // Deterministic required-document reconciliation (alias + billing family).
+      if (templateRequiredDocuments.length > 0) {
+        result.requiredDocumentsCheck = reconcileRequiredDocChecks(
+          result.requiredDocumentsCheck,
+          templateRequiredDocuments,
+          recognizedDocs
+        );
+      }
 
       // Merge deterministic code-rule results (evaluated in-process). Note: recompare
       // only has the previously-compared PDF fields available (files are not re-extracted),
@@ -200,6 +240,7 @@ export async function POST(
         mismatchCount: result.mismatchCount,
         summary: result.summary,
         diagnosisAssessment: result.diagnosisAssessment ? toInputJson(result.diagnosisAssessment) : null,
+        documentTypesByFile: toInputJson(docTypesByFile),
         completedAt: new Date(),
       };
       await db.comparisonResult.upsert({
@@ -212,7 +253,7 @@ export async function POST(
       await db.validationResult.deleteMany({
         where: {
           trackedItemId: item.id,
-          ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT"] },
+          ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT", "BILL_STATUS"] },
         },
       });
 
@@ -221,37 +262,24 @@ export async function POST(
         result.businessRuleResults ?? []
       );
 
-      const validationInserts = [
-        ...ruleValidations.map((v) =>
-          db.validationResult.create({
-            data: {
-              trackedItemId: item.id,
-              ruleType: v.ruleType,
-              status: v.status,
-              message: v.message,
-              metadata: toInputJson(v.metadata),
-            },
-          })
-        ),
-        ...(result.requiredDocumentsCheck ?? [])
-          .filter((d: RequiredDocumentCheck) => !d.found)
-          .map((d: RequiredDocumentCheck) => {
-            const matchedReqDoc = rdByNameMap.get(d.documentTypeName);
-            return db.validationResult.create({
-              data: {
-                trackedItemId: item.id,
-                ruleType: "REQUIRED_DOCUMENT",
-                status: "FAIL",
-                message: `Required document not found: ${d.documentTypeName}`,
-                metadata: toInputJson({
-                  documentTypeName: d.documentTypeName,
-                  group: matchedReqDoc?.group ?? null,
-                  notes: d.notes,
-                }),
-              },
-            });
-          }),
+      // Required-document + bill-status rows come from the SAME shared builders
+      // as the worker, so both paths emit identical alerts.
+      const billRow = buildBillStatusValidation(billStatusSignal);
+      const extraRows = [
+        ...buildRequiredDocValidations(result.requiredDocumentsCheck, templateRequiredDocuments),
+        ...(billRow ? [billRow] : []),
       ];
+      const validationInserts = [...ruleValidations, ...extraRows].map((v) =>
+        db.validationResult.create({
+          data: {
+            trackedItemId: item.id,
+            ruleType: v.ruleType,
+            status: v.status,
+            message: v.message,
+            metadata: toInputJson(v.metadata),
+          },
+        })
+      );
       if (validationInserts.length > 0) await Promise.all(validationInserts);
 
       const hasMismatch = result.mismatchCount > 0;

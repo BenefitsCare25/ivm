@@ -94,9 +94,12 @@ BUSINESS RULE EVALUATION:
 7. EXCEPTION HANDLING: If a rule contains an exception or exemption clause (e.g., "required EXCEPT for X", "not needed for follow-up visits"), and the current claim satisfies the exception condition, return PASS — the claim is compliant because the exception applies. Do NOT return WARNING or FAIL just because an exception was triggered. Exceeding a requirement (e.g., submitting a referral letter even when not required for a follow-up) is not a violation.
 
 REQUIRED DOCUMENTS CHECK:
-1. Check if each required document type appears in the "Documents found" list.
+1. Check if each required document type appears in the "Documents found" list OR is evident from the PDF Extracted Fields.
 2. For "one_of" groups, at least one document in the group must be present.
-3. Use semantic matching — "Tax Invoice" matches "Invoice", "Medical Receipt" matches "Receipt".
+3. Use GENEROUS semantic matching — recognise that hospitals title the same document many ways:
+   - A "Summary Tax Invoice" / "Tax Invoice" requirement is satisfied by ANY hospital billing document: "Final Bill", "Summary Bill", "Interim Bill", "Discharge Invoice", "Hospital Statement", "Statement of Account", "Inpatient Bill", "Billing Summary", etc. An INTERIM/provisional bill still counts as the bill being present — do NOT mark the document missing just because it is not the final version.
+   - "Medical Receipt" matches "Receipt"/"Official Receipt"; "Referral Letter" matches "Memo"/"Referral Note"; "Discharge Summary" matches "Medical Report"/"Clinical Summary".
+4. Only return found:false when there is genuinely NO document of that family among the submitted files. When unsure, prefer found:true with a note explaining the ambiguity rather than a false "not found".
 
 ${DIAGNOSIS_RULES}
 

@@ -286,6 +286,7 @@ async function processItemDetailCore(
         baseURL,
         displayProvider,
         comparisonModel: portal.comparisonModel as string | null,
+        cachedDocTypes,
       });
 
       // ── Final status ────────────────────────────────────────

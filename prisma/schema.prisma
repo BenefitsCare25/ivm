@@ -484,6 +484,9 @@ model ComparisonResult {
   mismatchCount         Int      @default(0)
   summary               String?
   diagnosisAssessment   Json?
+  /** Per-file document-type labels from extraction, so recompare can run the
+      same alias/family document recognition without re-extracting files. */
+  documentTypesByFile   Json?
   completedAt           DateTime?
   errorMessage          String?
 

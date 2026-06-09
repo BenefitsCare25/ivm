@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { ApiKeysForm } from "@/components/settings/api-keys-form";
 import { ProxyStatusCard } from "@/components/settings/proxy-status-card";
 import { ChangePasswordForm } from "@/components/settings/change-password-form";
+import { DocumentTypesManager } from "@/components/settings/document-types-manager";
 
 export default function SettingsPage() {
   return (
@@ -23,6 +24,17 @@ export default function SettingsPage() {
         </div>
         <ProxyStatusCard />
         <ApiKeysForm />
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-medium text-foreground">Document Recognition</h2>
+          <p className="text-sm text-muted-foreground">
+            Define the documents your claims require and the alternative names hospitals use for
+            them. This drives document classification and required-document checks during verification.
+          </p>
+        </div>
+        <DocumentTypesManager />
       </section>
 
       <section className="space-y-4">

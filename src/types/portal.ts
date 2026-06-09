@@ -44,12 +44,12 @@ export type ComparisonFieldStatus = (typeof COMPARISON_FIELD_STATUSES)[number];
 
 export const FWA_RULE_TYPES = new Set([
   "TAMPERING", "DUPLICATE", "DOC_TYPE_MATCH",
-  "BUSINESS_RULE", "REQUIRED_DOCUMENT", "CURRENCY_CONVERSION",
+  "BUSINESS_RULE", "REQUIRED_DOCUMENT", "CURRENCY_CONVERSION", "BILL_STATUS",
 ]);
 
 export const FWA_PRIORITY: Record<string, number> = {
   TAMPERING: 3, DUPLICATE: 2, DOC_TYPE_MATCH: 1, BUSINESS_RULE: 1, REQUIRED_DOCUMENT: 1,
-  CURRENCY_CONVERSION: 0,
+  CURRENCY_CONVERSION: 0, BILL_STATUS: 0,
 };
 
 export const FWA_LABELS: Record<string, string> = {
@@ -59,6 +59,7 @@ export const FWA_LABELS: Record<string, string> = {
   BUSINESS_RULE: "Rule Violation",
   REQUIRED_DOCUMENT: "Missing Document",
   CURRENCY_CONVERSION: "Foreign Currency",
+  BILL_STATUS: "Bill Status",
 };
 
 export interface ValidationAlert {
@@ -316,6 +317,33 @@ export interface RequiredDocumentCheck {
   documentTypeName: string;
   found: boolean;
   notes?: string;
+  /** Deterministic confidence (0-1) in the found / not-found decision. */
+  confidence?: number;
+  /**
+   * Presence could not be confirmed with confidence — surface as a
+   * "manual review recommended" WARNING instead of a hard "missing" FAIL.
+   */
+  uncertain?: boolean;
+  /** How the document was resolved against the submitted set. */
+  matchedVia?: "canonical" | "alias" | "synonym" | "keyword" | "llm" | "none";
+  /** Detected billing-document status, when the requirement is a hospital bill. */
+  billStatus?: BillStatus;
+  /** File the document was matched to (when found deterministically). */
+  matchedFile?: string;
+}
+
+// ─── Bill Status (interim vs final hospital billing) ───────────
+export const BILL_STATUSES = ["interim", "final", "unknown"] as const;
+export type BillStatus = (typeof BILL_STATUSES)[number];
+
+export interface BillStatusSignal {
+  status: BillStatus;
+  /** File the signal was detected in. */
+  fileName: string;
+  /** Phrase that triggered the classification (for evidence). */
+  evidence: string;
+  /** Auto-extracted outstanding balance, when present. */
+  outstandingBalance?: { label: string; value: string };
 }
 
 export interface DiagnosisAssessment {
