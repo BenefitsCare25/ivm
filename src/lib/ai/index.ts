@@ -6,7 +6,8 @@ import { extractWithOpenAI } from "./openai";
 import { extractWithGemini } from "./gemini";
 import { extractWithProxyReadTool } from "./proxy-extraction";
 import { rasterizePdfToImages } from "./pdf-raster";
-import type { AIExtractionRequest, AIExtractionResponse } from "./types";
+import { downscaleImages } from "./image-scale";
+import type { AIExtractionRequest, AIExtractionResponse, RasterImage } from "./types";
 
 export type { AIExtractionRequest, AIExtractionResponse, AIProvider } from "./types";
 export type { AIMappingRequest, AIMappingResponse } from "./types";
@@ -14,6 +15,7 @@ export { proposeFieldMappings } from "./mapping";
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const PDF_MIME = "application/pdf";
+const LOCAL_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"];
 
 export async function extractFieldsFromDocument(
   request: AIExtractionRequest
@@ -25,10 +27,18 @@ export async function extractFieldsFromDocument(
     enrichedRequest = { ...request, textContent };
   }
 
-  // Local vision models (oMLX / Qwen3-VL) accept images, not PDFs — rasterize first.
-  if (request.provider === "local" && request.mimeType === PDF_MIME && !enrichedRequest.textContent) {
-    const images = await rasterizePdfToImages(request.fileData);
-    enrichedRequest = { ...enrichedRequest, images };
+  // Local vision models (oMLX / Qwen3-VL) accept images, not PDFs, and are bottlenecked
+  // by image resolution — rasterize PDFs and downscale all images before sending.
+  if (request.provider === "local" && !enrichedRequest.textContent) {
+    let pages: RasterImage[] | null = null;
+    if (request.mimeType === PDF_MIME) {
+      pages = await rasterizePdfToImages(request.fileData);
+    } else if (LOCAL_IMAGE_MIMES.includes(request.mimeType)) {
+      pages = [{ data: request.fileData, mimeType: request.mimeType as RasterImage["mimeType"] }];
+    }
+    if (pages) {
+      enrichedRequest = { ...enrichedRequest, images: await downscaleImages(pages) };
+    }
   }
 
   return withRetry(

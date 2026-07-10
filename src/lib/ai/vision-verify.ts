@@ -4,6 +4,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { logger } from "@/lib/logger";
 import { stripMarkdownFences } from "./parse";
 import { rasterizePdfToImages } from "./pdf-raster";
+import { downscaleImages } from "./image-scale";
 import type { AIProvider, RasterImage } from "./types";
 import type { VisionVerdict } from "@/types/portal";
 
@@ -84,11 +85,11 @@ export async function verifyWithVision(req: VisionVerifyRequest): Promise<Vision
     if (req.provider === "local") {
       // Local vision models take images. Reuse caller-supplied rasterized pages when present
       // (avoids re-decoding the same PDF across multiple checks); otherwise rasterize here.
-      const images: RasterImage[] = req.images
+      const base: RasterImage[] = req.images
         ?? (isPdf
           ? await rasterizePdfToImages(req.fileData, { maxPages: 4 })
           : [{ data: req.fileData, mimeType: req.mimeType as RasterImage["mimeType"] }]);
-      return await withOpenAI(req, images);
+      return await withOpenAI(req, await downscaleImages(base));
     }
     return { verdict: "UNCERTAIN", explanation: `Unsupported provider ${req.provider}`, model: req.model };
   } catch (err) {
@@ -141,7 +142,7 @@ async function withOpenAI(req: VisionVerifyRequest, images: RasterImage[]): Prom
         },
       ],
     },
-    { signal: AbortSignal.timeout(req.baseURL ? 120_000 : 45_000) }
+    { signal: AbortSignal.timeout(req.provider === "local" ? 240_000 : req.baseURL ? 120_000 : 45_000) }
   );
   return parse(response.choices[0]?.message?.content ?? "", req.model);
 }

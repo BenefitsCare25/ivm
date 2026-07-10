@@ -202,7 +202,7 @@ async function analyzeWithOpenAI(request: PageAnalysisRequest): Promise<string> 
         },
       ],
     },
-    { signal: AbortSignal.timeout(60_000) }
+    { signal: AbortSignal.timeout(request.provider === "local" ? 240_000 : 60_000) }
   );
 
   return response.choices[0]?.message?.content ?? "";

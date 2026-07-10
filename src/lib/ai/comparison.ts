@@ -113,7 +113,8 @@ async function compareWithAnthropic(request: ComparisonRequest, userPrompt: stri
 
 async function compareWithOpenAI(request: ComparisonRequest, userPrompt: string): Promise<{ text: string; truncated: boolean }> {
   const client = new OpenAI({ apiKey: request.apiKey, ...(request.baseURL ? { baseURL: request.baseURL } : {}) });
-  const timeout = request.baseURL ? 180_000 : 60_000; // CLI proxy needs more time; full prompts with business rules can be large
+  // local self-hosted models are slower; CLI proxy also needs more time than direct OpenAI
+  const timeout = request.provider === "local" ? 300_000 : request.baseURL ? 180_000 : 60_000;
   const maxTokens = request.systemPromptOverride ? FULL_PROMPT_MAX_TOKENS : BASIC_MAX_TOKENS;
 
   const response = await client.chat.completions.create(
