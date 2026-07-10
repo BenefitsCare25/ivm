@@ -1,7 +1,8 @@
 import { logger } from "@/lib/logger";
 import { verifyWithVision } from "./vision-verify";
+import { rasterizePdfToImages } from "./pdf-raster";
 import { fieldNameMatchesPortal } from "@/lib/comparison-templates";
-import type { AIProvider } from "./types";
+import type { AIProvider, RasterImage } from "./types";
 import type {
   BusinessRule,
   BusinessRuleResult,
@@ -120,6 +121,24 @@ export async function runVisionChecks(args: RunVisionChecksArgs): Promise<number
     );
   }
 
+  // For local, rasterize each unique PDF ONCE (canvas render is the expensive step) and
+  // reuse the pages across every task on that file, rather than re-decoding per task.
+  const rasterCache = new Map<string, RasterImage[]>();
+  if (provider === "local") {
+    const pdfPaths = [
+      ...new Set(tasks.filter((t) => t.file.mimeType === "application/pdf").map((t) => t.file.storagePath)),
+    ];
+    for (const p of pdfPaths) {
+      const buf = bufferCache.get(p);
+      if (!buf) continue;
+      try {
+        rasterCache.set(p, await rasterizePdfToImages(buf, { maxPages: 4 }));
+      } catch (err) {
+        logger.warn({ err, storagePath: p }, "[vision-checks] rasterize failed (will fall back per-task)");
+      }
+    }
+  }
+
   // Run the (independent) verifications concurrently — they are bounded to
   // MAX_VISION_VERIFICATIONS and otherwise serialize on the worker's job timeout.
   let fieldChanged = false;
@@ -136,6 +155,7 @@ export async function runVisionChecks(args: RunVisionChecksArgs): Promise<number
         apiKey,
         model: visionModel,
         baseURL,
+        images: rasterCache.get(task.file.storagePath),
       });
 
       if (task.kind === "field") {

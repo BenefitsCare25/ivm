@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { FormError } from "@/components/ui/form-error";
-import { PROVIDER_INFO, AI_PROVIDERS, PROVIDER_MODELS, type AIProvider } from "@/lib/validations/api-key";
+import { PROVIDER_INFO, AI_PROVIDERS, PROVIDER_MODELS, ENDPOINT_PROVIDERS, type AIProvider } from "@/lib/validations/api-key";
 import type { ModelPreferences } from "@/lib/validations/api-key";
 
 interface SavedKey {
@@ -37,24 +37,43 @@ function ModelSelectors({
   const prefs = preferences?.[provider];
   const visionModels = config.models.filter((m) => m.tier.includes("vision"));
   const textModels = config.models.filter((m) => m.tier.includes("text"));
+  const selectClass = "w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring";
+  const listId = `models-${provider}`;
 
   return (
     <div className="grid grid-cols-2 gap-3">
+      {config.freeform && (
+        <datalist id={listId}>
+          {config.models.map((m) => (
+            <option key={m.id} value={m.id}>{m.label}</option>
+          ))}
+        </datalist>
+      )}
       <div>
         <label className="mb-1 block text-xs font-medium text-muted-foreground">
           Vision Model
         </label>
-        <select
-          value={prefs?.visionModel ?? defaults.vision}
-          onChange={(e) => onChange(provider, "visionModel", e.target.value)}
-          className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        >
-          {visionModels.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label} — {m.costLabel}
-            </option>
-          ))}
-        </select>
+        {config.freeform ? (
+          <input
+            list={listId}
+            value={prefs?.visionModel ?? defaults.vision}
+            onChange={(e) => onChange(provider, "visionModel", e.target.value)}
+            className={selectClass}
+            placeholder={defaults.vision}
+          />
+        ) : (
+          <select
+            value={prefs?.visionModel ?? defaults.vision}
+            onChange={(e) => onChange(provider, "visionModel", e.target.value)}
+            className={selectClass}
+          >
+            {visionModels.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label} — {m.costLabel}
+              </option>
+            ))}
+          </select>
+        )}
         <p className="mt-0.5 text-[10px] text-muted-foreground/60">
           Document extraction, page analysis
         </p>
@@ -63,17 +82,27 @@ function ModelSelectors({
         <label className="mb-1 block text-xs font-medium text-muted-foreground">
           Text Model
         </label>
-        <select
-          value={prefs?.textModel ?? defaults.text}
-          onChange={(e) => onChange(provider, "textModel", e.target.value)}
-          className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        >
-          {textModels.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label} — {m.costLabel}
-            </option>
-          ))}
-        </select>
+        {config.freeform ? (
+          <input
+            list={listId}
+            value={prefs?.textModel ?? defaults.text}
+            onChange={(e) => onChange(provider, "textModel", e.target.value)}
+            className={selectClass}
+            placeholder={defaults.text}
+          />
+        ) : (
+          <select
+            value={prefs?.textModel ?? defaults.text}
+            onChange={(e) => onChange(provider, "textModel", e.target.value)}
+            className={selectClass}
+          >
+            {textModels.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label} — {m.costLabel}
+              </option>
+            ))}
+          </select>
+        )}
         <p className="mt-0.5 text-[10px] text-muted-foreground/60">
           Field mapping, comparison
         </p>
@@ -115,10 +144,10 @@ export function ApiKeysForm() {
       return;
     }
 
-    const needsEndpoint = provider === "azure-foundry";
+    const needsEndpoint = ENDPOINT_PROVIDERS.includes(provider);
     const endpoint = endpointInputs[provider]?.trim();
     if (needsEndpoint && !endpoint) {
-      setErrors((prev) => ({ ...prev, [provider]: "Please enter the Azure Foundry endpoint URL" }));
+      setErrors((prev) => ({ ...prev, [provider]: "Please enter the endpoint URL" }));
       return;
     }
 
@@ -233,7 +262,7 @@ export function ApiKeysForm() {
         const isPreferred = state.preferredProvider === provider;
         const isSaving = savingProvider === provider;
         const isRemoving = removingProvider === provider;
-        const needsEndpoint = provider === "azure-foundry";
+        const needsEndpoint = ENDPOINT_PROVIDERS.includes(provider);
 
         return (
           <Card key={provider}>
@@ -310,20 +339,39 @@ export function ApiKeysForm() {
                       />
                       <div>
                         <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                          Deployed Model
+                          {provider === "local" ? "Loaded Model" : "Deployed Model"}
                         </label>
-                        <select
-                          value={validationModelInputs[provider] || PROVIDER_MODELS[provider].defaults.vision}
-                          onChange={(e) => setValidationModelInputs((prev) => ({ ...prev, [provider]: e.target.value }))}
-                          disabled={isSaving}
-                          className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                        >
-                          {PROVIDER_MODELS[provider].models.map((m) => (
-                            <option key={m.id} value={m.id}>{m.label}</option>
-                          ))}
-                        </select>
+                        {PROVIDER_MODELS[provider].freeform ? (
+                          <>
+                            <input
+                              list={`validate-models-${provider}`}
+                              value={validationModelInputs[provider] || PROVIDER_MODELS[provider].defaults.vision}
+                              onChange={(e) => setValidationModelInputs((prev) => ({ ...prev, [provider]: e.target.value }))}
+                              disabled={isSaving}
+                              className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                            />
+                            <datalist id={`validate-models-${provider}`}>
+                              {PROVIDER_MODELS[provider].models.map((m) => (
+                                <option key={m.id} value={m.id}>{m.label}</option>
+                              ))}
+                            </datalist>
+                          </>
+                        ) : (
+                          <select
+                            value={validationModelInputs[provider] || PROVIDER_MODELS[provider].defaults.vision}
+                            onChange={(e) => setValidationModelInputs((prev) => ({ ...prev, [provider]: e.target.value }))}
+                            disabled={isSaving}
+                            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                          >
+                            {PROVIDER_MODELS[provider].models.map((m) => (
+                              <option key={m.id} value={m.id}>{m.label}</option>
+                            ))}
+                          </select>
+                        )}
                         <p className="mt-0.5 text-[10px] text-muted-foreground/60">
-                          Select the model you deployed in Azure AI Foundry
+                          {provider === "local"
+                            ? "Must match the model id loaded in oMLX (Hugging Face id)"
+                            : "Select the model you deployed in Azure AI Foundry"}
                         </p>
                       </div>
                     </>

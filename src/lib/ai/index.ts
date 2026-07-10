@@ -5,6 +5,7 @@ import { extractWithAnthropic } from "./anthropic";
 import { extractWithOpenAI } from "./openai";
 import { extractWithGemini } from "./gemini";
 import { extractWithProxyReadTool } from "./proxy-extraction";
+import { rasterizePdfToImages } from "./pdf-raster";
 import type { AIExtractionRequest, AIExtractionResponse } from "./types";
 
 export type { AIExtractionRequest, AIExtractionResponse, AIProvider } from "./types";
@@ -12,6 +13,7 @@ export type { AIMappingRequest, AIMappingResponse } from "./types";
 export { proposeFieldMappings } from "./mapping";
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const PDF_MIME = "application/pdf";
 
 export async function extractFieldsFromDocument(
   request: AIExtractionRequest
@@ -21,6 +23,12 @@ export async function extractFieldsFromDocument(
   if (request.mimeType === DOCX_MIME) {
     const textContent = await extractTextFromDocx(request.fileData);
     enrichedRequest = { ...request, textContent };
+  }
+
+  // Local vision models (oMLX / Qwen3-VL) accept images, not PDFs — rasterize first.
+  if (request.provider === "local" && request.mimeType === PDF_MIME && !enrichedRequest.textContent) {
+    const images = await rasterizePdfToImages(request.fileData);
+    enrichedRequest = { ...enrichedRequest, images };
   }
 
   return withRetry(
@@ -36,6 +44,7 @@ export async function extractFieldsFromDocument(
         case "azure-foundry":
           return extractWithAnthropic(enrichedRequest);
         case "openai":
+        case "local":
           return extractWithOpenAI(enrichedRequest);
         case "gemini":
           return extractWithGemini(enrichedRequest);

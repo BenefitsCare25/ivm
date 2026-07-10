@@ -1,10 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
-import OpenAI from "openai";
+import OpenAI, { APIConnectionError, APIConnectionTimeoutError, APIUserAbortError } from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { AppError, ValidationError } from "@/lib/errors";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
-import type { AIProvider } from "@/lib/validations/api-key";
+import { PROVIDER_MODELS, type AIProvider } from "@/lib/validations/api-key";
 
 async function validateAnthropicKey(apiKey: string): Promise<boolean> {
   try {
@@ -126,6 +126,46 @@ async function validateAzureFoundryKey(apiKey: string, endpoint: string, model?:
   }
 }
 
+async function validateLocalKey(apiKey: string, endpoint: string, model?: string): Promise<boolean> {
+  try {
+    // maxRetries: 0 — fail fast on network errors instead of the SDK's default 2 retries.
+    const client = new OpenAI({ apiKey, baseURL: endpoint, maxRetries: 0 });
+    await client.chat.completions.create(
+      {
+        model: model ?? PROVIDER_MODELS.local.defaults.text,
+        max_tokens: 1,
+        messages: [{ role: "user", content: "Hi" }],
+      },
+      { signal: AbortSignal.timeout(30_000) } // local models may be cold / loading
+    );
+    return true;
+  } catch (err: unknown) {
+    const error = err as { status?: number; name?: string };
+    // AbortSignal.timeout aborts the request → SDK surfaces APIUserAbortError (external signal)
+    // or APIConnectionTimeoutError; the raw abort reason is a DOMException named "TimeoutError".
+    if (
+      error instanceof APIConnectionTimeoutError ||
+      error instanceof APIUserAbortError ||
+      error.name === "TimeoutError"
+    ) {
+      throw new ValidationError("Local model did not respond within 30s. Is oMLX running and reachable at this endpoint?");
+    }
+    if (error.status === 401 || error.status === 403) {
+      throw new ValidationError("Local model rejected the API key. Check the oMLX API key.");
+    }
+    if (error.status === 404) {
+      throw new ValidationError("Model not found on the local server. Check the model id matches what oMLX loaded (e.g. mlx-community/Qwen3-VL-32B-Instruct-8bit).");
+    }
+    // Connection refused / DNS / unreachable — SDK wraps the underlying cause as APIConnectionError.
+    // (Checked after the timeout subclass above.)
+    if (error instanceof APIConnectionError) {
+      throw new ValidationError("Cannot reach the local endpoint. Confirm the Tailscale/host address, port, and that /v1 is included.");
+    }
+    logger.warn({ status: error.status, name: error.name }, "[validate-key] Local unexpected error");
+    throw new ValidationError("Could not reach the local model. Check the endpoint URL, key, and model id.");
+  }
+}
+
 export async function validateApiKey(provider: AIProvider, apiKey: string, endpoint?: string, model?: string): Promise<boolean> {
   switch (provider) {
     case "anthropic":
@@ -137,5 +177,8 @@ export async function validateApiKey(provider: AIProvider, apiKey: string, endpo
     case "azure-foundry":
       if (!endpoint) throw new ValidationError("Endpoint URL is required for Azure AI Foundry.");
       return validateAzureFoundryKey(apiKey, endpoint, model);
+    case "local":
+      if (!endpoint) throw new ValidationError("Endpoint URL is required for the local model.");
+      return validateLocalKey(apiKey, endpoint, model);
   }
 }

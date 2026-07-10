@@ -65,7 +65,8 @@ export async function resolveProviderAndKey(userId: string): Promise<ResolvedPro
       visionModel: prefs?.visionModel ?? defaults.vision,
       textModel: prefs?.textModel ?? defaults.text,
       displayProvider: provider,
-      ...(provider === "azure-foundry" && key.endpoint ? { baseURL: key.endpoint } : {}),
+      // azure-foundry (Anthropic SDK) and local (OpenAI SDK) both route through a user endpoint.
+      ...((provider === "azure-foundry" || provider === "local") && key.endpoint ? { baseURL: key.endpoint } : {}),
     };
   }
 

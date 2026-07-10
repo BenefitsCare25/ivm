@@ -1,7 +1,10 @@
 import { z } from "zod";
 
-export const AI_PROVIDERS = ["anthropic", "openai", "gemini", "azure-foundry"] as const;
+export const AI_PROVIDERS = ["anthropic", "openai", "gemini", "azure-foundry", "local"] as const;
 export type AIProvider = (typeof AI_PROVIDERS)[number];
+
+/** Providers that require a user-supplied endpoint URL (custom/self-hosted). */
+export const ENDPOINT_PROVIDERS: readonly AIProvider[] = ["azure-foundry", "local"];
 
 export const saveApiKeySchema = z.object({
   provider: z.enum(AI_PROVIDERS),
@@ -9,8 +12,8 @@ export const saveApiKeySchema = z.object({
   endpoint: z.string().url("Must be a valid URL").optional(),
   validationModel: z.string().optional(),
 }).refine(
-  (data) => data.provider !== "azure-foundry" || (data.endpoint && data.endpoint.length > 0),
-  { message: "Endpoint URL is required for Azure AI Foundry", path: ["endpoint"] }
+  (data) => !ENDPOINT_PROVIDERS.includes(data.provider) || (data.endpoint && data.endpoint.length > 0),
+  { message: "Endpoint URL is required for this provider", path: ["endpoint"] }
 );
 
 export const preferredProviderSchema = z.object({
@@ -39,6 +42,12 @@ export const PROVIDER_INFO: Record<AIProvider, { name: string; description: stri
     placeholder: "your-azure-api-key",
     endpointPlaceholder: "https://your-resource.services.ai.azure.com/anthropic/  (do not add /v1/messages)",
   },
+  local: {
+    name: "Local Model (oMLX / Qwen3-VL)",
+    description: "Self-hosted vision model over an OpenAI-compatible endpoint — data stays on-device",
+    placeholder: "oMLX API key",
+    endpointPlaceholder: "http://100.x.x.x:8000/v1  (Tailscale IP + /v1)",
+  },
 };
 
 // ─── Model selection ───────────────────────────────────────
@@ -55,6 +64,8 @@ export interface ModelOption {
 export interface ProviderModels {
   models: ModelOption[];
   defaults: { vision: string; text: string };
+  /** When true, the model id is user-entered free text (id varies per install), not a fixed dropdown. */
+  freeform?: boolean;
 }
 
 export const PROVIDER_MODELS: Record<AIProvider, ProviderModels> = {
@@ -93,6 +104,19 @@ export const PROVIDER_MODELS: Record<AIProvider, ProviderModels> = {
     ],
     defaults: { vision: "claude-opus-4-7", text: "claude-opus-4-7" },
   },
+  // Local model ids must match the model name loaded in oMLX (the Hugging Face id).
+  // Freeform because the exact id depends on which quant/build the user downloaded.
+  local: {
+    freeform: true,
+    models: [
+      { id: "mlx-community/Qwen3-VL-32B-Instruct-8bit", label: "Qwen3-VL 32B Instruct (8-bit)", tier: ["vision", "text"], costLabel: "On-device" },
+      { id: "mlx-community/Qwen3-VL-30B-A3B-Instruct-8bit", label: "Qwen3-VL 30B-A3B MoE (8-bit)", tier: ["vision", "text"], costLabel: "On-device" },
+    ],
+    defaults: {
+      vision: "mlx-community/Qwen3-VL-32B-Instruct-8bit",
+      text: "mlx-community/Qwen3-VL-32B-Instruct-8bit",
+    },
+  },
 };
 
 export const modelPreferencesSchema = z.object({
@@ -100,5 +124,6 @@ export const modelPreferencesSchema = z.object({
   openai: z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
   gemini: z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
   "azure-foundry": z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
+  local: z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
 });
 export type ModelPreferences = z.infer<typeof modelPreferencesSchema>;

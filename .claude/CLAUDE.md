@@ -54,6 +54,17 @@ All color tokens in `src/styles/tokens.css` use RGB channel values (e.g., `--bac
 - Key validation: `src/lib/ai/validate-key.ts` (minimal API call before saving)
 - Images → base64 content blocks; PDFs → base64 document blocks; DOCX → graceful error
 
+### AI Providers — Local Model (oMLX / Qwen3-VL, self-hosted)
+- **Provider id `"local"`**: a self-hosted vision model exposed over an **OpenAI-compatible** endpoint (oMLX serving Qwen3-VL). Distinct from `"openai"` so it never triggers the Claude-CLI-proxy Read-tool path. `AIProvider` union lives in BOTH `src/lib/ai/types.ts` and `src/lib/validations/api-key.ts` — keep them in sync.
+- **Routing**: `local` routes through the **OpenAI SDK** functions in every path — extraction (`openai.ts`), mapping, comparison, page-analysis, vision-verify. `resolveProviderAndKey()` sets `baseURL` from the stored `endpoint` for `local` (same as `azure-foundry`, which uses the Anthropic SDK).
+- **Endpoint providers**: `ENDPOINT_PROVIDERS = ["azure-foundry", "local"]` in `validations/api-key.ts` drives the "endpoint required" schema refine + the Settings UI endpoint field. Endpoint normalization is provider-aware in `api/settings/api-keys/route.ts`: azure strips `/v1/messages`; local keeps `/v1`, only trims trailing slashes.
+- **PDF rasterization**: local vision models take **images, not PDFs**. `src/lib/ai/pdf-raster.ts` (`rasterizePdfToImages`, backed by `pdf-to-img` → native `canvas` + `pdfjs-dist`, dynamically imported) converts PDFs to PNG pages before the call. Wired in `index.ts` (extraction, cap 10 pages) and `vision-verify.ts` (cap 4). `next.config.ts` `serverExternalPackages` must list `pdf-to-img`, `canvas`, `pdfjs-dist`. Azure VM needs node-canvas runtime libs (already present via Playwright's `install-deps`; else `apt-get install libcairo2 libpango-1.0-0 libjpeg-turbo8 libgif7 librsvg2-2`).
+- **Vision-checks rasterize-once**: `vision-checks.ts` rasterizes each unique PDF a single time into a `rasterCache` and passes `images` into `verifyWithVision` (which prefers `req.images` over re-rasterizing) — avoids redundant canvas renders across tasks on the same file.
+- **Freeform model ids**: `PROVIDER_MODELS.local.freeform = true` — model id is user-entered free text (matches the HF id loaded in oMLX, e.g. `mlx-community/Qwen3-VL-32B-Instruct-8bit`), rendered as a datalist input not a dropdown. The `model-preferences` PUT **skips the fixed-id allow-list for `freeform` providers**. On key save, the validated model id is persisted into `modelPreferences` (both vision+text) so runtime uses the connected model, not the default.
+- **SSRF guard**: `assertSafeEndpoint()` in `src/lib/endpoint-safety.ts` runs on save for all endpoint providers — blocks cloud-metadata / link-local (`169.254.0.0/16`, `metadata.google.internal`, IMDS IPv6) and non-http(s) schemes; loopback/LAN/Tailscale (`100.64.0.0/10`) intentionally allowed.
+- **Validation errors**: `validateLocalKey` uses OpenAI SDK error classes (`APIConnectionTimeoutError`/`APIUserAbortError`/`APIConnectionError`, `maxRetries: 0`) for precise "unreachable / timed out / bad key / model not found" messages.
+- **Deployment topology**: production IVM runs on the Azure VM, so oMLX cannot bind pure loopback — bind it to the Tailscale interface and enter `http://<mac-tailscale-ip>:8000/v1` as the endpoint.
+
 ### AI Field Mapping
 - Entry point: `proposeFieldMappings()` from `src/lib/ai/mapping.ts` (text-only, no file uploads)
 - Parser: `src/lib/ai/parse-mapping.ts` — validates response, adds unmapped fields the AI missed

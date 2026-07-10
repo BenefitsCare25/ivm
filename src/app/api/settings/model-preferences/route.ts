@@ -51,6 +51,8 @@ export async function PUT(req: Request) {
       if (!prefs) continue;
       const providerModels = PROVIDER_MODELS[provider as AIProvider];
       if (!providerModels) continue;
+      // Freeform providers (self-hosted / local) use install-specific model ids not in the fixed list.
+      if (providerModels.freeform) continue;
 
       const modelIds = providerModels.models.map((m) => m.id);
       if (!modelIds.includes(prefs.visionModel)) {

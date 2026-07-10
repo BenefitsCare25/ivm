@@ -3,6 +3,8 @@ import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // pdf-to-img pulls native canvas + pdfjs-dist — never bundle them; load from node_modules at runtime
+  serverExternalPackages: ["pdf-to-img", "canvas", "pdfjs-dist"],
   experimental: {
     serverActions: {
       bodySizeLimit: "10mb",

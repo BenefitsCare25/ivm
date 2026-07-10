@@ -45,7 +45,8 @@ export async function analyzePageStructure(
       rawText = await analyzeWithProxy(request);
     } else if (provider === "anthropic" || provider === "azure-foundry") {
       rawText = await analyzeWithAnthropic(request);
-    } else if (provider === "openai") {
+    } else if (provider === "openai" || provider === "local") {
+      // local sends a screenshot (already a PNG) straight through the OpenAI-compatible path
       rawText = await analyzeWithOpenAI(request);
     } else if (provider === "gemini") {
       rawText = await analyzeWithGemini(request);

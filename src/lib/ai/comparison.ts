@@ -54,7 +54,7 @@ export async function compareFields(
 
   if (provider === "anthropic" || provider === "azure-foundry") {
     result = await compareWithAnthropic(request, userPrompt);
-  } else if (provider === "openai") {
+  } else if (provider === "openai" || provider === "local") {
     result = await compareWithOpenAI(request, userPrompt);
   } else if (provider === "gemini") {
     result = await compareWithGemini(request, userPrompt);

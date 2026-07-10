@@ -16,6 +16,16 @@ function buildUserContent(request: AIExtractionRequest): OpenAI.ChatCompletionCo
     ];
   }
 
+  // Pre-rasterized page images (local provider: PDF converted to one image per page).
+  if (request.images?.length) {
+    const parts: OpenAI.ChatCompletionContentPart[] = request.images.map((img) => ({
+      type: "image_url",
+      image_url: { url: `data:${img.mimeType};base64,${img.data.toString("base64")}` },
+    }));
+    parts.push({ type: "text", text: getExtractionUserPrompt(request.fileName) });
+    return parts;
+  }
+
   const base64Data = request.fileData.toString("base64");
   const parts: OpenAI.ChatCompletionContentPart[] = [];
 
@@ -47,7 +57,7 @@ export async function extractWithOpenAI(request: AIExtractionRequest): Promise<A
   const client = new OpenAI({ apiKey: request.apiKey, ...(request.baseURL ? { baseURL: request.baseURL } : {}) });
 
   logger.info(
-    { sourceAssetId: request.sourceAssetId, mimeType: request.mimeType, fileName: request.fileName, provider: "openai" },
+    { sourceAssetId: request.sourceAssetId, mimeType: request.mimeType, fileName: request.fileName, provider: request.provider },
     "Starting AI extraction"
   );
 

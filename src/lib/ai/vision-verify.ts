@@ -3,7 +3,8 @@ import OpenAI from "openai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { logger } from "@/lib/logger";
 import { stripMarkdownFences } from "./parse";
-import type { AIProvider } from "./types";
+import { rasterizePdfToImages } from "./pdf-raster";
+import type { AIProvider, RasterImage } from "./types";
 import type { VisionVerdict } from "@/types/portal";
 
 const IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
@@ -19,6 +20,8 @@ export interface VisionVerifyRequest {
   apiKey: string;
   model: string;
   baseURL?: string;
+  /** Pre-rasterized page images (local provider). When set, the PDF is not re-rasterized. */
+  images?: RasterImage[];
 }
 
 export interface VisionVerifyResult {
@@ -76,7 +79,16 @@ export async function verifyWithVision(req: VisionVerifyRequest): Promise<Vision
       if (isPdf) {
         return { verdict: "UNCERTAIN", explanation: "PDF vision verification not supported on this provider.", model: req.model };
       }
-      return await withOpenAI(req);
+      return await withOpenAI(req, [{ data: req.fileData, mimeType: req.mimeType as RasterImage["mimeType"] }]);
+    }
+    if (req.provider === "local") {
+      // Local vision models take images. Reuse caller-supplied rasterized pages when present
+      // (avoids re-decoding the same PDF across multiple checks); otherwise rasterize here.
+      const images: RasterImage[] = req.images
+        ?? (isPdf
+          ? await rasterizePdfToImages(req.fileData, { maxPages: 4 })
+          : [{ data: req.fileData, mimeType: req.mimeType as RasterImage["mimeType"] }]);
+      return await withOpenAI(req, images);
     }
     return { verdict: "UNCERTAIN", explanation: `Unsupported provider ${req.provider}`, model: req.model };
   } catch (err) {
@@ -111,9 +123,12 @@ async function withAnthropic(req: VisionVerifyRequest, isImage: boolean): Promis
   return parse(textBlock && textBlock.type === "text" ? textBlock.text : "", req.model);
 }
 
-async function withOpenAI(req: VisionVerifyRequest): Promise<VisionVerifyResult> {
+async function withOpenAI(req: VisionVerifyRequest, images: RasterImage[]): Promise<VisionVerifyResult> {
   const client = new OpenAI({ apiKey: req.apiKey, ...(req.baseURL ? { baseURL: req.baseURL } : {}) });
-  const dataUrl = `data:${req.mimeType};base64,${req.fileData.toString("base64")}`;
+  const imageParts = images.map((img) => ({
+    type: "image_url" as const,
+    image_url: { url: `data:${img.mimeType};base64,${img.data.toString("base64")}` },
+  }));
   const response = await client.chat.completions.create(
     {
       model: req.model,
@@ -122,14 +137,11 @@ async function withOpenAI(req: VisionVerifyRequest): Promise<VisionVerifyResult>
         { role: "system", content: systemPrompt() },
         {
           role: "user",
-          content: [
-            { type: "text", text: req.question },
-            { type: "image_url", image_url: { url: dataUrl } },
-          ],
+          content: [{ type: "text", text: req.question }, ...imageParts],
         },
       ],
     },
-    { signal: AbortSignal.timeout(45_000) }
+    { signal: AbortSignal.timeout(req.baseURL ? 120_000 : 45_000) }
   );
   return parse(response.choices[0]?.message?.content ?? "", req.model);
 }

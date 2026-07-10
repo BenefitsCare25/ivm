@@ -3,7 +3,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { encrypt, maskApiKey } from "@/lib/crypto";
 import { validateApiKey } from "@/lib/ai/validate-key";
-import { saveApiKeySchema } from "@/lib/validations/api-key";
+import { saveApiKeySchema, type ModelPreferences } from "@/lib/validations/api-key";
+import { assertSafeEndpoint } from "@/lib/endpoint-safety";
 import { errorResponse, UnauthorizedError, ValidationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { authLimiter } from "@/lib/rate-limit";
@@ -52,10 +53,17 @@ export async function POST(req: Request) {
 
     const { provider, apiKey, endpoint, validationModel } = parsed.data;
 
-    // Normalize Azure endpoint: strip /v1/messages suffix users commonly paste
-    const normalizedEndpoint = endpoint
-      ? endpoint.replace(/\/v1\/messages\/?$/, "").replace(/\/?$/, "/")
-      : undefined;
+    // Normalize endpoint per provider:
+    // - azure-foundry (Anthropic SDK): strip the /v1/messages suffix users paste, ensure trailing slash
+    // - local (OpenAI SDK): keep the /v1 path, just trim trailing slashes
+    let normalizedEndpoint: string | undefined;
+    if (endpoint) {
+      normalizedEndpoint = provider === "azure-foundry"
+        ? endpoint.replace(/\/v1\/messages\/?$/, "").replace(/\/?$/, "/")
+        : endpoint.replace(/\/+$/, "");
+      // SSRF hardening: block metadata / link-local targets before the server ever fetches it.
+      assertSafeEndpoint(normalizedEndpoint);
+    }
 
     await validateApiKey(provider, apiKey, normalizedEndpoint, validationModel);
 
@@ -80,15 +88,25 @@ export async function POST(req: Request) {
       select: { provider: true, keyPrefix: true, isActive: true, updatedAt: true, endpoint: true },
     });
 
-    const existingPreferred = await db.user.findUnique({
+    const existing = await db.user.findUnique({
       where: { id: session.user.id },
-      select: { preferredProvider: true },
+      select: { preferredProvider: true, modelPreferences: true },
     });
-    if (!existingPreferred?.preferredProvider) {
-      await db.user.update({
-        where: { id: session.user.id },
-        data: { preferredProvider: provider },
-      });
+
+    // Persist the model the user validated with as their preference for this provider,
+    // so runtime calls use the model they actually connected (esp. freeform local ids)
+    // instead of silently falling back to the provider default.
+    const dataUpdate: { preferredProvider?: string; modelPreferences?: object } = {};
+    if (!existing?.preferredProvider) {
+      dataUpdate.preferredProvider = provider;
+    }
+    if (validationModel) {
+      const current = (existing?.modelPreferences as ModelPreferences | null) ?? {};
+      const merged = { ...current, [provider]: { visionModel: validationModel, textModel: validationModel } };
+      dataUpdate.modelPreferences = JSON.parse(JSON.stringify(merged));
+    }
+    if (Object.keys(dataUpdate).length > 0) {
+      await db.user.update({ where: { id: session.user.id }, data: dataUpdate });
     }
 
     logger.info({ userId: session.user.id, provider }, "API key saved");

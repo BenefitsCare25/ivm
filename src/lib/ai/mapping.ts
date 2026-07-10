@@ -139,10 +139,11 @@ export async function proposeFieldMappings(
       rawResponse = result.rawResponse;
       break;
     }
-    case "openai": {
+    case "openai":
+    case "local": {
       const result = await withRetry(
         () => callOpenAI(apiKey, systemPrompt, userPrompt, request.model, request.baseURL),
-        { maxRetries: 2, operation: "mapping:openai" }
+        { maxRetries: 2, operation: `mapping:${provider}` }
       );
       rawText = result.rawText;
       rawResponse = result.rawResponse;
