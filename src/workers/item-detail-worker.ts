@@ -278,6 +278,7 @@ async function processItemDetailCore(
           storagePath: f.storagePath,
           mimeType: f.mimeType,
         })),
+        failedFiles: extraction.failedFiles,
         fileBuffers: extraction.fileBuffers,
         provider,
         apiKey,
@@ -294,7 +295,7 @@ async function processItemDetailCore(
         where: { id: trackedItemId },
         data: {
           status: comparison.finalStatus,
-          errorMessage: comparison.extractionFailed ? "AI extraction failed for all files" : null,
+          errorMessage: comparison.reviewMessage,
         },
       });
 

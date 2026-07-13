@@ -29,6 +29,10 @@ export interface AIExtractionResponse {
   fields: ExtractedField[];
   rawResponse: unknown;
   truncated?: boolean;
+  /** Token accounting for observability (best-effort; populated by the local/OpenAI path). */
+  usage?: { promptTokens?: number; completionTokens?: number };
+  /** Model stop reason, e.g. "stop" (complete) or "length" (hit max_tokens). */
+  finishReason?: string;
 }
 
 export interface AIMappingRequest {

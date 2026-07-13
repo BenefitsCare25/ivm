@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { extractFieldsFromDocument } from "@/lib/ai";
 import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDocTypeMatch, checkTampering } from "@/lib/intelligence";
@@ -18,8 +19,41 @@ export interface ExtractionResult {
   tamperingTargets: { fileName: string; fileHash: string }[];
   /** Buffers downloaded during extraction, keyed by storagePath — reused for vision re-checks. */
   fileBuffers: Map<string, Buffer>;
+  /** Supported files whose extraction failed (present but unreadable) — distinct from absent documents. */
+  failedFiles: string[];
   cachedDocTypes?: DocTypeRecord[];
 }
+
+/** Run `fn` over `items` with at most `limit` in flight, preserving input order. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const runnerCount = Math.min(Math.max(1, limit), items.length || 1);
+  const runners = Array.from({ length: runnerCount }, async () => {
+    for (let i = next++; i < items.length; i = next++) {
+      results[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+type PerFileResult =
+  | {
+      ok: true;
+      fileName: string;
+      mimeType: string;
+      storagePath: string;
+      buffer: Buffer;
+      fileHash: string;
+      documentType: string;
+      fields: { label: string; value: string; rawText?: string }[];
+    }
+  | { ok: false; fileName: string };
 
 export async function runExtraction({
   trackedItemId,
@@ -44,15 +78,17 @@ export async function runExtraction({
   knownDocumentTypes?: string[];
   cachedDocTypes?: DocTypeRecord[];
 }): Promise<ExtractionResult> {
-  const pdfFields: Record<string, string> = {};
-  const pdfRawFields: Record<string, string> = {};
-  const pdfFieldSources: Record<string, string> = {};
-  const fileExtractions: ExtractionResult["fileExtractions"] = [];
-  const tamperingTargets: ExtractionResult["tamperingTargets"] = [];
-  const fileBuffers = new Map<string, Buffer>();
+  const supportedFiles = downloadedFiles.filter(
+    (f) => f.mimeType === "application/pdf" || f.mimeType.startsWith("image/")
+  );
 
-  for (const file of downloadedFiles) {
-    if (file.mimeType === "application/pdf" || file.mimeType.startsWith("image/")) {
+  // Extract each attachment (bounded concurrency — default 1/serial; raise via
+  // ATTACHMENT_CONCURRENCY on a smaller/faster model). Per-file failures are
+  // captured, never thrown, so one unreadable file doesn't sink the others.
+  const perFile = await mapWithConcurrency(
+    supportedFiles,
+    env.ATTACHMENT_CONCURRENCY,
+    async (file): Promise<PerFileResult> => {
       try {
         await emitItemEvent(trackedItemId, "AI_EXTRACT_START", {
           fileName: file.originalName,
@@ -63,19 +99,12 @@ export async function runExtraction({
         const { getStorageAdapter } = await import("@/lib/storage");
         const storage = getStorageAdapter();
         const fileBuffer = await storage.download(file.storagePath);
-        fileBuffers.set(file.storagePath, fileBuffer);
 
         const fileHash = createHash("sha256").update(fileBuffer).digest("hex");
         await db.trackedItemFile.updateMany({
           where: { trackedItemId, storagePath: file.storagePath },
           data: { fileHash },
         });
-        if (
-          file.mimeType === "application/pdf" &&
-          !tamperingTargets.some((t) => t.fileName === file.originalName)
-        ) {
-          tamperingTargets.push({ fileName: file.originalName, fileHash });
-        }
 
         const extraction = await extractFieldsFromDocument({
           sourceAssetId: trackedItemId,
@@ -90,17 +119,23 @@ export async function runExtraction({
           knownDocumentTypes,
         });
 
-        for (const field of extraction.fields) {
-          pdfFields[field.label] = field.value;
-          pdfRawFields[field.label] = field.rawText ?? field.value;
-          pdfFieldSources[field.label] = file.originalName;
-        }
-
-        fileExtractions.push({
-          fileName: file.originalName,
-          documentType: extraction.documentType,
-          fields: extraction.fields.map((f) => ({ label: f.label, value: f.value })),
-        });
+        const durationMs = Date.now() - t0;
+        // ── Per-attachment observability (Phase 5) ──
+        logger.info(
+          {
+            trackedItemId,
+            fileName: file.originalName,
+            provider: displayProvider,
+            model: visionModel,
+            durationMs,
+            fieldCount: extraction.fields.length,
+            promptTokens: extraction.usage?.promptTokens,
+            completionTokens: extraction.usage?.completionTokens,
+            finishReason: extraction.finishReason,
+            truncated: extraction.truncated ?? false,
+          },
+          "[worker] Attachment extraction metrics"
+        );
 
         if (extraction.truncated) {
           await emitItemEvent(trackedItemId, "AI_EXTRACT_TRUNCATED", {
@@ -112,17 +147,66 @@ export async function runExtraction({
         await emitItemEvent(
           trackedItemId,
           "AI_EXTRACT_DONE",
-          { fileName: file.originalName, fieldCount: extraction.fields.length },
-          { durationMs: Date.now() - t0 }
+          {
+            fileName: file.originalName,
+            fieldCount: extraction.fields.length,
+            model: visionModel,
+            promptTokens: extraction.usage?.promptTokens,
+            completionTokens: extraction.usage?.completionTokens,
+            finishReason: extraction.finishReason,
+          },
+          { durationMs }
         );
+
+        return {
+          ok: true,
+          fileName: file.originalName,
+          mimeType: file.mimeType,
+          storagePath: file.storagePath,
+          buffer: fileBuffer,
+          fileHash,
+          documentType: extraction.documentType,
+          fields: extraction.fields.map((f) => ({ label: f.label, value: f.value, rawText: f.rawText })),
+        };
       } catch (err) {
         logger.warn({ err, fileName: file.originalName }, "[worker] Failed to extract from file");
         await emitFailureEvent(trackedItemId, "AI_EXTRACT_FAIL", err);
+        return { ok: false, fileName: file.originalName };
       }
     }
+  );
+
+  // Merge in input order — deterministic, and avoids races on the shared maps.
+  const pdfFields: Record<string, string> = {};
+  const pdfRawFields: Record<string, string> = {};
+  const pdfFieldSources: Record<string, string> = {};
+  const fileExtractions: ExtractionResult["fileExtractions"] = [];
+  const tamperingTargets: ExtractionResult["tamperingTargets"] = [];
+  const fileBuffers = new Map<string, Buffer>();
+  const failedFiles: string[] = [];
+
+  for (const r of perFile) {
+    if (!r.ok) {
+      failedFiles.push(r.fileName);
+      continue;
+    }
+    fileBuffers.set(r.storagePath, r.buffer);
+    if (r.mimeType === "application/pdf" && !tamperingTargets.some((t) => t.fileName === r.fileName)) {
+      tamperingTargets.push({ fileName: r.fileName, fileHash: r.fileHash });
+    }
+    for (const field of r.fields) {
+      pdfFields[field.label] = field.value;
+      pdfRawFields[field.label] = field.rawText ?? field.value;
+      pdfFieldSources[field.label] = r.fileName;
+    }
+    fileExtractions.push({
+      fileName: r.fileName,
+      documentType: r.documentType,
+      fields: r.fields.map((f) => ({ label: f.label, value: f.value })),
+    });
   }
 
-  return { pdfFields, pdfRawFields, pdfFieldSources, fileExtractions, tamperingTargets, fileBuffers, cachedDocTypes };
+  return { pdfFields, pdfRawFields, pdfFieldSources, fileExtractions, tamperingTargets, fileBuffers, failedFiles, cachedDocTypes };
 }
 
 export async function runIntelligencePipeline({

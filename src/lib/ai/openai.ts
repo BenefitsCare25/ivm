@@ -62,8 +62,8 @@ export async function extractWithOpenAI(request: AIExtractionRequest): Promise<A
   );
 
   // Local self-hosted models are slower than cloud APIs — give them a larger ceiling
-  // (still under the detail worker's 10-min job budget).
-  const timeout = request.provider === "local" ? 300_000 : 180_000;
+  // (still under the detail worker's 10-min job budget). Configurable per hardware.
+  const timeout = request.provider === "local" ? env.LOCAL_AI_TIMEOUT_MS : 180_000;
 
   const response = await client.chat.completions.create(
     {
@@ -98,5 +98,15 @@ export async function extractWithOpenAI(request: AIExtractionRequest): Promise<A
     "AI extraction completed"
   );
 
-  return { documentType, fields, rawResponse: response, truncated };
+  return {
+    documentType,
+    fields,
+    rawResponse: response,
+    truncated,
+    usage: {
+      promptTokens: response.usage?.prompt_tokens,
+      completionTokens: response.usage?.completion_tokens,
+    },
+    finishReason: response.choices[0]?.finish_reason ?? undefined,
+  };
 }

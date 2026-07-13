@@ -41,6 +41,11 @@ export async function extractFieldsFromDocument(
     }
   }
 
+  // Local self-hosted models are slow; a timed-out call retried 2× would burn
+  // ~3× the (already large) per-call timeout and blow the item job budget. Fail
+  // fast for local — the caller records the failure per-attachment and moves on.
+  const maxRetries = enrichedRequest.provider === "local" ? 0 : 2;
+
   return withRetry(
     () => {
       // CLI proxy cannot handle base64 content blocks — use Read tool approach
@@ -62,6 +67,6 @@ export async function extractFieldsFromDocument(
           throw new AppError(`Unsupported AI provider: ${enrichedRequest.provider}`, 400, "INVALID_PROVIDER");
       }
     },
-    { maxRetries: 2, operation: `extraction:${enrichedRequest.provider}` }
+    { maxRetries, operation: `extraction:${enrichedRequest.provider}` }
   );
 }

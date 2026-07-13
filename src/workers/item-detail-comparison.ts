@@ -31,6 +31,8 @@ interface ComparisonInput {
   fileExtractions: { fileName: string; documentType: string; fields: { label: string; value: string }[] }[];
   /** Downloaded source files, used for selective vision re-verification. */
   downloadedFiles?: VisionCheckFile[];
+  /** Names of supported files whose extraction failed (present but unreadable). */
+  failedFiles?: string[];
   /** Buffers already downloaded during extraction, reused by vision re-checks. */
   fileBuffers?: Map<string, Buffer>;
   provider: AIProvider;
@@ -49,6 +51,8 @@ interface ComparisonOutput {
   noDocuments: boolean;
   extractionFailed: boolean;
   finalStatus: TrackedItemStatus;
+  /** Human-readable reason when the item needs review (set on extraction failures). */
+  reviewMessage: string | null;
 }
 
 export async function runComparison(input: ComparisonInput): Promise<ComparisonOutput> {
@@ -60,8 +64,18 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
 
   const hasDetailData = Object.keys(effectiveDetailData ?? {}).length > 0;
   const hasPdfFields = Object.keys(pdfFields ?? {}).length > 0;
-  const noDocuments = fileExtractions.length === 0;
-  const extractionFailed = fileExtractions.length > 0 && !hasPdfFields;
+
+  // Distinguish three failure modes so an unreadable document is never mistaken
+  // for an absent one (the false "Missing Document" bug). Keyed on what actually
+  // happened to the *supported* files (a failed extraction lands in failedFiles):
+  //   • noDocuments        — nothing extracted and nothing failed → genuinely require docs
+  //   • allExtractionsFailed — supported files were read but ALL failed → ERROR
+  //   • partialFailure     — some read, some failed → comparison is incomplete → review
+  const failedFiles = input.failedFiles ?? [];
+  const noDocuments = fileExtractions.length === 0 && failedFiles.length === 0;
+  const allExtractionsFailed = fileExtractions.length === 0 && failedFiles.length > 0;
+  const partialFailure = fileExtractions.length > 0 && failedFiles.length > 0;
+  const extractionFailed = allExtractionsFailed;
 
   // Alias-aware, deterministic recognition of every submitted document
   // (canonical type, billing-document family, interim/final bill status).
@@ -143,6 +157,7 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
   }
 
   let ruleFlag = false;
+  let preservedPrior = false;
 
   if (comparisonResult) {
     if (matchedTemplate && matchedTemplate.fields.length > 0) {
@@ -206,12 +221,30 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
       }
     }
 
-    const documentTypesByFile = Object.fromEntries(
-      fileExtractions.map((e) => [e.fileName, e.documentType])
-    );
-    ruleFlag = await saveComparisonResult(
-      trackedItemId, comparisonResult, displayProvider, templateId, matchedTemplate, billStatusSignal, documentTypesByFile
-    );
+    // Clobber guard: on a partial extraction failure, don't overwrite a richer
+    // previous comparison (e.g. a full successful run) with this incomplete one.
+    const newCompared = (comparisonResult.matchCount ?? 0) + (comparisonResult.mismatchCount ?? 0);
+    if (partialFailure) {
+      const prior = await priorComparisonRichness(trackedItemId);
+      if (prior && (prior.compared > newCompared || prior.docCount > fileExtractions.length)) {
+        preservedPrior = true;
+        logger.warn(
+          { trackedItemId, failedFiles, priorCompared: prior.compared, newCompared },
+          "[worker] Partial extraction failure — preserving richer previous comparison result"
+        );
+      }
+    }
+
+    if (!preservedPrior) {
+      const documentTypesByFile = Object.fromEntries(
+        fileExtractions.map((e) => [e.fileName, e.documentType])
+      );
+      ruleFlag = await saveComparisonResult(
+        trackedItemId, comparisonResult, displayProvider, templateId, matchedTemplate,
+        billStatusSignal, documentTypesByFile,
+        partialFailure ? { partialFailure: true, unreadableFiles: failedFiles } : undefined
+      );
+    }
   }
 
   const hasMismatch = (comparisonResult?.mismatchCount ?? 0) > 0;
@@ -222,18 +255,48 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
   const hasMissingDoc = comparisonResult?.requiredDocumentsCheck?.some(
     (d: RequiredDocumentCheck) => !d.found
   ) ?? false;
-  const finalStatus = noDocuments
+
+  // A partial failure always surfaces the item — the comparison ran on incomplete
+  // data, so a clean "COMPARED" would be misleading.
+  const finalStatus: TrackedItemStatus = noDocuments
     ? "REQUIRE_DOC"
-    : extractionFailed
+    : allExtractionsFailed
       ? "ERROR"
-      : (hasMismatch || ruleFlag || hasMissingDoc) ? "FLAGGED" : "COMPARED";
+      : (preservedPrior || partialFailure || hasMismatch || ruleFlag || hasMissingDoc)
+        ? "FLAGGED"
+        : "COMPARED";
+
+  const reviewMessage: string | null = allExtractionsFailed
+    ? `AI could not read any of the ${failedFiles.length} submitted document(s): ${failedFiles.join(", ")}. Manual review required.`
+    : preservedPrior
+      ? `Re-read failed for ${failedFiles.length} document(s): ${failedFiles.join(", ")}. Showing the previous comparison — manual review recommended.`
+      : partialFailure
+        ? `${failedFiles.length} document(s) could not be read: ${failedFiles.join(", ")}. Comparison may be incomplete — manual review recommended.`
+        : null;
 
   return {
     mismatchCount: comparisonResult?.mismatchCount ?? 0,
     noDocuments,
     extractionFailed,
     finalStatus,
+    reviewMessage,
   };
+}
+
+/** Richness of any already-saved comparison — used to avoid clobbering it with a degraded re-run. */
+async function priorComparisonRichness(
+  trackedItemId: string
+): Promise<{ compared: number; docCount: number } | null> {
+  const prior = await db.comparisonResult.findUnique({
+    where: { trackedItemId },
+    select: { matchCount: true, mismatchCount: true, documentTypesByFile: true },
+  });
+  if (!prior) return null;
+  const docCount =
+    prior.documentTypesByFile && typeof prior.documentTypesByFile === "object"
+      ? Object.keys(prior.documentTypesByFile as Record<string, unknown>).length
+      : 0;
+  return { compared: (prior.matchCount ?? 0) + (prior.mismatchCount ?? 0), docCount };
 }
 
 async function saveComparisonResult(
@@ -245,6 +308,7 @@ async function saveComparisonResult(
   matchedTemplate: MatchedTemplate | null,
   billStatusSignal: BillStatusSignal | null,
   documentTypesByFile: Record<string, string>,
+  failureContext?: { partialFailure: boolean; unreadableFiles: string[] },
 ): Promise<boolean> {
   const comparisonsJson = toInputJson(comparisonResult.fieldComparisons);
   const diagnosisJson = comparisonResult.diagnosisAssessment
@@ -304,6 +368,28 @@ async function saveComparisonResult(
       : []),
     ...(billRow ? [billRow] : []),
   ];
+
+  // On a partial extraction failure, a required document could well be inside a
+  // file we couldn't read — so never assert a hard "missing". Downgrade any such
+  // FAIL to a manual-review WARNING and add a prominent unreadable-files note.
+  if (failureContext?.partialFailure) {
+    const unreadable = failureContext.unreadableFiles.join(", ");
+    for (const row of extraRows) {
+      if (row.ruleType === "REQUIRED_DOCUMENT" && row.status === "FAIL") {
+        row.status = "WARNING";
+        row.message = `Manual review — "${row.metadata.documentTypeName ?? "required document"}" not found, but ${failureContext.unreadableFiles.length} document(s) could not be read (${unreadable})`;
+        row.metadata.severity = "review";
+        row.metadata.unreadableFiles = failureContext.unreadableFiles;
+      }
+    }
+    extraRows.push({
+      ruleType: "REQUIRED_DOCUMENT",
+      status: "WARNING",
+      message: `${failureContext.unreadableFiles.length} document(s) could not be read and were excluded from comparison: ${unreadable}. Manual review recommended.`,
+      metadata: { severity: "review", reason: "extraction_failed", unreadableFiles: failureContext.unreadableFiles },
+    });
+  }
+
   if (extraRows.length > 0) {
     await Promise.all(
       extraRows.map((v) =>

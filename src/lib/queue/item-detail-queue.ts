@@ -1,6 +1,7 @@
 import { Queue, Worker, Job } from "bullmq";
 import { getQueueConnection } from "./connection";
 import { logger } from "@/lib/logger";
+import { env } from "@/lib/env";
 
 const QUEUE_NAME = "item-detail";
 
@@ -107,7 +108,7 @@ export function startItemDetailWorker(
     processor,
     {
       connection: conn,
-      concurrency: 2,
+      concurrency: env.DETAIL_WORKER_CONCURRENCY,
       // Long lock so BullMQ doesn't stall-detect jobs mid-AI-call
       lockDuration: LOCK_DURATION_MS,
       // Check for stalled jobs every 30 seconds
