@@ -104,17 +104,18 @@ export const PROVIDER_MODELS: Record<AIProvider, ProviderModels> = {
     ],
     defaults: { vision: "claude-opus-4-7", text: "claude-opus-4-7" },
   },
-  // Local model ids must match the model name loaded in oMLX (the Hugging Face id).
-  // Freeform because the exact id depends on which quant/build the user downloaded.
+  // Local model ids must match the id oMLX serves (see /v1/models — NOT always the
+  // Hugging Face repo name). Freeform + a live picker in Settings; this list is only
+  // a fallback shown when the endpoint can't be reached.
   local: {
     freeform: true,
     models: [
-      { id: "mlx-community/Qwen3-VL-32B-Instruct-8bit", label: "Qwen3-VL 32B Instruct (8-bit)", tier: ["vision", "text"], costLabel: "On-device" },
-      { id: "mlx-community/Qwen3-VL-30B-A3B-Instruct-8bit", label: "Qwen3-VL 30B-A3B MoE (8-bit)", tier: ["vision", "text"], costLabel: "On-device" },
+      { id: "Qwen3-VL-8B-Instruct-MLX-8bit", label: "Qwen3-VL 8B Instruct (8-bit)", tier: ["vision", "text"], costLabel: "On-device" },
+      { id: "Qwen3-VL-32B-Instruct-8bit", label: "Qwen3-VL 32B Instruct (8-bit)", tier: ["vision", "text"], costLabel: "On-device" },
     ],
     defaults: {
-      vision: "mlx-community/Qwen3-VL-32B-Instruct-8bit",
-      text: "mlx-community/Qwen3-VL-32B-Instruct-8bit",
+      vision: "Qwen3-VL-8B-Instruct-MLX-8bit",
+      text: "Qwen3-VL-8B-Instruct-MLX-8bit",
     },
   },
 };

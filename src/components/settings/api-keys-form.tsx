@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Key, Trash2, CheckCircle, Loader2 } from "lucide-react";
+import { Key, Trash2, CheckCircle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
@@ -40,72 +40,118 @@ function ModelSelectors({
   const selectClass = "w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring";
   const listId = `models-${provider}`;
 
+  const isLocal = provider === "local";
+  const [liveModels, setLiveModels] = useState<string[]>([]);
+  const [liveErr, setLiveErr] = useState<string | null>(null);
+  const [loadingLive, setLoadingLive] = useState(false);
+
+  const loadLive = useCallback(async () => {
+    if (!isLocal) return;
+    setLoadingLive(true);
+    setLiveErr(null);
+    try {
+      const res = await fetch("/api/settings/local-models");
+      const data = await res.json();
+      const models: string[] = Array.isArray(data.models) ? data.models : [];
+      setLiveModels(models);
+      setLiveErr(models.length === 0 ? (data.error ?? "No models loaded on the endpoint.") : null);
+    } catch {
+      setLiveModels([]);
+      setLiveErr("Could not reach the endpoint.");
+    } finally {
+      setLoadingLive(false);
+    }
+  }, [isLocal]);
+
+  useEffect(() => { loadLive(); }, [loadLive]);
+
+  const currentVision = prefs?.visionModel ?? defaults.vision;
+  const currentText = prefs?.textModel ?? defaults.text;
+  // Live models ∪ current selections — so a saved id is never dropped from the list.
+  const localOptions = Array.from(new Set([...liveModels, currentVision, currentText].filter(Boolean)));
+  const hasLive = isLocal && liveModels.length > 0;
+
+  function renderTier(tier: "visionModel" | "textModel", current: string, models: typeof config.models) {
+    // Local + reachable endpoint → real dropdown of the models actually loaded.
+    if (isLocal && hasLive) {
+      return (
+        <select value={current} onChange={(e) => onChange(provider, tier, e.target.value)} className={selectClass}>
+          {localOptions.map((id) => <option key={id} value={id}>{id}</option>)}
+        </select>
+      );
+    }
+    // Freeform (local endpoint unreachable, or other freeform provider) → type/pick via datalist.
+    if (config.freeform) {
+      return (
+        <input
+          list={listId}
+          value={current}
+          onChange={(e) => onChange(provider, tier, e.target.value)}
+          className={selectClass}
+          placeholder={defaults.vision}
+        />
+      );
+    }
+    // Fixed-catalogue providers → dropdown of known models.
+    return (
+      <select value={current} onChange={(e) => onChange(provider, tier, e.target.value)} className={selectClass}>
+        {models.map((m) => (
+          <option key={m.id} value={m.id}>{m.label} — {m.costLabel}</option>
+        ))}
+      </select>
+    );
+  }
+
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="space-y-2">
       {config.freeform && (
         <datalist id={listId}>
-          {config.models.map((m) => (
-            <option key={m.id} value={m.id}>{m.label}</option>
+          {Array.from(new Set([...localOptions, ...config.models.map((m) => m.id)])).map((id) => (
+            <option key={id} value={id} />
           ))}
         </datalist>
       )}
-      <div>
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">
-          Vision Model
-        </label>
-        {config.freeform ? (
-          <input
-            list={listId}
-            value={prefs?.visionModel ?? defaults.vision}
-            onChange={(e) => onChange(provider, "visionModel", e.target.value)}
-            className={selectClass}
-            placeholder={defaults.vision}
-          />
-        ) : (
-          <select
-            value={prefs?.visionModel ?? defaults.vision}
-            onChange={(e) => onChange(provider, "visionModel", e.target.value)}
-            className={selectClass}
+
+      {isLocal && (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[10px] text-muted-foreground/60">
+            {loadingLive
+              ? "Loading models from your endpoint…"
+              : hasLive
+                ? `${liveModels.length} model(s) loaded on your endpoint — pick one below`
+                : (liveErr ?? "Enter the model id loaded in oMLX")}
+          </p>
+          <button
+            type="button"
+            onClick={loadLive}
+            disabled={loadingLive}
+            className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-50"
           >
-            {visionModels.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} — {m.costLabel}
-              </option>
-            ))}
-          </select>
-        )}
-        <p className="mt-0.5 text-[10px] text-muted-foreground/60">
-          Document extraction, page analysis
-        </p>
-      </div>
-      <div>
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">
-          Text Model
-        </label>
-        {config.freeform ? (
-          <input
-            list={listId}
-            value={prefs?.textModel ?? defaults.text}
-            onChange={(e) => onChange(provider, "textModel", e.target.value)}
-            className={selectClass}
-            placeholder={defaults.text}
-          />
-        ) : (
-          <select
-            value={prefs?.textModel ?? defaults.text}
-            onChange={(e) => onChange(provider, "textModel", e.target.value)}
-            className={selectClass}
-          >
-            {textModels.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} — {m.costLabel}
-              </option>
-            ))}
-          </select>
-        )}
-        <p className="mt-0.5 text-[10px] text-muted-foreground/60">
-          Field mapping, comparison
-        </p>
+            <RefreshCw className={`h-3 w-3 ${loadingLive ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">
+            Vision Model
+          </label>
+          {renderTier("visionModel", currentVision, visionModels)}
+          <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+            Document extraction, page analysis
+          </p>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">
+            Text Model
+          </label>
+          {renderTier("textModel", currentText, textModels)}
+          <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+            Field mapping, comparison
+          </p>
+        </div>
       </div>
     </div>
   );
