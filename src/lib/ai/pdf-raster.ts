@@ -2,6 +2,29 @@ import { AppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import type { RasterImage } from "./types";
 
+let domGlobalsReady = false;
+
+/**
+ * pdfjs (used by pdf-to-img) expects browser globals like DOMMatrix / Path2D /
+ * ImageData when a PDF uses matrix transforms or inline images. They don't exist
+ * in Node, which throws "Expected DOMMatrix" on such PDFs. Polyfill them once
+ * from node-canvas (already a dependency). Idempotent + best-effort.
+ */
+async function ensurePdfDomGlobals(): Promise<void> {
+  if (domGlobalsReady) return;
+  domGlobalsReady = true;
+  try {
+    const canvasMod = (await import("canvas")) as unknown as Record<string, unknown> & { default?: Record<string, unknown> };
+    const g = globalThis as unknown as Record<string, unknown>;
+    for (const name of ["DOMMatrix", "Path2D", "ImageData", "DOMPoint", "DOMRect"]) {
+      const impl = canvasMod[name] ?? canvasMod.default?.[name];
+      if (impl && typeof g[name] === "undefined") g[name] = impl;
+    }
+  } catch (err) {
+    logger.warn({ err }, "[pdf-raster] Could not load canvas DOM polyfills — some PDFs may fail to rasterize");
+  }
+}
+
 /**
  * Convert a PDF buffer into an array of PNG page images.
  *
@@ -32,6 +55,8 @@ export async function rasterizePdfToImages(
       "PDF_RASTER_UNAVAILABLE"
     );
   }
+
+  await ensurePdfDomGlobals();
 
   try {
     const document = await pdfModule.pdf(new Uint8Array(pdf), { scale });

@@ -8,14 +8,34 @@ interface RetryOptions {
 
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503]);
 
+// Transient network/connection failures worth a retry. Notably includes the
+// undici "terminated" / "other side closed" errors seen when a self-hosted model
+// server drops a connection mid-request under load.
+const RETRYABLE_MESSAGE_PATTERNS = [
+  "fetch failed",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "ECONNREFUSED",
+  "terminated",
+  "other side closed",
+  "socket hang up",
+  "Connection error",
+  "network",
+];
+
 function isRetryableError(err: unknown): boolean {
   if (err instanceof Error) {
-    if (err.message.includes("fetch failed") || err.message.includes("ECONNRESET") || err.message.includes("ETIMEDOUT")) {
-      return true;
-    }
-    if (err.name === "AbortError" || err.message.includes("timed out")) {
+    // Never retry timeouts/aborts — a retry would just burn another full timeout.
+    if (
+      err.name === "AbortError" ||
+      err.name === "TimeoutError" ||
+      err.message.includes("timed out") ||
+      err.message.includes("operation was aborted")
+    ) {
       return false;
     }
+    const msg = err.message;
+    if (RETRYABLE_MESSAGE_PATTERNS.some((p) => msg.includes(p))) return true;
   }
   const status = (err as { status?: number })?.status;
   if (typeof status === "number") return RETRYABLE_STATUS_CODES.has(status);
