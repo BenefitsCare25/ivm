@@ -33,6 +33,9 @@ interface ComparisonInput {
   downloadedFiles?: VisionCheckFile[];
   /** Names of supported files whose extraction failed (present but unreadable). */
   failedFiles?: string[];
+  /** Decided by the worker (before the destructive intelligence step): keep the
+   *  previous saved comparison instead of overwriting it with this degraded run. */
+  preservePrior?: boolean;
   /** Buffers already downloaded during extraction, reused by vision re-checks. */
   fileBuffers?: Map<string, Buffer>;
   provider: AIProvider;
@@ -221,18 +224,15 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
       }
     }
 
-    // Clobber guard: on a partial extraction failure, don't overwrite a richer
-    // previous comparison (e.g. a full successful run) with this incomplete one.
-    const newCompared = (comparisonResult.matchCount ?? 0) + (comparisonResult.mismatchCount ?? 0);
-    if (partialFailure) {
-      const prior = await priorComparisonRichness(trackedItemId);
-      if (prior && (prior.compared > newCompared || prior.docCount > fileExtractions.length)) {
-        preservedPrior = true;
-        logger.warn(
-          { trackedItemId, failedFiles, priorCompared: prior.compared, newCompared },
-          "[worker] Partial extraction failure — preserving richer previous comparison result"
-        );
-      }
+    // Clobber guard: the worker decided up front (before the destructive
+    // intelligence step) whether this degraded re-run should keep the previous
+    // comparison rather than overwrite it. Honour that decision here too.
+    preservedPrior = (input.preservePrior ?? false) && partialFailure;
+    if (preservedPrior) {
+      logger.warn(
+        { trackedItemId, failedFiles },
+        "[worker] Partial extraction failure — preserving previous comparison result"
+      );
     }
 
     if (!preservedPrior) {
@@ -297,6 +297,22 @@ async function priorComparisonRichness(
       ? Object.keys(prior.documentTypesByFile as Record<string, unknown>).length
       : 0;
   return { compared: (prior.matchCount ?? 0) + (prior.mismatchCount ?? 0), docCount };
+}
+
+/**
+ * Decide — BEFORE the destructive intelligence/comparison steps — whether this
+ * run degraded relative to a prior saved comparison (extracted fewer documents,
+ * or extracted none while a prior result exists). When true the worker skips the
+ * intelligence rewrite AND the comparison overwrite, so a failed re-read never
+ * corrupts a previously-good result. Only meaningful when some extraction failed.
+ */
+export async function shouldPreservePriorComparison(
+  trackedItemId: string,
+  extractedCount: number
+): Promise<boolean> {
+  const prior = await priorComparisonRichness(trackedItemId);
+  if (!prior) return false;
+  return prior.docCount > extractedCount || (extractedCount === 0 && prior.compared > 0);
 }
 
 async function saveComparisonResult(

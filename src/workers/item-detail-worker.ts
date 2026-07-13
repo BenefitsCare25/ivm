@@ -19,7 +19,7 @@ import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
 import { toInputJson } from "@/lib/utils";
 import { runExtraction } from "./item-detail-extraction";
 import { runIntelligencePipeline } from "./item-detail-extraction";
-import { runComparison } from "./item-detail-comparison";
+import { runComparison, shouldPreservePriorComparison } from "./item-detail-comparison";
 import { recoverStuckItems, handleFinalFailure } from "./item-detail-recovery";
 import type { DetailSelectors } from "@/types/portal";
 import type { BrowserContext, Page } from "playwright";
@@ -248,21 +248,31 @@ async function processItemDetailCore(
         cachedDocTypes,
       });
 
+      // If this run degraded (some/all documents failed to extract) and a richer
+      // prior comparison exists, preserve ALL prior state — skip both the
+      // destructive intelligence rewrite below and the comparison overwrite — so
+      // a failed re-read never corrupts a previously-good result.
+      const preservePrior =
+        extraction.failedFiles.length > 0 &&
+        (await shouldPreservePriorComparison(trackedItemId, extraction.fileExtractions.length));
+
       // ── Intelligence pipeline ───────────────────────────────
       const acceptableTypeIds = item.scrapeSession.acceptableDocumentTypeIds;
-      await runIntelligencePipeline({
-        trackedItemId,
-        portalId,
-        portalItemId: item.portalItemId,
-        userId,
-        fileExtractions: extraction.fileExtractions,
-        tamperingTargets: extraction.tamperingTargets,
-        pdfRawFields: extraction.pdfRawFields,
-        effectiveDetailData,
-        listData: (item.listData as Record<string, string>) ?? {},
-        acceptableDocumentTypeIds: acceptableTypeIds,
-        cachedDocTypes,
-      });
+      if (!preservePrior) {
+        await runIntelligencePipeline({
+          trackedItemId,
+          portalId,
+          portalItemId: item.portalItemId,
+          userId,
+          fileExtractions: extraction.fileExtractions,
+          tamperingTargets: extraction.tamperingTargets,
+          pdfRawFields: extraction.pdfRawFields,
+          effectiveDetailData,
+          listData: (item.listData as Record<string, string>) ?? {},
+          acceptableDocumentTypeIds: acceptableTypeIds,
+          cachedDocTypes,
+        });
+      }
 
       // ── Template lookup + AI comparison ─────────────────────
       const comparison = await runComparison({
@@ -279,6 +289,7 @@ async function processItemDetailCore(
           mimeType: f.mimeType,
         })),
         failedFiles: extraction.failedFiles,
+        preservePrior,
         fileBuffers: extraction.fileBuffers,
         provider,
         apiKey,

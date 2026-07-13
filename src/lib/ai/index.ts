@@ -43,8 +43,11 @@ export async function extractFieldsFromDocument(
 
   // Retries cover transient failures only — connection drops, 5xx. Timeouts /
   // aborts are NOT retried (see isRetryableError), so a slow local model never
-  // burns extra full timeouts; this is safe for local too, and recovers the
-  // "connection terminated" drops a self-hosted server throws under load.
+  // burns extra full timeouts. Local gets a single retry (not 2): a connection
+  // drop late in a slow call could otherwise stack two ~5-min attempts and blow
+  // the detail worker's per-item budget on a multi-attachment claim.
+  const maxRetries = enrichedRequest.provider === "local" ? 1 : 2;
+
   return withRetry(
     () => {
       // CLI proxy cannot handle base64 content blocks — use Read tool approach
@@ -66,6 +69,6 @@ export async function extractFieldsFromDocument(
           throw new AppError(`Unsupported AI provider: ${enrichedRequest.provider}`, 400, "INVALID_PROVIDER");
       }
     },
-    { maxRetries: 2, operation: `extraction:${enrichedRequest.provider}` }
+    { maxRetries, operation: `extraction:${enrichedRequest.provider}` }
   );
 }

@@ -20,7 +20,6 @@ const RETRYABLE_MESSAGE_PATTERNS = [
   "other side closed",
   "socket hang up",
   "Connection error",
-  "network",
 ];
 
 function isRetryableError(err: unknown): boolean {

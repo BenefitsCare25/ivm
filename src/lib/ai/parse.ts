@@ -75,6 +75,28 @@ function tryRepair(text: string): ParsedShape | null {
   }
 }
 
+/** Split a JSON-array body into its top-level {...} objects — brace-aware and
+ * string-safe, so a value containing braces (e.g. "take {2} tablets") doesn't
+ * prematurely close the object. A truncated final object is returned whole for
+ * jsonrepair to close. */
+function extractTopLevelObjects(slice: string): string[] {
+  const out: string[] = [];
+  let depth = 0, inStr = false, start = -1;
+  for (let i = 0; i < slice.length; i++) {
+    const c = slice[i];
+    if (inStr) {
+      if (c === "\\") { i++; continue; }
+      if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { inStr = true; continue; }
+    if (c === "{") { if (depth === 0) start = i; depth++; }
+    else if (c === "}") { depth--; if (depth === 0 && start !== -1) { out.push(slice.slice(start, i + 1)); start = -1; } }
+  }
+  if (depth > 0 && start !== -1) out.push(slice.slice(start)); // truncated tail
+  return out;
+}
+
 /**
  * Last-resort salvage: even if the whole object is unparseable (truncated,
  * badly malformed), recover as many individual field objects as possible so a
@@ -107,12 +129,11 @@ function salvageFields(rawText: string): ParsedShape | null {
     return { documentType, fields: wholeArray.fields };
   }
 
-  // Otherwise recover field objects one by one.
+  // Otherwise recover field objects one by one (string-safe, brace-tolerant).
   const objs: unknown[] = [];
-  const re = /\{[^{}]*"label"[^{}]*\}/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(slice)) !== null) {
-    try { objs.push(JSON.parse(jsonrepair(m[0]))); } catch { /* skip unrecoverable field */ }
+  for (const chunk of extractTopLevelObjects(slice)) {
+    if (!chunk.includes('"label"')) continue;
+    try { objs.push(JSON.parse(jsonrepair(chunk))); } catch { /* skip unrecoverable field */ }
   }
   return objs.length > 0 ? { documentType, fields: objs } : null;
 }

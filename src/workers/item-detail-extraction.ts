@@ -53,7 +53,7 @@ type PerFileResult =
       documentType: string;
       fields: { label: string; value: string; rawText?: string }[];
     }
-  | { ok: false; fileName: string };
+  | { ok: false; fileName: string; mimeType?: string; fileHash?: string };
 
 export async function runExtraction({
   trackedItemId,
@@ -89,6 +89,9 @@ export async function runExtraction({
     supportedFiles,
     env.ATTACHMENT_CONCURRENCY,
     async (file): Promise<PerFileResult> => {
+      // Declared outside the try so a hash computed before an extraction failure
+      // still flows to the tampering check (fraud coverage for unreadable files).
+      let fileHash: string | undefined;
       try {
         await emitItemEvent(trackedItemId, "AI_EXTRACT_START", {
           fileName: file.originalName,
@@ -100,7 +103,7 @@ export async function runExtraction({
         const storage = getStorageAdapter();
         const fileBuffer = await storage.download(file.storagePath);
 
-        const fileHash = createHash("sha256").update(fileBuffer).digest("hex");
+        fileHash = createHash("sha256").update(fileBuffer).digest("hex");
         await db.trackedItemFile.updateMany({
           where: { trackedItemId, storagePath: file.storagePath },
           data: { fileHash },
@@ -171,7 +174,7 @@ export async function runExtraction({
       } catch (err) {
         logger.warn({ err, fileName: file.originalName }, "[worker] Failed to extract from file");
         await emitFailureEvent(trackedItemId, "AI_EXTRACT_FAIL", err);
-        return { ok: false, fileName: file.originalName };
+        return { ok: false, fileName: file.originalName, mimeType: file.mimeType, fileHash };
       }
     }
   );
@@ -186,14 +189,17 @@ export async function runExtraction({
   const failedFiles: string[] = [];
 
   for (const r of perFile) {
+    // Tampering (cross-item hash) coverage applies to every file we hashed —
+    // including ones whose extraction later failed — so a duplicated/tampered
+    // but unreadable document is still flagged.
+    if (r.mimeType === "application/pdf" && r.fileHash && !tamperingTargets.some((t) => t.fileName === r.fileName)) {
+      tamperingTargets.push({ fileName: r.fileName, fileHash: r.fileHash });
+    }
     if (!r.ok) {
       failedFiles.push(r.fileName);
       continue;
     }
     fileBuffers.set(r.storagePath, r.buffer);
-    if (r.mimeType === "application/pdf" && !tamperingTargets.some((t) => t.fileName === r.fileName)) {
-      tamperingTargets.push({ fileName: r.fileName, fileHash: r.fileHash });
-    }
     for (const field of r.fields) {
       pdfFields[field.label] = field.value;
       pdfRawFields[field.label] = field.rawText ?? field.value;
