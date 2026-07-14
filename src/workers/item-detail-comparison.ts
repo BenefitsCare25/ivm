@@ -13,6 +13,7 @@ import {
   reconcileRequiredDocChecks,
   buildBillStatusSignal,
   buildDocumentTypesFound,
+  buildDocumentGroups,
   buildRequiredDocValidations,
   buildBillStatusValidation,
 } from "@/lib/intelligence";
@@ -102,6 +103,12 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
     // family, so it can match required documents even when the title differs.
     const documentTypesFound = buildDocumentTypesFound(recognizedDocs);
 
+    // Per-document provenance: which file each value came from, tagged with its
+    // recognized family (Tax Invoice / Referral Letter / …). Lets the model
+    // source provider/facility + bill amount from the billing document rather
+    // than a referral letter's letterhead (the FUSION MEDICAL vs Gleneagles bug).
+    const documentGroups = buildDocumentGroups(recognizedDocs, fileExtractions);
+
     if (template) {
       templateId = template.id;
       templateFields = template.fields;
@@ -130,6 +137,7 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
         pageFields: comparePageFields,
         pdfFields: comparePdfFields,
         documentTypesFound,
+        documentGroups,
       }) : undefined;
 
       comparisonResult = await withEventTracking(

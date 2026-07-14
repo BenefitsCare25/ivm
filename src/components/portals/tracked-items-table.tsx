@@ -16,7 +16,7 @@ import { ExpandedPanel } from "./expanded-row";
 import type { TrackedItemStatus, FieldComparison, ItemFile, ComparisonSummary, ValidationAlert } from "@/types/portal";
 import { FWA_LABELS } from "@/types/portal";
 
-const STATUS_ORDER: TrackedItemStatus[] = ["COMPARED", "FLAGGED", "VERIFIED", "REQUIRE_DOC", "SKIPPED", "ERROR", "PROCESSING", "DISCOVERED"];
+const STATUS_ORDER: TrackedItemStatus[] = ["COMPARED", "FLAGGED", "VERIFIED", "REQUIRE_DOC", "SKIPPED", "FILTERED", "ERROR", "PROCESSING", "DISCOVERED"];
 
 interface FwaAlert {
   ruleType: string;

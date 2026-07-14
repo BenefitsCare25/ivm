@@ -17,6 +17,14 @@ function compactFields(fields: Record<string, string>): string {
   return JSON.stringify(truncated);
 }
 
+/** One submitted file's recognized type + its extracted fields, for provenance. */
+export interface DocumentGroup {
+  fileName: string;
+  /** Human-readable recognized type/family (e.g. "Hospital Bill / Tax Invoice", "Referral Letter"). */
+  label: string;
+  fields: Record<string, string>;
+}
+
 interface FullPromptConfig {
   fields: TemplateField[];
   businessRules: BusinessRule[];
@@ -24,6 +32,8 @@ interface FullPromptConfig {
   pageFields: Record<string, string>;
   pdfFields: Record<string, string>;
   documentTypesFound: string[];
+  /** Per-file grouping so the model knows which document each value came from. */
+  documentGroups?: DocumentGroup[];
 }
 
 export function getFullComparisonSystemPrompt(): string {
@@ -83,6 +93,10 @@ FIELD COMPARISON RULES:
     - Include MULTIPLE entries if the portal value appears in multiple line items.
     - Omit the field entirely (or use an empty array) if the portal value does not appear anywhere else in the document.
     - Do NOT include the line that is already shown as pdfValue.
+11. PROVIDER / FACILITY / BILL-AMOUNT SOURCING (critical): When comparing a provider, hospital, clinic, facility, or payee NAME — or a bill / claim / invoice AMOUNT — the authoritative source is the BILLING document (Tax Invoice, Final Bill, Summary Bill, Interim Bill, Hospital Statement, Statement of Account, or similar). Use the "Document Sources" section to see which file each value came from.
+    - A Referral Letter, Memo, or referral note names the REFERRING doctor's clinic — NOT the treating facility. NEVER use a referral/memo letterhead as the Provider.
+    - If a billing document is present, the Provider and bill amount MUST come from it. Ignore provider/company names that appear only on referral letters, discharge summaries, or other non-billing documents.
+    - When the mapped document value is the wrong source (e.g. the provider came from a referral letter but a tax invoice with a different provider exists), compare the portal value against the BILLING document's value instead, and note which document you used.
 
 BUSINESS RULE EVALUATION:
 1. Evaluate each rule against ALL available data (portal fields, PDF fields, document types).
@@ -107,7 +121,7 @@ Return ONLY valid JSON — no markdown fences, no explanation outside the JSON.`
 }
 
 export function buildFullComparisonUserPrompt(config: FullPromptConfig): string {
-  const { fields, businessRules, requiredDocuments, pageFields, pdfFields, documentTypesFound } = config;
+  const { fields, businessRules, requiredDocuments, pageFields, pdfFields, documentTypesFound, documentGroups } = config;
 
   // Code rules are evaluated deterministically in-process, not by the model.
   const aiRules = businessRules.filter((r) => r.type !== "code");
@@ -149,6 +163,15 @@ export function buildFullComparisonUserPrompt(config: FullPromptConfig): string 
 
   prompt += `\n## Portal Page Fields\n${JSON.stringify(pageFields)}\n`;
   prompt += `\n## PDF Extracted Fields\n${compactFields(pdfFields)}\n`;
+
+  // Provenance only matters when there is more than one document — with a single
+  // file every value came from it, so skip the extra tokens.
+  if (documentGroups && documentGroups.length > 1) {
+    const groupLines = documentGroups.map(
+      (g) => `[${g.label}] ${g.fileName}: ${compactFields(g.fields)}`
+    );
+    prompt += `\n## Document Sources (provenance — which file each value came from)\nWhen the same field (e.g. Provider / hospital / clinic name, or a bill amount) appears in more than one document below, source it from the BILLING document (Tax Invoice / Final Bill / Hospital Statement) per rule 11 — never from a referral letter or memo.\n${groupLines.join("\n")}\n`;
+  }
   prompt += `\nReturn the JSON comparison result with fieldComparisons${aiRules.length > 0 ? ", businessRuleResults" : ""}${requiredDocuments.length > 0 ? ", requiredDocumentsCheck" : ""}, and summary.`;
 
   return prompt;
@@ -168,6 +191,10 @@ export function buildPromptPreview(config: {
     pageFields: { "<<Portal fields will be injected at runtime>>": "" },
     pdfFields: { "<<PDF extracted fields will be injected at runtime>>": "" },
     documentTypesFound: ["<<Detected from uploaded files at runtime>>"],
+    documentGroups: [
+      { fileName: "<<billing document>>", label: "Hospital Bill / Tax Invoice", fields: { Provider: "<<hospital name>>", "Bill Amount": "<<amount>>" } },
+      { fileName: "<<referral letter>>", label: "Referral Letter", fields: { From: "<<referring clinic — NOT the provider>>" } },
+    ],
   });
 
   return `${getFullComparisonSystemPrompt()}\n\n---\n\n${preview}`;

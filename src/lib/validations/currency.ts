@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
-import { parseCurrencyAmount, isAmountField, isDateField, DATE_FIELD_PRIORITY, SGD_PATTERN } from "@/lib/currency/detector";
+import { parseCurrencyAmount, isAmountField, isPrimaryAmountField, isDateField, DATE_FIELD_PRIORITY, SGD_PATTERN } from "@/lib/currency/detector";
 import { resolveSgdRate } from "@/lib/currency";
 
 export interface CurrencyConversionMetadata {
@@ -53,8 +53,14 @@ export async function checkForeignCurrency(
       const existing = seen.get(key);
       if (existing) existing.labels.push(label);
       else seen.set(key, { labels: [label], parsed });
-    } else if (BARE_AMOUNT.test(value.trim()) && !SGD_PATTERN.test(value)) {
-      // No explicit currency — defer to inferred-currency pass below
+    } else if (
+      isPrimaryAmountField(label) &&
+      BARE_AMOUNT.test(value.trim()) &&
+      !SGD_PATTERN.test(value)
+    ) {
+      // No explicit currency — defer to inferred-currency pass below. Only
+      // primary totals qualify, so an inferred currency isn't spread across
+      // every bare-number line item (registration fee, each charge, etc.).
       bareCandidates.push([label, value]);
     }
   }
@@ -80,7 +86,20 @@ export async function checkForeignCurrency(
 
   const conversions: CurrencyConversionMetadata[] = [];
 
-  for (const { labels, parsed } of seen.values()) {
+  // Bound the list: a detailed hospital bill has dozens of amount-like lines
+  // (department subtotals, per-line charges). Surface only the most relevant few.
+  // Rank "key totals" (grand/final bill, outstanding/payable balance, amount due)
+  // FIRST so a small-but-critical figure — e.g. the co-payment balance — is never
+  // crowded out by larger line-item subtotals; then fill remaining slots largest-
+  // first (the claim total is virtually always the biggest figure).
+  const MAX_CONVERSIONS = 6;
+  const KEY_TOTAL_LABEL = /outstanding|balance|amount\s*(due|payable)|final|grand|net\s*(payable|amount)|total\s*(bill|payable|due)|presented\s*bill/i;
+  const keyRank = (labels: string[]) => (labels.some((l) => KEY_TOTAL_LABEL.test(l)) ? 0 : 1);
+  const ranked = [...seen.values()]
+    .sort((a, b) => keyRank(a.labels) - keyRank(b.labels) || b.parsed.amount - a.parsed.amount)
+    .slice(0, MAX_CONVERSIONS);
+
+  for (const { labels, parsed } of ranked) {
     const label = labels.join(" / ");
     try {
       const result = await resolveSgdRate(parsed.code, dateToUse);

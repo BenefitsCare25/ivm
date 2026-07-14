@@ -182,7 +182,11 @@ export async function scrapeDetailPage(
   url: string,
   selectors: DetailSelectors
 ): Promise<Record<string, string>> {
-  await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
+  // Use "domcontentloaded" (not "networkidle"): SPA/long-polling portal pages
+  // never reach network idle, and a client-side redirect during load makes
+  // goto abort with net::ERR_ABORTED. The explicit content-settle wait below
+  // already handles async SPA rendering, so networkidle added only fragility.
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
 
   // SPA settle: wait for content to render before extracting fields
   await page

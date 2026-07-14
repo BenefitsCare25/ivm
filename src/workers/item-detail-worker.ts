@@ -78,15 +78,26 @@ async function processItemDetailCore(
 ): Promise<ItemDetailJobResult> {
   const { trackedItemId, portalId, userId } = job.data;
 
+  // Remember the status BEFORE we flip to PROCESSING: if a prior run already
+  // produced a terminal result, a failed re-run must not clobber it to ERROR.
+  const priorItem = await db.trackedItem.findUnique({
+    where: { id: trackedItemId },
+    select: { status: true },
+  });
+  const priorStatus = priorItem?.status;
+
   await db.trackedItem.update({
     where: { id: trackedItemId },
-    data: { status: "PROCESSING" },
+    data: { status: "PROCESSING", processingStartedAt: new Date() },
   });
 
   let successIncremented = false;
   let context: BrowserContext | undefined;
   let page: Page | undefined;
   let scrapeSessionId: string | undefined;
+  // A known portal URL used by the error path to reliably re-probe for an
+  // auth-expiry (login) redirect after a navigation failure.
+  let authCheckUrl: string | undefined;
 
   try {
     const item = await db.trackedItem.findUniqueOrThrow({
@@ -100,6 +111,7 @@ async function processItemDetailCore(
 
     scrapeSessionId = item.scrapeSessionId;
     const portal = item.scrapeSession.portal;
+    authCheckUrl = portal.listPageUrl ?? portal.baseUrl;
     const detailSelectors = portal.detailSelectors as DetailSelectors;
 
     if (!item.detailPageUrl) {
@@ -186,14 +198,28 @@ async function processItemDetailCore(
       if (excludeSubmitters.size > 0) {
         const submitterVal = (effectiveDetailData["Submitted By"] ?? "").trim().toLowerCase();
         if (submitterVal && excludeSubmitters.has(submitterVal)) {
-          logger.info({ trackedItemId, submitterVal }, "[worker] Item excluded by Submitted By filter — deleting");
-          await db.trackedItem.delete({ where: { id: trackedItemId } });
+          logger.info({ trackedItemId, submitterVal }, "[worker] Item excluded by Submitted By filter — marking FILTERED");
+          // Retain the item (do NOT delete) so the session still shows it was
+          // found and why it was set aside. Keep itemsFound intact and count it
+          // toward itemsProcessed so completion math stays correct.
+          await db.trackedItem.update({
+            where: { id: trackedItemId },
+            data: {
+              status: "FILTERED",
+              errorMessage: `Excluded by "Submitted By" filter (submitted by ${submitterVal})`,
+            },
+          });
+          await emitItemEvent(trackedItemId, "ITEM_COMPLETE", {
+            status: "FILTERED",
+            reason: "submitted_by_filter",
+            submittedBy: submitterVal,
+          });
           const updatedSession = await db.scrapeSession.update({
             where: { id: item.scrapeSessionId },
-            data: { itemsFound: { decrement: 1 } },
+            data: { itemsProcessed: { increment: 1 } },
           });
           successIncremented = true;
-          await finalizeIfComplete(updatedSession, "filter-delete");
+          await finalizeIfComplete(updatedSession, "filter-skip");
           return { status: "COMPLETED", mismatchCount: 0 };
         }
       }
@@ -329,8 +355,28 @@ async function processItemDetailCore(
       await context?.close();
     }
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    let errorMessage = err instanceof Error ? err.message : "Unknown error";
     logger.error({ err, trackedItemId }, "[worker] Item detail processing failed");
+
+    // Reliable auth-expiry probe. After a navigation failure the page often still
+    // shows the last good page — an aborted goto doesn't reliably land on the login
+    // redirect — so checking the current page alone misses real expiries. Instead
+    // actively re-navigate to a known portal URL and check for a login redirect; if
+    // found, reclassify as auth expiry so the circuit breaker + authExpiredAt fire
+    // and the user gets an actionable "session expired" banner. Scoped to navigation
+    // errors so ordinary AI/timeout failures don't pay for the extra navigation.
+    let reclassified = false;
+    if (page && !page.isClosed() && authCheckUrl && /ERR_ABORTED|net::ERR|page\.goto/i.test(errorMessage)) {
+      try {
+        await page.goto(authCheckUrl, { waitUntil: "domcontentloaded", timeout: 15_000 });
+        if (await isLoginPage(page)) {
+          errorMessage = "Portal session expired — the portal redirected to login. Update cookies on the portal page and retry.";
+          reclassified = true;
+        }
+      } catch {
+        // best-effort probe — never mask the original failure
+      }
+    }
 
     let screenshot: Buffer | undefined;
     try {
@@ -341,7 +387,9 @@ async function processItemDetailCore(
       // page already closed or crashed
     }
 
-    await emitFailureEvent(trackedItemId, "ITEM_ERROR", err, screenshot);
+    // Preserve the original error's stack for diagnosis; only substitute a synthetic
+    // error when we deliberately rewrote the message (auth reclassification).
+    await emitFailureEvent(trackedItemId, "ITEM_ERROR", reclassified ? new Error(errorMessage) : err, screenshot);
 
     // Check current status before updating — on timeout, handleFinalFailure
     // already set ERROR and incremented itemsProcessed.
@@ -351,7 +399,37 @@ async function processItemDetailCore(
     });
     const alreadyHandled = currentItem?.status === "ERROR";
 
-    if (!alreadyHandled) {
+    // Never overwrite a good comparison with ERROR (the contradictory
+    // "Error + full comparison" state). Two cases:
+    //  1. currentIsSuccess — the success path already set a terminal status THIS run,
+    //     then a later step threw. Leave the status; the final-attempt block below
+    //     still handles the itemsProcessed count via `successIncremented`.
+    //  2. restoredPrior — a failed RE-RUN of an item a prior run had completed
+    //     (currentItem is PROCESSING now, but priorStatus + a saved ComparisonResult
+    //     prove a good result exists). Restore it; it was already counted.
+    const SUCCESS_STATUSES = ["FLAGGED", "COMPARED", "VERIFIED", "REQUIRE_DOC"];
+    const currentIsSuccess = !!currentItem && SUCCESS_STATUSES.includes(currentItem.status);
+    let restoredPrior = false;
+    if (!alreadyHandled && !currentIsSuccess && !!priorStatus && SUCCESS_STATUSES.includes(priorStatus)) {
+      const hasComparison = await db.comparisonResult.findUnique({
+        where: { trackedItemId },
+        select: { trackedItemId: true },
+      });
+      if (hasComparison) {
+        await db.trackedItem.update({
+          where: { id: trackedItemId },
+          data: {
+            status: priorStatus,
+            errorMessage: `Re-run failed (${errorMessage.split("\n")[0].slice(0, 140)}) — showing the previous result.`,
+          },
+        });
+        restoredPrior = true;
+        successIncremented = true; // already counted on the prior completion — don't double-count
+      }
+    }
+
+    // Only write ERROR when there is no good result to preserve.
+    if (!alreadyHandled && !restoredPrior && !currentIsSuccess) {
       await db.trackedItem.update({
         where: { id: trackedItemId },
         data: { status: "ERROR", errorMessage },

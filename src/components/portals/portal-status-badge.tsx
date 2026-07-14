@@ -25,6 +25,7 @@ const ITEM_VARIANTS: Record<TrackedItemStatus, "success" | "warning" | "error" |
   ERROR: "error",
   SKIPPED: "secondary",
   REQUIRE_DOC: "warning",
+  FILTERED: "secondary",
 };
 
 const COMPARISON_VARIANTS: Record<ComparisonFieldStatus, "success" | "warning" | "error" | "info" | "secondary"> = {
@@ -55,4 +56,5 @@ export const ITEM_STATUS_COLORS: Record<string, string> = {
   DISCOVERED:   "bg-muted text-muted-foreground",
   SKIPPED:      "bg-muted/60 text-muted-foreground/60",
   REQUIRE_DOC:  "bg-status-warning/15 text-status-warning",
+  FILTERED:     "bg-muted/60 text-muted-foreground/60",
 };

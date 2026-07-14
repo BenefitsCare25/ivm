@@ -9,7 +9,7 @@ function formatDuration(ms: number): string {
   return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
 }
 
-const COMPLETED_STATUSES = new Set(["COMPARED", "FLAGGED", "VERIFIED", "ERROR", "SKIPPED", "REQUIRE_DOC"]);
+const COMPLETED_STATUSES = new Set(["COMPARED", "FLAGGED", "VERIFIED", "ERROR", "SKIPPED", "REQUIRE_DOC", "FILTERED"]);
 
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -80,6 +80,7 @@ export default async function SessionItemsPage({
           errorMessage: true,
           createdAt: true,
           updatedAt: true,
+          processingStartedAt: true,
           files: {
             select: { id: true, fileName: true, mimeType: true },
             take: 10,
@@ -179,7 +180,7 @@ export default async function SessionItemsPage({
             </div>
             <p className="text-sm text-muted-foreground">
               {scrapeSession._count.trackedItems} items found &middot;{" "}
-              {(breakdown["COMPARED"] ?? 0) + (breakdown["FLAGGED"] ?? 0) + (breakdown["VERIFIED"] ?? 0) + (breakdown["ERROR"] ?? 0) + (breakdown["SKIPPED"] ?? 0)} processed
+              {(breakdown["COMPARED"] ?? 0) + (breakdown["FLAGGED"] ?? 0) + (breakdown["VERIFIED"] ?? 0) + (breakdown["ERROR"] ?? 0) + (breakdown["SKIPPED"] ?? 0) + (breakdown["FILTERED"] ?? 0)} processed
               {scrapeSession.startedAt && (
                 <>
                   {" "}&middot;{" "}
@@ -218,6 +219,7 @@ export default async function SessionItemsPage({
           SKIPPED:     breakdown["SKIPPED"]     ?? 0,
           VERIFIED:    breakdown["VERIFIED"]    ?? 0,
           REQUIRE_DOC: breakdown["REQUIRE_DOC"] ?? 0,
+          FILTERED:    breakdown["FILTERED"]    ?? 0,
         }}
         sessionStatus={scrapeSession.status}
         authStatus={effectiveAuthStatus}
@@ -244,8 +246,12 @@ export default async function SessionItemsPage({
             : null,
           createdAt: item.createdAt.toISOString(),
           updatedAt: item.updatedAt.toISOString(),
+          // Real processing time = updatedAt − processingStartedAt. Falls back to
+          // createdAt for legacy rows written before processingStartedAt existed.
+          // (createdAt−updatedAt alone counted queue-wait + reprocess gaps, which
+          // produced absurd figures like "784m" for an item that never ran that long.)
           runtime: COMPLETED_STATUSES.has(item.status)
-            ? formatDuration(item.updatedAt.getTime() - item.createdAt.getTime())
+            ? formatDuration(item.updatedAt.getTime() - (item.processingStartedAt ?? item.createdAt).getTime())
             : item.status === "PROCESSING" ? "Running…" : null,
           fwaAlert: fwaByItem.get(item.id) ?? null,
           fwaAlerts: fwaAlertsByItem.get(item.id) ?? [],

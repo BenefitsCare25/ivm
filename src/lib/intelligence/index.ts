@@ -7,6 +7,7 @@ export {
   reconcileRequiredDocChecks,
   buildBillStatusSignal,
   buildDocumentTypesFound,
+  buildDocumentGroups,
   detectBillStatus,
   matchDocFamily,
   extractOutstandingBalance,

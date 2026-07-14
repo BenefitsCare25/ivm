@@ -312,6 +312,7 @@ enum TrackedItemStatus {
   ERROR
   SKIPPED
   REQUIRE_DOC
+  FILTERED
 }
 
 enum ComparisonFieldStatus {
@@ -423,10 +424,12 @@ model TrackedItem {
   listData        Json              @default("{}")
   detailData      Json?
   detailPageUrl   String?
-  status          TrackedItemStatus @default(DISCOVERED)
-  errorMessage    String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  status              TrackedItemStatus @default(DISCOVERED)
+  errorMessage        String?
+  /** Set each time processing (re)starts — used to show real processing time, not queue-wait span. */
+  processingStartedAt DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
   scrapeSession    ScrapeSession     @relation(fields: [scrapeSessionId], references: [id], onDelete: Cascade)
   files            TrackedItemFile[]

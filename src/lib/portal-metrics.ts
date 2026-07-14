@@ -33,6 +33,9 @@ export async function snapshotPortalDay(portalId: string, date: string): Promise
         case "FLAGGED":     flagged++;     break;
         case "ERROR":       errors++;      break;
         case "SKIPPED":     skipped++;     break;
+        // Filter-excluded items are "found but set aside" — fold into skipped so
+        // they count as processed (no false "unprocessed" gap on the dashboard).
+        case "FILTERED":    skipped++;     break;
         case "VERIFIED":    verified++;    break;
         case "REQUIRE_DOC": requireDoc++;  break;
       }

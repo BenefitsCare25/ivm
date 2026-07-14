@@ -19,6 +19,7 @@ import {
   reconcileRequiredDocChecks,
   buildBillStatusSignal,
   buildDocumentTypesFound,
+  buildDocumentGroups,
   buildRequiredDocValidations,
   buildBillStatusValidation,
 } from "@/lib/intelligence";
@@ -140,6 +141,10 @@ export async function POST(
       const billStatusSignal = buildBillStatusSignal(recognizedDocs);
       const documentTypesFound = buildDocumentTypesFound(recognizedDocs);
 
+      // Per-document provenance so the model sources provider/bill-amount from the
+      // billing document (matches the worker's comparison prompt).
+      const documentGroups = buildDocumentGroups(recognizedDocs, reconstructedExtractions);
+
       const { filteredPageFields, filteredPdfFields } = filterFieldsByTemplate(
         detailData,
         pdfFields,
@@ -160,6 +165,7 @@ export async function POST(
         pageFields: filteredPageFields,
         pdfFields: filteredPdfFields,
         documentTypesFound,
+        documentGroups,
       }) : undefined;
 
       const result = await compareFields({

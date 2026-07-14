@@ -215,6 +215,26 @@ export function buildDocumentTypesFound(docs: RecognizedDoc[]): string[] {
   ).filter(Boolean);
 }
 
+/**
+ * Build per-document provenance groups for the comparison prompt: each file
+ * tagged with its recognised family (falling back to its raw document type),
+ * plus its extracted fields as a flat map. Lets the model source provider /
+ * facility / bill-amount from the billing document rather than a referral
+ * letter's letterhead. Shared by the worker and the recompare route so both
+ * prompt the model identically.
+ */
+export function buildDocumentGroups(
+  docs: RecognizedDoc[],
+  extractions: { fileName: string; documentType: string; fields: { label: string; value: string }[] }[]
+): { fileName: string; label: string; fields: Record<string, string> }[] {
+  const familyByFile = new Map(docs.map((d) => [d.fileName, d.family]));
+  return extractions.map((e) => ({
+    fileName: e.fileName,
+    label: familyByFile.get(e.fileName) ?? e.documentType ?? "Document",
+    fields: Object.fromEntries(e.fields.map((f) => [f.label, f.value])),
+  }));
+}
+
 // ── Required-document reconciliation ──────────────────────────────
 // An unfound candidate with SOME positive evidence below this confidence is
 // treated as "uncertain" (manual review) rather than a hard "not found".

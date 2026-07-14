@@ -47,6 +47,14 @@ export async function rasterizePdfToImages(
   const maxPages = opts.maxPages ?? 10;
   const scale = opts.scale ?? 2.5;
 
+  // CRITICAL: install the DOM globals BEFORE importing pdf-to-img. pdfjs-dist
+  // (bundled by pdf-to-img) captures globalThis.DOMMatrix at IMPORT time, so a
+  // polyfill applied after the import has no effect for the rest of the process —
+  // DOMMatrix-using PDFs (e.g. browser "Save as PDF" pages) then fail forever with
+  // "Expected DOMMatrix". Verified on-server: post-import polyfilling does NOT
+  // recover; pre-import polyfilling rasterizes the same file successfully.
+  await ensurePdfDomGlobals();
+
   let pdfModule: typeof import("pdf-to-img");
   try {
     pdfModule = await import("pdf-to-img");
@@ -58,8 +66,6 @@ export async function rasterizePdfToImages(
       "PDF_RASTER_UNAVAILABLE"
     );
   }
-
-  await ensurePdfDomGlobals();
 
   try {
     const document = await pdfModule.pdf(new Uint8Array(pdf), { scale });

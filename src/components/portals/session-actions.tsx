@@ -21,6 +21,7 @@ interface SessionActionsProps {
     SKIPPED?: number;
     VERIFIED?: number;
     REQUIRE_DOC?: number;
+    FILTERED?: number;
   };
   sessionStatus: ScrapeSessionStatus;
   authStatus?: AuthStatus;
@@ -52,7 +53,7 @@ export function SessionActions({
   const authBad = authStatus === "expired" || authStatus === "session_expired" || authStatus === "missing";
 
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  const done = (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) + (counts.ERROR ?? 0) + (counts.SKIPPED ?? 0) + (counts.VERIFIED ?? 0) + (counts.REQUIRE_DOC ?? 0);
+  const done = (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) + (counts.ERROR ?? 0) + (counts.SKIPPED ?? 0) + (counts.VERIFIED ?? 0) + (counts.REQUIRE_DOC ?? 0) + (counts.FILTERED ?? 0);
   const inFlight = (counts.PROCESSING ?? 0) + (counts.DISCOVERED ?? 0);
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   const isComplete = total > 0 && inFlight === 0;
@@ -211,6 +212,7 @@ export function SessionActions({
             <span className="font-medium">Done. </span>
             {counts.COMPARED ?? 0} matched · {counts.FLAGGED ?? 0} flagged
             {(counts.SKIPPED ?? 0) > 0 && ` · ${counts.SKIPPED} skipped`}
+            {(counts.FILTERED ?? 0) > 0 && ` · ${counts.FILTERED} filtered`}
             {(counts.ERROR ?? 0) > 0 && ` · ${counts.ERROR} failed`}
           </div>
           {isComplete && (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) > 0 && unconfiguredTypes.length === 0 && !showTemplateModal && (

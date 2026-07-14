@@ -81,9 +81,26 @@ export function parseCurrencyAmount(value: string): ParsedAmount | null {
   return null;
 }
 
+// Labels that look monetary (often contain "fee"/"amount") but are actually
+// counts, rates, dosages or percentages — must NEVER be currency-converted
+// (e.g. "Imaging Reporting Fee Quantity: 1.50" is 1.5 units, not RM 1.50).
+const NON_MONETARY_LABEL = /quantit|\bqty\b|\bunits?\b|\bnos?\.?\b|\bcount\b|dosage|percent|\bpcs?\b|tablet|capsule|\bqnty\b/i;
+
 /** Returns true if a field label looks like a monetary amount field. */
 export function isAmountField(label: string): boolean {
+  if (NON_MONETARY_LABEL.test(label)) return false;
   return /amount|total|charge|fee|cost|invoice|bill|claim|paid|payable|balance|outstanding|co-?pay|deductible|premium|settlement|reimburs/i.test(label);
+}
+
+// The claim-relevant TOTALS worth surfacing a currency conversion for. Used to
+// bound the inferred-currency pass so a foreign bill doesn't emit a conversion
+// card for every individual line item — only the totals a reviewer cares about.
+const PRIMARY_AMOUNT_LABEL = /total|final|grand|net\s*amount|bill\s*amount|claim\s*amount|receipt\s*amount|invoice\s*amount|guarantee\s*amount|payable|outstanding|balance|amount\s*(due|payable)/i;
+
+/** Returns true if a label is a primary/total amount (vs an individual line item). */
+export function isPrimaryAmountField(label: string): boolean {
+  if (NON_MONETARY_LABEL.test(label)) return false;
+  return PRIMARY_AMOUNT_LABEL.test(label);
 }
 
 /** Returns true if a field label looks like a date field suitable for incurred date. */
