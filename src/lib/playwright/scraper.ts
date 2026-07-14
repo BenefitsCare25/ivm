@@ -306,6 +306,14 @@ export async function downloadFiles(
   const downloadSelector = selectors.downloadLinkSelector
     ?? 'a[href$=".pdf"], a[href$=".doc"], a[href$=".docx"], a[href$=".xlsx"], a[href$=".csv"], a[href$=".jpg"], a[href$=".jpeg"], a[href$=".png"], a[href$=".gif"], a[href*="download"]';
 
+  // Detail pages load via "domcontentloaded" (not networkidle), so attachment
+  // links injected by the SPA's async XHRs may not exist yet when we get here.
+  // Wait briefly for the first matching link before reading — resolves fast when
+  // documents exist; only hits the timeout on genuinely doc-less pages.
+  await page
+    .waitForSelector(downloadSelector, { state: "attached", timeout: 8_000 })
+    .catch(() => {});
+
   const links = await page.$$(downloadSelector);
   logger.info({ linkCount: links.length, selector: downloadSelector }, "[scraper] Found download links");
 
