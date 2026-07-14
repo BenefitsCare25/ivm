@@ -69,6 +69,16 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
   const hasDetailData = Object.keys(effectiveDetailData ?? {}).length > 0;
   const hasPdfFields = Object.keys(pdfFields ?? {}).length > 0;
 
+  // Portal-side data for comparison: prefer scraped detail-page fields, but fall
+  // back to list-page data when the detail page yielded nothing (an SPA whose
+  // detail DOM didn't match the field selectors, or a portal with no separate
+  // detail page). The list row still carries comparable fields — claim amount,
+  // dates, claimant — so skipping the comparison outright just because the detail
+  // scrape was empty produces a false "No comparison data available" on an item
+  // we can actually compare.
+  const comparablePageData = hasDetailData ? effectiveDetailData : (listData ?? {});
+  const hasPageData = Object.keys(comparablePageData).length > 0;
+
   // Distinguish three failure modes so an unreadable document is never mistaken
   // for an absent one (the false "Missing Document" bug). Keyed on what actually
   // happened to the *supported* files (a failed extraction lands in failedFiles):
@@ -90,12 +100,12 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
   let templateId: string | null = null;
   let matchedTemplate: MatchedTemplate | null = null;
 
-  if (hasDetailData && hasPdfFields) {
+  if (hasPageData && hasPdfFields) {
     const allPageData = { ...listData, ...effectiveDetailData };
     const template = await findMatchingTemplate(portalId, allPageData);
     matchedTemplate = template;
 
-    let comparePageFields = effectiveDetailData;
+    let comparePageFields = comparablePageData;
     let comparePdfFields = pdfFields;
     let templateFields: TemplateField[] | undefined;
 
@@ -112,7 +122,7 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
     if (template) {
       templateId = template.id;
       templateFields = template.fields;
-      const filtered = filterFieldsByTemplate(effectiveDetailData, pdfFields, template.fields);
+      const filtered = filterFieldsByTemplate(comparablePageData, pdfFields, template.fields);
       comparePageFields = filtered.filteredPageFields;
       comparePdfFields = filtered.filteredPdfFields;
 
