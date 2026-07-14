@@ -14,7 +14,7 @@ export interface CurrencyConversionMetadata {
   isFallback: boolean;
   isFuture: boolean;
   isHistorical: boolean;
-  source: "mas" | "exchangerate-api";
+  source: "frankfurter" | "exchangerate-api" | "mas";
 }
 
 /**
@@ -138,7 +138,7 @@ export async function checkForeignCurrency(
           trackedItemId,
           ruleType: "CURRENCY_CONVERSION",
           status: "WARNING",
-          message: `${conv.fieldLabel}: ${conv.originalCurrency} ${conv.originalAmount.toFixed(2)} ≈ SGD ${conv.sgdAmount.toFixed(2)} (rate ${conv.rate.toFixed(4)} on ${conv.rateDate}${conv.isFuture ? " — estimated, future date" : conv.isFallback && conv.source === "mas" ? " — nearest MAS business day" : conv.source === "exchangerate-api" && !conv.isHistorical ? " — live rate" : ""})`,
+          message: `${conv.fieldLabel}: ${conv.originalCurrency} ${conv.originalAmount.toFixed(2)} ≈ SGD ${conv.sgdAmount.toFixed(2)} (rate ${conv.rate.toFixed(4)} on ${conv.rateDate}${conv.isFuture ? " — estimated, future date" : conv.isFallback && conv.isHistorical ? " — nearest business day" : conv.source === "exchangerate-api" && !conv.isHistorical ? " — live rate" : ""})`,
           metadata: JSON.parse(JSON.stringify(conv)),
         },
       })

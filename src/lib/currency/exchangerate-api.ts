@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import type { RateResult } from "./mas-rates";
+import type { RateResult } from "./types";
 
 const BASE_URL = "https://v6.exchangerate-api.com/v6";
 

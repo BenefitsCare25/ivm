@@ -206,7 +206,7 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                 isFallback?: boolean;
                 isFuture?: boolean;
                 isHistorical?: boolean;
-                source?: "mas" | "exchangerate-api";
+                source?: "frankfurter" | "exchangerate-api" | "mas";
               } | null;
               return (
                 <div
@@ -232,7 +232,7 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                               ESTIMATED
                             </span>
                           )}
-                          {!meta.isFuture && meta.isFallback && meta.source === "mas" && (
+                          {!meta.isFuture && meta.isFallback && meta.isHistorical && (
                             <span className="ml-1.5 inline-block rounded px-1 py-0.5 text-[9px] font-semibold bg-blue-500/20 text-blue-400">
                               NEAREST DATE
                             </span>
