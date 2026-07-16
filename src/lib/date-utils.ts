@@ -4,6 +4,25 @@ const MONTH_ABBR: Record<string, string> = {
 };
 
 /**
+ * True only for a real calendar date in strict `YYYY-MM-DD` form. Rejects
+ * format-valid-but-impossible dates (e.g. "2026-06-31", "2026-13-01") that a
+ * bare regex would accept — `new Date()` silently rolls those over.
+ */
+export function isValidIsoDate(value: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return false;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return (
+    dt.getUTCFullYear() === year &&
+    dt.getUTCMonth() === month - 1 &&
+    dt.getUTCDate() === day
+  );
+}
+
+/**
  * Parse a human-displayed date string into an ISO `YYYY-MM-DD` date (no time).
  * Handles ISO, DD/MM/YYYY | MM/DD/YYYY (disambiguated by range, defaults DD/MM
  * for SG locale), `DD Mon YYYY` (e.g. "24 Jun 2026"), and `Mon DD, YYYY`.

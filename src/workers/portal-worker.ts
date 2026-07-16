@@ -54,6 +54,11 @@ async function processPortalScrape(
         await page.goto(listUrl, { waitUntil: "networkidle", timeout: 30_000 });
       }
 
+      // A date filter selects a subset that may live on any page, so we must
+      // scrape every page before filtering — the raw-count early-stop below
+      // would otherwise skip in-range rows on later pages.
+      const hasDateFilter = Boolean(job.data.submittedFrom || job.data.submittedTo);
+
       // Scrape all pages
       const allRows = [];
       let pageNum = 1;
@@ -63,8 +68,9 @@ async function processPortalScrape(
         const rows = await scrapeListPage(page, listSelectors);
         allRows.push(...rows);
         pageNum++;
-        // Stop early if we've already collected enough items
-        if (portal.scrapeLimit && allRows.length >= portal.scrapeLimit) break;
+        // Stop early if we've already collected enough items (skipped when a
+        // date filter is active — the limit is applied after filtering instead).
+        if (!hasDateFilter && portal.scrapeLimit && allRows.length >= portal.scrapeLimit) break;
       } while (await goToNextPage(
         page,
         listSelectors.paginationSelector,
@@ -115,7 +121,13 @@ async function processPortalScrape(
 
       const limitedRows = portal.scrapeLimit ? dateFilteredRows.slice(0, portal.scrapeLimit) : dateFilteredRows;
       logger.info(
-        { portalId, totalRows: allRows.length, afterFilter: filteredRows.length, limited: limitedRows.length },
+        {
+          portalId,
+          totalRows: allRows.length,
+          afterStatusFilter: filteredRows.length,
+          afterDateFilter: dateFilteredRows.length,
+          limited: limitedRows.length,
+        },
         "[worker] List scrape complete"
       );
 

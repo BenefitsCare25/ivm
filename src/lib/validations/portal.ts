@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidIsoDate } from "@/lib/date-utils";
 
 export const createPortalSchema = z.object({
   name: z
@@ -102,7 +103,8 @@ export type UpdateScheduleInput = z.infer<typeof updateScheduleSchema>;
 
 const isoDate = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format");
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
+  .refine(isValidIsoDate, "Not a valid calendar date");
 
 export const startScrapeSchema = z
   .object({

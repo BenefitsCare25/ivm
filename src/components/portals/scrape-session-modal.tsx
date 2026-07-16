@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Play, Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -28,6 +28,14 @@ interface ScrapeSessionModalProps {
 export function ScrapeSessionModal({ open, onOpenChange, onStart, loading }: ScrapeSessionModalProps) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+
+  // Start each session fresh — a prior run's range must not silently carry over.
+  useEffect(() => {
+    if (open) {
+      setFrom("");
+      setTo("");
+    }
+  }, [open]);
 
   const rangeInvalid = Boolean(from && to && to < from);
 

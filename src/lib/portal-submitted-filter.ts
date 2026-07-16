@@ -17,19 +17,30 @@ export interface SubmittedFilterResult<T> {
   droppedOutOfRange: number;
 }
 
-// Matches "Submitted On", "Submission Date", "Date Submitted", etc.
-const SUBMITTED_COL = /submitt|submission/i;
+const SUBMITTED_HINT = /submitt|submission/i;
+// A date-bearing column names one of these (e.g. "Submitted On", "Submission Date").
+const DATELIKE_HINT = /\bon\b|date|\bdt\b/i;
+// A person/actor column ("Submitted By", "Submitted By User") — must NOT be
+// mistaken for the date column, or every row's name value fails to parse and
+// the whole scrape is dropped.
+const PERSON_HINT = /\bby\b|user|name|staff|officer|employee|person/i;
 
 /**
- * Locate the field key holding the submission date. Prefers an exact
- * "Submitted On" column, then falls back to any submitted/submission-like key.
- * Portal rows share the same columns, so the first row with a match wins.
+ * Locate the field key holding the submission DATE. Prefers an exact
+ * "Submitted On" column, then a submitted/submission column that also looks
+ * date-bearing and is not an actor column. Deliberately strict: a bare
+ * "Submitted By" (a name) is excluded so the filter never drops every row by
+ * trying to parse names as dates. Portal rows share columns, so any row works.
  */
 export function findSubmittedKey(fields: Record<string, string>): string | null {
   const keys = Object.keys(fields);
   const exact = keys.find((k) => k.trim().toLowerCase() === "submitted on");
   if (exact) return exact;
-  return keys.find((k) => SUBMITTED_COL.test(k)) ?? null;
+  return (
+    keys.find(
+      (k) => SUBMITTED_HINT.test(k) && DATELIKE_HINT.test(k) && !PERSON_HINT.test(k)
+    ) ?? null
+  );
 }
 
 /**
