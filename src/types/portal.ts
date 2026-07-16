@@ -43,13 +43,13 @@ export type ComparisonFieldStatus = (typeof COMPARISON_FIELD_STATUSES)[number];
 // ─── FWA / Validation Alert Display ──────────────────────────────
 
 export const FWA_RULE_TYPES = new Set([
-  "TAMPERING", "DOC_TYPE_MATCH",
+  "TAMPERING", "DOC_TYPE_MATCH", "UNREADABLE_DOCUMENT",
   "BUSINESS_RULE", "REQUIRED_DOCUMENT", "CURRENCY_CONVERSION", "BILL_STATUS",
   "CLAIMANT_MATCH", "WRONG_CLAIM_TYPE",
 ]);
 
 export const FWA_PRIORITY: Record<string, number> = {
-  TAMPERING: 3, WRONG_CLAIM_TYPE: 2, CLAIMANT_MATCH: 2,
+  TAMPERING: 3, UNREADABLE_DOCUMENT: 2, WRONG_CLAIM_TYPE: 2, CLAIMANT_MATCH: 2,
   DOC_TYPE_MATCH: 1, BUSINESS_RULE: 1, REQUIRED_DOCUMENT: 1,
   CURRENCY_CONVERSION: 0, BILL_STATUS: 0,
 };
@@ -57,6 +57,7 @@ export const FWA_PRIORITY: Record<string, number> = {
 export const FWA_LABELS: Record<string, string> = {
   TAMPERING: "Tampering",
   DOC_TYPE_MATCH: "Wrong Doc Type",
+  UNREADABLE_DOCUMENT: "Unreadable Document",
   BUSINESS_RULE: "Rule Violation",
   REQUIRED_DOCUMENT: "Missing Document",
   CURRENCY_CONVERSION: "Foreign Currency",

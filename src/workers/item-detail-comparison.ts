@@ -97,6 +97,18 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
   const partialFailure = fileExtractions.length > 0 && failedFiles.length > 0;
   const extractionFailed = allExtractionsFailed;
 
+  // Fourth mode: a document was submitted and extraction did NOT throw, yet it
+  // yielded zero usable fields — a blank/corrupted/unreadable file. Without this
+  // it slips through as a clean "COMPARED" (the whole comparison block is gated
+  // on hasPdfFields). Only meaningful when nothing was salvageable: at least one
+  // file extracted, none threw, and no document fields came out at all.
+  const emptyExtraction =
+    fileExtractions.length > 0 && failedFiles.length === 0 && !hasPdfFields;
+  const unreadableFiles = emptyExtraction ? fileExtractions.map((f) => f.fileName) : [];
+  // A degraded re-run must not flip a previously-good item to "unreadable"
+  // (the worker sets preservePrior when a richer prior comparison exists).
+  const flagUnreadable = emptyExtraction && !(input.preservePrior ?? false);
+
   // Alias-aware, deterministic recognition of every submitted document
   // (canonical type, billing-document family, interim/final bill status).
   const recognizedDocs = recognizeDocuments(fileExtractions, cachedDocTypes ?? []);
@@ -291,6 +303,24 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
     }
   }
 
+  // Persist a visible alert for the unreadable-document case. The comparison
+  // block was skipped (no pdfFields), so no ComparisonResult / validation rows
+  // were written — write the alert row directly. Idempotent across re-runs.
+  if (flagUnreadable) {
+    await db.validationResult.deleteMany({
+      where: { trackedItemId, ruleType: "UNREADABLE_DOCUMENT" },
+    });
+    await db.validationResult.create({
+      data: {
+        trackedItemId,
+        ruleType: "UNREADABLE_DOCUMENT",
+        status: "FAIL",
+        message: `AI could not read any content from the submitted document(s): ${unreadableFiles.join(", ")}. The file may be blank, corrupted, or an unsupported scan — a readable document is required.`,
+        metadata: toInputJson({ severity: "critical", unreadableFiles }),
+      },
+    });
+  }
+
   const hasMismatch = (comparisonResult?.mismatchCount ?? 0) > 0;
   // Any unfound required document surfaces the item for review. Deterministic
   // synonym/alias matching has already flipped false positives to found, so what
@@ -307,19 +337,23 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
     ? "REQUIRE_DOC"
     : allExtractionsFailed
       ? "ERROR"
-      : claimantMissing
+      : flagUnreadable
         ? "REQUIRE_DOC"
-        : (preservedPrior || partialFailure || hasMismatch || ruleFlag || hasMissingDoc || wrongClaimType)
-          ? "FLAGGED"
-          : "COMPARED";
+        : claimantMissing
+          ? "REQUIRE_DOC"
+          : (preservedPrior || partialFailure || hasMismatch || ruleFlag || hasMissingDoc || wrongClaimType)
+            ? "FLAGGED"
+            : "COMPARED";
 
   const reviewMessage: string | null = allExtractionsFailed
     ? `AI could not read any of the ${failedFiles.length} submitted document(s): ${failedFiles.join(", ")}. Manual review required.`
-    : preservedPrior
-      ? `Re-read failed for ${failedFiles.length} document(s): ${failedFiles.join(", ")}. Showing the previous comparison — manual review recommended.`
-      : partialFailure
-        ? `${failedFiles.length} document(s) could not be read: ${failedFiles.join(", ")}. Comparison may be incomplete — manual review recommended.`
-        : null;
+    : flagUnreadable
+      ? `The submitted document(s) could not be read (blank or unreadable): ${unreadableFiles.join(", ")}. A readable document is required.`
+      : preservedPrior
+        ? `Re-read failed for ${failedFiles.length} document(s): ${failedFiles.join(", ")}. Showing the previous comparison — manual review recommended.`
+        : partialFailure
+          ? `${failedFiles.length} document(s) could not be read: ${failedFiles.join(", ")}. Comparison may be incomplete — manual review recommended.`
+          : null;
 
   return {
     mismatchCount: comparisonResult?.mismatchCount ?? 0,
@@ -399,7 +433,7 @@ async function saveComparisonResult(
   await db.validationResult.deleteMany({
     where: {
       trackedItemId,
-      ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT", "BILL_STATUS", "CLAIMANT_MATCH", "WRONG_CLAIM_TYPE"] },
+      ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT", "BILL_STATUS", "CLAIMANT_MATCH", "WRONG_CLAIM_TYPE", "UNREADABLE_DOCUMENT"] },
     },
   });
 

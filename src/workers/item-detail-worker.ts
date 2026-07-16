@@ -275,13 +275,21 @@ async function processItemDetailCore(
         cachedDocTypes,
       });
 
-      // If this run degraded (some/all documents failed to extract) and a richer
-      // prior comparison exists, preserve ALL prior state — skip both the
-      // destructive intelligence rewrite below and the comparison overwrite — so
-      // a failed re-read never corrupts a previously-good result.
+      // If this run degraded (some/all documents failed to extract, OR every
+      // document extracted to zero usable fields) and a richer prior comparison
+      // exists, preserve ALL prior state — skip both the destructive intelligence
+      // rewrite below and the comparison overwrite — so a transient bad read never
+      // corrupts a previously-good result.
+      const readableDocCount = extraction.fileExtractions.filter(
+        (f) => f.fields.length > 0
+      ).length;
+      const noReadableDocuments =
+        extraction.fileExtractions.length > 0 &&
+        extraction.failedFiles.length === 0 &&
+        readableDocCount === 0;
       const preservePrior =
-        extraction.failedFiles.length > 0 &&
-        (await shouldPreservePriorComparison(trackedItemId, extraction.fileExtractions.length));
+        (extraction.failedFiles.length > 0 || noReadableDocuments) &&
+        (await shouldPreservePriorComparison(trackedItemId, readableDocCount));
 
       // ── Intelligence pipeline ───────────────────────────────
       const acceptableTypeIds = item.scrapeSession.acceptableDocumentTypeIds;
