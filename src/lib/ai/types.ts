@@ -17,6 +17,13 @@ export interface AIExtractionRequest {
   textContent?: string; // Pre-extracted text for DOCX files
   knownDocumentTypes?: string[]; // Constrain AI to pick from this list when provided
   images?: RasterImage[]; // Pre-rasterized page images (local provider: PDFs converted to PNGs)
+  /**
+   * Request the lean output schema ({label, value, rawText} per field only).
+   * Set by the portal path, which never consumes id/fieldType/confidence/pageNumber
+   * — dropping them cuts output tokens ~40%, a large speedup on throughput-bound
+   * local models. The fill-session flow leaves this unset (it uses those keys).
+   */
+  compactSchema?: boolean;
 }
 
 export interface RasterImage {

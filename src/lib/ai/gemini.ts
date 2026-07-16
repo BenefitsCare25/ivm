@@ -23,7 +23,7 @@ export async function extractWithGemini(request: AIExtractionRequest): Promise<A
     const genAI = new GoogleGenerativeAI(request.apiKey);
     const model = genAI.getGenerativeModel({
       model: request.model ?? env.GEMINI_MODEL,
-      systemInstruction: getExtractionSystemPrompt(request.knownDocumentTypes),
+      systemInstruction: getExtractionSystemPrompt(request.knownDocumentTypes, { compact: request.compactSchema }),
     });
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -66,7 +66,7 @@ export async function extractWithGemini(request: AIExtractionRequest): Promise<A
   const genAI = new GoogleGenerativeAI(request.apiKey);
   const model = genAI.getGenerativeModel({
     model: env.GEMINI_MODEL,
-    systemInstruction: getExtractionSystemPrompt(),
+    systemInstruction: getExtractionSystemPrompt(request.knownDocumentTypes, { compact: request.compactSchema }),
   });
 
   const base64Data = request.fileData.toString("base64");

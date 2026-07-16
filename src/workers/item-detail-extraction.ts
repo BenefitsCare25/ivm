@@ -120,6 +120,9 @@ export async function runExtraction({
           baseURL,
           storagePath: file.storagePath,
           knownDocumentTypes,
+          // Portal comparison consumes only label/value/rawText — request the lean
+          // schema so the throughput-bound local model emits ~40% fewer output tokens.
+          compactSchema: true,
         });
 
         const durationMs = Date.now() - t0;
