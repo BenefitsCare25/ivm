@@ -10,6 +10,7 @@ export {
   buildDocumentGroups,
   detectBillStatus,
   matchDocFamily,
+  matchDocFamilies,
   extractOutstandingBalance,
 } from "./billing-docs";
 export type { RecognizedDoc } from "./billing-docs";

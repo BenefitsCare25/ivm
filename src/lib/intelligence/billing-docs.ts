@@ -70,13 +70,24 @@ const DOC_FAMILIES: DocFamily[] = [
   },
 ];
 
-/** Returns the canonical family name for a document title, or null. */
-export function matchDocFamily(name: string): string | null {
-  if (!name?.trim()) return null;
+/**
+ * Returns ALL canonical family names a document title belongs to. A compound
+ * title (e.g. "Invoice/Receipt") legitimately spans multiple families and must
+ * be satisfiable by any of them — returning only the first would miss a receipt
+ * for an "Invoice/Receipt" requirement (or vice versa).
+ */
+export function matchDocFamilies(name: string): string[] {
+  if (!name?.trim()) return [];
+  const out: string[] = [];
   for (const fam of DOC_FAMILIES) {
-    if (fam.patterns.some((p) => p.test(name))) return fam.canonical;
+    if (fam.patterns.some((p) => p.test(name))) out.push(fam.canonical);
   }
-  return null;
+  return out;
+}
+
+/** Returns the primary (first-matched) family name for a document title, or null. */
+export function matchDocFamily(name: string): string | null {
+  return matchDocFamilies(name)[0] ?? null;
 }
 
 // ── Bill status (interim vs final) ────────────────────────────────
@@ -139,8 +150,10 @@ export interface RecognizedDoc {
   canonicalName: string | null;
   /** Classifier confidence (alias/fuzzy), 0 when no library match. */
   classifyConfidence: number;
-  /** Document family the TYPE LABEL belongs to (deterministic). */
+  /** Primary document family the TYPE LABEL belongs to (deterministic). */
   family: string | null;
+  /** All document families the TYPE LABEL / canonical name belong to. */
+  families: string[];
   /** All searchable text for the file (type + field labels + values). */
   text: string;
   billStatus: BillStatus;
@@ -163,15 +176,22 @@ export function recognizeDocuments(
     const classification = classifyDocumentTypeFromCache(e.documentType, docTypes);
     const { status, evidence } = detectBillStatus(text);
     const balance = extractOutstandingBalance(e.fields);
+    // Families are derived from the document's type label OR its canonical
+    // library name — NOT from field text, which would misclassify (e.g. a
+    // receipt with an "Invoice No." field is not an invoice).
+    const families = Array.from(
+      new Set([
+        ...matchDocFamilies(e.documentType),
+        ...matchDocFamilies(classification.documentTypeName ?? ""),
+      ])
+    );
     return {
       fileName: e.fileName,
       rawType: e.documentType,
       canonicalName: classification.documentTypeName,
       classifyConfidence: classification.confidence,
-      // Family is derived from the document's type label OR its canonical
-      // library name — NOT from field text, which would misclassify (e.g. a
-      // receipt with an "Invoice No." field is not an invoice).
-      family: matchDocFamily(e.documentType) ?? matchDocFamily(classification.documentTypeName ?? ""),
+      family: families[0] ?? null,
+      families,
       text,
       billStatus: status,
       billEvidence: evidence,
@@ -267,7 +287,7 @@ export function resolveRequiredDocument(
   docs: RecognizedDoc[]
 ): RequiredDocumentCheck {
   const reqNorm = normalize(req.documentTypeName);
-  const reqFamily = matchDocFamily(req.documentTypeName);
+  const reqFamilies = matchDocFamilies(req.documentTypeName);
   const reqTokens = tokens(req.documentTypeName);
 
   let found: RequiredDocumentCheck | null = null;
@@ -287,8 +307,10 @@ export function resolveRequiredDocument(
     }
 
     // 2. Document-family / synonym match — the CBRE-012480 fix: an interim
-    //    "Summary Bill" satisfies a "Summary Tax Invoice" requirement.
-    if (reqFamily && d.family === reqFamily) {
+    //    "Summary Bill" satisfies a "Summary Tax Invoice" requirement. A
+    //    compound requirement ("Invoice/Receipt") is satisfied when the
+    //    document shares ANY of its families (a receipt satisfies it).
+    if (reqFamilies.length > 0 && d.families.some((f) => reqFamilies.includes(f))) {
       const cand: RequiredDocumentCheck = {
         documentTypeName: req.documentTypeName,
         found: true,
