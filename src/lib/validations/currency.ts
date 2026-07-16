@@ -5,6 +5,8 @@ import { resolveSgdRate } from "@/lib/currency";
 
 export interface CurrencyConversionMetadata {
   fieldLabel: string;
+  /** Which side the foreign amount was found on — the submitted document or the portal record. */
+  origin: "document" | "portal";
   originalCurrency: string;
   originalAmount: number;
   sgdAmount: number;
@@ -123,6 +125,7 @@ export async function checkForeignCurrency(
       const sgdAmount = Math.round(parsed.amount * result.rate * 100) / 100;
       conversions.push({
         fieldLabel: label,
+        origin: "document",
         originalCurrency: parsed.code,
         originalAmount: parsed.amount,
         sgdAmount,
@@ -136,6 +139,54 @@ export async function checkForeignCurrency(
       });
     } catch (err) {
       logger.warn({ err, trackedItemId, label: labels[0], currency: parsed.code }, "[currency] Rate fetch failed (non-fatal)");
+    }
+  }
+
+  // ── Portal-side currency ──────────────────────────────────────────
+  // The scan above covers extracted DOCUMENT fields. The portal's own amount
+  // fields (e.g. "Receipt Amount: USD 61.95") were never currency-checked, so a
+  // non-SGD portal receipt amount went through un-converted. Detect and convert
+  // it too, tagged origin:"portal" so the reviewer sees the SGD equivalent of the
+  // figure the portal recorded. Deduped independently of the document amounts.
+  const portalFields = pageFields ?? {};
+  const portalSeen = new Map<string, { labels: string[]; parsed: ParsedAmount }>();
+  for (const [label, value] of Object.entries(portalFields)) {
+    if (!isAmountField(label)) continue;
+    const parsed = parseCurrencyAmount(value); // null for SGD / bare numbers
+    if (!parsed) continue;
+    const key = `${parsed.code}:${parsed.amount}`;
+    const existing = portalSeen.get(key);
+    if (existing) existing.labels.push(label);
+    else portalSeen.set(key, { labels: [label], parsed });
+  }
+
+  const portalRanked = [...portalSeen.values()]
+    .sort((a, b) => keyRank(a.labels) - keyRank(b.labels) || b.parsed.amount - a.parsed.amount)
+    .slice(0, MAX_CONVERSIONS);
+
+  for (const { labels, parsed } of portalRanked) {
+    const label = labels.join(" / ");
+    try {
+      const result = await resolveSgdRate(parsed.code, dateToUse);
+      if (result === null) continue;
+
+      const sgdAmount = Math.round(parsed.amount * result.rate * 100) / 100;
+      conversions.push({
+        fieldLabel: label,
+        origin: "portal",
+        originalCurrency: parsed.code,
+        originalAmount: parsed.amount,
+        sgdAmount,
+        rate: result.rate,
+        rateDate: result.actualDate,
+        raw: parsed.raw,
+        isFallback: result.isFallback,
+        isFuture: result.isFuture,
+        isHistorical: result.isHistorical,
+        source: result.source,
+      });
+    } catch (err) {
+      logger.warn({ err, trackedItemId, label: labels[0], currency: parsed.code }, "[currency] Portal rate fetch failed (non-fatal)");
     }
   }
 
@@ -153,7 +204,7 @@ export async function checkForeignCurrency(
           trackedItemId,
           ruleType: "CURRENCY_CONVERSION",
           status: "WARNING",
-          message: `${conv.fieldLabel}: ${conv.originalCurrency} ${conv.originalAmount.toFixed(2)} ≈ SGD ${conv.sgdAmount.toFixed(2)} (rate ${conv.rate.toFixed(4)} on ${conv.rateDate}${conv.isFuture ? " — estimated, future date" : conv.isFallback && conv.isHistorical ? " — nearest business day" : conv.source === "exchangerate-api" && !conv.isHistorical ? " — live rate" : ""})`,
+          message: `${conv.origin === "portal" ? "Portal — " : ""}${conv.fieldLabel}: ${conv.originalCurrency} ${conv.originalAmount.toFixed(2)} ≈ SGD ${conv.sgdAmount.toFixed(2)} (rate ${conv.rate.toFixed(4)} on ${conv.rateDate}${conv.isFuture ? " — estimated, future date" : conv.isFallback && conv.isHistorical ? " — nearest business day" : conv.source === "exchangerate-api" && !conv.isHistorical ? " — live rate" : ""})`,
           metadata: JSON.parse(JSON.stringify(conv)),
         },
       })
