@@ -112,7 +112,7 @@ const CURRENCY_WORDS: { pattern: RegExp; code: string }[] = [
   { pattern: /\bringgit\b/i, code: "MYR" },
   { pattern: /\brupiah\b/i, code: "IDR" },
   { pattern: /\bbaht\b/i, code: "THB" },
-  { pattern: /\bpeso\b/i, code: "PHP" },
+  { pattern: /\bpesos?\b/i, code: "PHP" },
   { pattern: /\brenminbi\b|\byuan\b/i, code: "CNY" },
   { pattern: /\brupees?\b/i, code: "INR" },
   { pattern: /\beuros?\b/i, code: "EUR" },
@@ -124,6 +124,49 @@ const CURRENCY_WORDS: { pattern: RegExp; code: string }[] = [
 // or an amount-in-words line naming the code.
 const ISO_CODE_TOKEN =
   /\b(USD|EUR|GBP|MYR|AUD|JPY|CNY|HKD|THB|IDR|PHP|INR|NZD|CAD|CHF|KRW|VND)\b/i;
+
+// Country / region → ISO currency. Last-resort inference for receipts that print
+// amounts as BARE numbers (no code or symbol) where the only currency clue is the
+// provider's location — very common for PHP and IDR receipts. Conservative: full
+// country names (+ a couple of unambiguous spellings) only. Deliberately no bare
+// "US" (collides with "US" = ultrasound on medical receipts) and no city/region
+// names (too ambiguous). SGD/Singapore is intentionally absent — that's home.
+const COUNTRY_CURRENCY: { pattern: RegExp; code: string }[] = [
+  { pattern: /\bphilippines\b|\bpilipinas\b/i, code: "PHP" },
+  { pattern: /\bmalaysia\b/i, code: "MYR" },
+  { pattern: /\bindonesia\b/i, code: "IDR" },
+  { pattern: /\bthailand\b/i, code: "THB" },
+  { pattern: /\bviet\s?nam\b/i, code: "VND" },
+  { pattern: /\bindia\b/i, code: "INR" },
+  { pattern: /\bhong\s*kong\b/i, code: "HKD" },
+  { pattern: /\bchina\b/i, code: "CNY" },
+  { pattern: /\bjapan\b/i, code: "JPY" },
+  { pattern: /\baustralia\b/i, code: "AUD" },
+  { pattern: /\bnew\s*zealand\b/i, code: "NZD" },
+  { pattern: /\bunited\s*kingdom\b/i, code: "GBP" },
+  { pattern: /\bunited\s*states\b|\bu\.?s\.?a\b/i, code: "USD" },
+];
+
+/**
+ * Infer a currency from a country/region named in free text (e.g. a provider
+ * address line). Returns null when no known country is present. Used only as a
+ * last resort when no explicit currency code/symbol/word appears anywhere.
+ */
+export function detectCountryCurrency(text: string): string | null {
+  if (!text) return null;
+  // Return the currency whose country name appears EARLIEST in the text, not the
+  // first in map order — a document naming two countries should resolve to the
+  // one mentioned first (typically the provider), not an arbitrary map position.
+  // (COUNTRY_CURRENCY patterns carry no /g flag, so exec is stateless here.)
+  let best: { code: string; index: number } | null = null;
+  for (const { pattern, code } of COUNTRY_CURRENCY) {
+    const match = pattern.exec(text);
+    if (match && (best === null || match.index < best.index)) {
+      best = { code, index: match.index };
+    }
+  }
+  return best?.code ?? null;
+}
 
 /**
  * Detect a currency ISO code from arbitrary text (a field label or value) WITHOUT
