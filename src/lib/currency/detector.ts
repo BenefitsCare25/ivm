@@ -61,6 +61,12 @@ const CURRENCY_PATTERNS: CurrencyPattern[] = [
 // SGD detection — if any of these match, skip (not foreign)
 export const SGD_PATTERN = /\bSGD\b|\bS\$|\bS\s*\$/i;
 
+// Trailing ISO code — "2,105.00 INR", "230.00 MYR" — where the code is printed
+// AFTER the amount. The leading "<code><digits>" patterns above miss these, so a
+// grand total like "Grand Total: 2,105.00 INR" would otherwise go undetected.
+const TRAILING_CODE =
+  /([\d,]+\.?\d*)\s*(USD|EUR|GBP|MYR|AUD|JPY|CNY|HKD|THB|IDR|PHP|INR|NZD|CAD|CHF|KRW|VND)\b/i;
+
 /**
  * Parse a currency code and numeric amount from a raw string value.
  * Returns null if the value appears to be SGD or no recognisable foreign currency is found.
@@ -81,6 +87,15 @@ export function parseCurrencyAmount(value: string): ParsedAmount | null {
     const amount = parseFloat(match[1].replace(/,/g, ""));
     if (!isNaN(amount) && amount > 0) {
       return { code, amount, raw: value.trim() };
+    }
+  }
+
+  // Fall back to the trailing-code form ("2,105.00 INR").
+  const trailing = normalized.match(TRAILING_CODE);
+  if (trailing) {
+    const amount = parseFloat(trailing[1].replace(/,/g, ""));
+    if (!isNaN(amount) && amount > 0) {
+      return { code: trailing[2].toUpperCase(), amount, raw: value.trim() };
     }
   }
 

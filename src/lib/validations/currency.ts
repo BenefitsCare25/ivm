@@ -27,6 +27,17 @@ export interface CurrencyConversionMetadata {
  *
  * This is non-fatal — failures are logged and silently ignored.
  */
+/** Numeric values of the portal's primary/total amount fields (receipt/claim/total). */
+function collectPrimaryAmounts(fields: Record<string, string>): number[] {
+  const out: number[] = [];
+  for (const [label, value] of Object.entries(fields)) {
+    if (!isPrimaryAmountField(label)) continue;
+    const n = parseFloat(String(value).replace(/[^0-9.]/g, ""));
+    if (!isNaN(n) && n > 0) out.push(n);
+  }
+  return out;
+}
+
 export async function checkForeignCurrency(
   trackedItemId: string,
   pdfFields: Record<string, string>,
@@ -53,28 +64,42 @@ export async function checkForeignCurrency(
   const documentCurrencies = new Set<string>();
 
   for (const [label, value] of Object.entries(pdfFields)) {
-    // Currency can surface on any field, not just amount fields (e.g. an
-    // "Amount in Words" text field, or a "Currency: MYR" field).
-    const signal = detectCurrencyCode(value) ?? detectCurrencyCode(label);
-    if (signal) documentCurrencies.add(signal);
-
-    if (!isAmountField(label)) continue;
-
     const parsed = parseCurrencyAmount(value);
+
+    // An EXPLICIT currency+amount (e.g. "MYR 230.00") is unambiguous, so capture
+    // it regardless of the field label. Receipts routinely state the paid amount
+    // inside a descriptive line — "The Sum of MYR 230.00 NO. 1 PAYMENT" — whose
+    // label ("The Sum of") is not amount-like; gating this on isAmountField()
+    // silently dropped the conversion even though the foreign amount is right
+    // there in the value.
     if (parsed) {
+      documentCurrencies.add(parsed.code);
       seenCurrencies.add(parsed.code);
       const key = `${parsed.code}:${parsed.amount}`;
       const existing = seen.get(key);
-      if (existing) existing.labels.push(label);
-      else seen.set(key, { labels: [label], parsed });
-    } else if (
+      if (existing) {
+        if (!existing.labels.includes(label)) existing.labels.push(label);
+      } else {
+        seen.set(key, { labels: [label], parsed });
+      }
+      continue;
+    }
+
+    // No explicit amount glued to this field — still harvest a currency SIGNAL
+    // from the value or label (e.g. "Currency: MYR", or "…ringgit only" in words)
+    // for the bare-number inference pass below.
+    const signal = detectCurrencyCode(value) ?? detectCurrencyCode(label);
+    if (signal) documentCurrencies.add(signal);
+
+    // Bare-number totals (currency omitted on the number): only PRIMARY amount
+    // labels qualify, so an inferred currency isn't spread across every bare
+    // line item (registration fee, each charge, etc.).
+    if (
+      isAmountField(label) &&
       isPrimaryAmountField(label) &&
       BARE_AMOUNT.test(value.trim()) &&
       !SGD_PATTERN.test(value)
     ) {
-      // No explicit currency — defer to inferred-currency pass below. Only
-      // primary totals qualify, so an inferred currency isn't spread across
-      // every bare-number line item (registration fee, each charge, etc.).
       bareCandidates.push([label, value]);
     }
   }
@@ -113,7 +138,45 @@ export async function checkForeignCurrency(
   const MAX_CONVERSIONS = 6;
   const KEY_TOTAL_LABEL = /outstanding|balance|amount\s*(due|payable)|final|grand|net\s*(payable|amount)|total\s*(bill|payable|due)|presented\s*bill/i;
   const keyRank = (labels: string[]) => (labels.some((l) => KEY_TOTAL_LABEL.test(l)) ? 0 : 1);
-  const ranked = [...seen.values()]
+
+  // Prefer the claim TOTAL over individual line items. An itemised receipt (each
+  // line carrying its own currency amount) must convert the grand total — not
+  // emit one alert per line. A captured amount counts as a total when its label
+  // reads like a total, when it equals a portal primary amount (the authoritative
+  // claim figure), or when it equals the sum of the other captured amounts (i.e.
+  // it IS their grand total). If any totals are found, the non-total line items
+  // are dropped; otherwise everything is kept (no identifiable total).
+  // NB: `final` is scoped to "final bill/amount/…" — a bare `final` would wrongly
+  // match line-item labels like "X-Ray — Final Cost", pulling every line in.
+  const TOTAL_LABEL = /grand\s*total|\btotal\b|\bsum\b|final\s*(bill|amount|total|payable)|net\s*(amount|payable)|receipt\s*amount|invoice\s*amount|amount\s*(due|payable)|outstanding|balance|presented\s*bill/i;
+  const portalTotals = collectPrimaryAmounts(pageFields ?? {});
+  const docCandidates = [...seen.values()];
+  const docSum = docCandidates.reduce((s, c) => s + c.parsed.amount, 0);
+  const isTotalCandidate = (c: { labels: string[]; parsed: ParsedAmount }) =>
+    c.labels.some((l) => TOTAL_LABEL.test(l)) ||
+    portalTotals.some((p) => Math.abs(p - c.parsed.amount) < 0.01) ||
+    (docCandidates.length > 2 && Math.abs(c.parsed.amount - (docSum - c.parsed.amount)) < 0.01);
+  const totals = docCandidates.filter(isTotalCandidate);
+
+  // Itemised receipt with NO captured grand-total field: if the portal records a
+  // primary amount equal to the SUM of the document's (single-currency) line
+  // items, that portal figure IS the foreign grand total. Convert it once and
+  // drop the line items. The sum-equality guard keeps this from firing when the
+  // portal already stored an SGD-converted figure (which won't equal the sum).
+  if (totals.length === 0 && docCandidates.length > 1) {
+    const codes = new Set(docCandidates.map((c) => c.parsed.code));
+    if (codes.size === 1) {
+      const code = docCandidates[0].parsed.code;
+      const grand = portalTotals.find((p) => Math.abs(p - docSum) < 0.01);
+      if (grand !== undefined) {
+        totals.push({ labels: ["Grand Total"], parsed: { code, amount: grand, raw: `${code} ${grand}` } });
+      }
+    }
+  }
+
+  const documentAmounts = totals.length > 0 ? totals : docCandidates;
+
+  const ranked = documentAmounts
     .sort((a, b) => keyRank(a.labels) - keyRank(b.labels) || b.parsed.amount - a.parsed.amount)
     .slice(0, MAX_CONVERSIONS);
 
