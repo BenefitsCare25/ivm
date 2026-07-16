@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { AutoRefresh } from "./auto-refresh";
 import { PortalAuthPanel } from "./portal-auth-panel";
 import { PortalSessionList } from "./portal-session-list";
-import { ScrapeSessionModal } from "./scrape-session-modal";
+import { ScrapeSessionModal, type ScrapeStartOptions } from "./scrape-session-modal";
 import { ClaimsConfigSection } from "./claims-config-section";
 import {
   ArrowLeft, Play, Loader2, Shield,
@@ -147,14 +147,14 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
     }
   }
 
-  async function triggerScrape() {
+  async function triggerScrape(options: ScrapeStartOptions = {}) {
     setScraping(true);
     setError(null);
     try {
       const res = await fetch(`/api/portals/${portal.id}/scrape`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify(options),
       });
       const data = await res.json();
       if (!res.ok) {

@@ -406,6 +406,9 @@ model ScrapeSession {
   completedAt               DateTime?
   authExpiredAt             DateTime?
   errorMessage              String?
+  /** Inclusive "Submitted On" date filter applied at list-scrape time (per run). */
+  submittedFrom             DateTime?
+  submittedTo               DateTime?
   createdAt                 DateTime            @default(now())
 
   portal              Portal        @relation(fields: [portalId], references: [id], onDelete: Cascade)

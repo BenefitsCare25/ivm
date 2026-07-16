@@ -100,9 +100,22 @@ export const updateScheduleSchema = z.object({
 
 export type UpdateScheduleInput = z.infer<typeof updateScheduleSchema>;
 
-export const startScrapeSchema = z.object({
-  acceptableDocumentTypeIds: z.array(z.string().cuid()).max(20).optional(),
-});
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format");
+
+export const startScrapeSchema = z
+  .object({
+    acceptableDocumentTypeIds: z.array(z.string().cuid()).max(20).optional(),
+    // Inclusive "Submitted On" date filter (per run). Rows outside the range
+    // are dropped at list-scrape time before any detail scrape/comparison.
+    submittedFrom: isoDate.optional(),
+    submittedTo: isoDate.optional(),
+  })
+  .refine(
+    (v) => !(v.submittedFrom && v.submittedTo) || v.submittedTo >= v.submittedFrom,
+    { message: "'To' date must be on or after 'From' date", path: ["submittedTo"] }
+  );
 
 export type StartScrapeInput = z.infer<typeof startScrapeSchema>;
 

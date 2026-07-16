@@ -36,6 +36,8 @@ export async function POST(
         portalId: id,
         triggeredBy: "MANUAL",
         acceptableDocumentTypeIds,
+        submittedFrom: body.submittedFrom ? new Date(body.submittedFrom) : null,
+        submittedTo: body.submittedTo ? new Date(body.submittedTo) : null,
       },
     });
 
@@ -44,6 +46,8 @@ export async function POST(
       portalId: id,
       scrapeSessionId: scrapeSession.id,
       userId: session.user.id,
+      submittedFrom: body.submittedFrom,
+      submittedTo: body.submittedTo,
     });
 
     if (!jobId) {

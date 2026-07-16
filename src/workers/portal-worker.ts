@@ -11,6 +11,7 @@ import {
 } from "@/lib/queue/portal-scrape-queue";
 import { enqueueItemDetailBatch } from "@/lib/queue/item-detail-queue";
 import type { ListSelectors, ScrapeFilters } from "@/types/portal";
+import { filterBySubmittedDate } from "@/lib/portal-submitted-filter";
 
 async function processPortalScrape(
   job: Job<PortalScrapeJobData>
@@ -88,7 +89,31 @@ async function processPortalScrape(
         return true;
       });
 
-      const limitedRows = portal.scrapeLimit ? filteredRows.slice(0, portal.scrapeLimit) : filteredRows;
+      // Per-run "Submitted On" date range — drop out-of-range rows before they
+      // become TrackedItems (so they are never detail-scraped or compared).
+      const submitted = filterBySubmittedDate(filteredRows, {
+        from: job.data.submittedFrom,
+        to: job.data.submittedTo,
+      });
+      if (job.data.submittedFrom || job.data.submittedTo) {
+        logger.info(
+          {
+            portalId,
+            from: job.data.submittedFrom,
+            to: job.data.submittedTo,
+            applied: submitted.applied,
+            kept: submitted.kept.length,
+            droppedOutOfRange: submitted.droppedOutOfRange,
+            droppedNoDate: submitted.droppedNoDate,
+          },
+          submitted.applied
+            ? "[worker] Submitted-on date filter applied"
+            : "[worker] Submitted-on column not found — date filter skipped"
+        );
+      }
+      const dateFilteredRows = submitted.kept;
+
+      const limitedRows = portal.scrapeLimit ? dateFilteredRows.slice(0, portal.scrapeLimit) : dateFilteredRows;
       logger.info(
         { portalId, totalRows: allRows.length, afterFilter: filteredRows.length, limited: limitedRows.length },
         "[worker] List scrape complete"

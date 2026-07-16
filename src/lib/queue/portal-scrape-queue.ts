@@ -8,6 +8,10 @@ export interface PortalScrapeJobData {
   portalId: string;
   scrapeSessionId: string;
   userId: string;
+  /** Inclusive "Submitted On" lower bound, ISO `YYYY-MM-DD`. */
+  submittedFrom?: string;
+  /** Inclusive "Submitted On" upper bound, ISO `YYYY-MM-DD`. */
+  submittedTo?: string;
 }
 
 export interface PortalScrapeJobResult {
