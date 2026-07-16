@@ -68,14 +68,66 @@ export const SGD_PATTERN = /\bSGD\b|\bS\$|\bS\s*\$/i;
 export function parseCurrencyAmount(value: string): ParsedAmount | null {
   if (!value || SGD_PATTERN.test(value)) return null;
 
+  // Receipts frequently print the currency as a label separated from the number
+  // by a colon ("RM: 880", "Total (USD): 100"), which would otherwise break the
+  // "<code><spaces><digits>" patterns. Normalise separators to spaces for matching
+  // while still returning the original string as `raw`.
+  const normalized = value.replace(/:/g, " ");
+
   for (const { pattern, code } of CURRENCY_PATTERNS) {
-    const match = value.match(pattern);
+    const match = normalized.match(pattern);
     if (!match || !match[1]) continue;
 
     const amount = parseFloat(match[1].replace(/,/g, ""));
     if (!isNaN(amount) && amount > 0) {
       return { code, amount, raw: value.trim() };
     }
+  }
+
+  return null;
+}
+
+// Unambiguous currency WORDS → ISO code, for document-level currency inference
+// when the amount itself is a bare number (e.g. a receipt prints "RM" as a
+// separate label and the amount extracts as "880", but the amount-in-words says
+// "eight hundred and eighty ringgit only"). Deliberately excludes "dollar" and
+// "pound" — ambiguous across SGD/USD/AUD/… and common non-currency uses — so
+// those stay driven by explicit codes/symbols only.
+const CURRENCY_WORDS: { pattern: RegExp; code: string }[] = [
+  { pattern: /\bringgit\b/i, code: "MYR" },
+  { pattern: /\brupiah\b/i, code: "IDR" },
+  { pattern: /\bbaht\b/i, code: "THB" },
+  { pattern: /\bpeso\b/i, code: "PHP" },
+  { pattern: /\brenminbi\b|\byuan\b/i, code: "CNY" },
+  { pattern: /\brupees?\b/i, code: "INR" },
+  { pattern: /\beuros?\b/i, code: "EUR" },
+  // "won" (English past tense) and "dong" are excluded as too-common homographs;
+  // "yen"/"pound"/"dollar" likewise stay driven by explicit codes/symbols only.
+];
+
+// Standalone ISO codes (no adjacent amount required) — a "Currency: MYR" field
+// or an amount-in-words line naming the code.
+const ISO_CODE_TOKEN =
+  /\b(USD|EUR|GBP|MYR|AUD|JPY|CNY|HKD|THB|IDR|PHP|INR|NZD|CAD|CHF|KRW|VND)\b/i;
+
+/**
+ * Detect a currency ISO code from arbitrary text (a field label or value) WITHOUT
+ * requiring an amount glued to it. Order: explicit "CODE 880"/symbol (via
+ * parseCurrencyAmount) → standalone ISO code token → currency word. Returns null
+ * for SGD or when there is no currency signal. Used to infer the document
+ * currency for bare-number totals whose currency is stated elsewhere.
+ */
+export function detectCurrencyCode(text: string): string | null {
+  if (!text || SGD_PATTERN.test(text)) return null;
+
+  const parsed = parseCurrencyAmount(text);
+  if (parsed) return parsed.code;
+
+  const codeToken = text.match(ISO_CODE_TOKEN);
+  if (codeToken) return codeToken[1].toUpperCase();
+
+  for (const { pattern, code } of CURRENCY_WORDS) {
+    if (pattern.test(text)) return code;
   }
 
   return null;

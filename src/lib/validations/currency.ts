@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
-import { parseCurrencyAmount, isAmountField, isPrimaryAmountField, isDateField, DATE_FIELD_PRIORITY, SGD_PATTERN } from "@/lib/currency/detector";
+import { parseCurrencyAmount, detectCurrencyCode, isAmountField, isPrimaryAmountField, isDateField, DATE_FIELD_PRIORITY, SGD_PATTERN } from "@/lib/currency/detector";
 import { resolveSgdRate } from "@/lib/currency";
 
 export interface CurrencyConversionMetadata {
@@ -43,7 +43,18 @@ export async function checkForeignCurrency(
   const bareCandidates: [string, string][] = [];
   const BARE_AMOUNT = /^[\d,]+\.?\d*$/;
 
+  // Document-level currency signal: a currency stated ANYWHERE in the document
+  // (a field label/value, or the amount-in-words) even when it isn't glued to a
+  // number — e.g. a receipt that prints "RM" as a separate label so the amount
+  // extracts as bare "880", but the amount-in-words reads "…eighty ringgit only".
+  const documentCurrencies = new Set<string>();
+
   for (const [label, value] of Object.entries(pdfFields)) {
+    // Currency can surface on any field, not just amount fields (e.g. an
+    // "Amount in Words" text field, or a "Currency: MYR" field).
+    const signal = detectCurrencyCode(value) ?? detectCurrencyCode(label);
+    if (signal) documentCurrencies.add(signal);
+
     if (!isAmountField(label)) continue;
 
     const parsed = parseCurrencyAmount(value);
@@ -65,11 +76,15 @@ export async function checkForeignCurrency(
     }
   }
 
-  // If exactly one foreign currency was detected, apply it to bare-number fields.
-  // This handles fields like "Receipt Amount / Total Invoice: 27,030.50" where
-  // the PDF omits the currency code but the document is clearly non-SGD.
-  if (seenCurrencies.size === 1) {
-    const inferredCode = seenCurrencies.values().next().value as string;
+  // Infer the document currency for bare-number totals from the union of
+  // amount-glued currencies and document-level signals. Applied only when the
+  // whole document points to exactly ONE foreign currency, so a bare total is
+  // never mis-tagged when the currency is ambiguous. This handles fields like
+  // "Receipt Amount / Total Invoice: 27,030.50" (currency omitted on the number
+  // but stated elsewhere) and the "RM"-label / "ringgit"-in-words receipt case.
+  const effectiveCurrencies = new Set<string>([...seenCurrencies, ...documentCurrencies]);
+  if (effectiveCurrencies.size === 1) {
+    const inferredCode = effectiveCurrencies.values().next().value as string;
     for (const [label, value] of bareCandidates) {
       const trimmed = value.trim();
       const amount = parseFloat(trimmed.replace(/,/g, ""));
