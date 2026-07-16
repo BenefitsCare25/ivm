@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
-import { parseCurrencyAmount, detectCurrencyCode, isAmountField, isPrimaryAmountField, isDateField, DATE_FIELD_PRIORITY, SGD_PATTERN } from "@/lib/currency/detector";
+import { parseCurrencyAmount, detectCurrencyCode, detectCountryCurrency, isAmountField, isPrimaryAmountField, isDateField, DATE_FIELD_PRIORITY, SGD_PATTERN } from "@/lib/currency/detector";
 import { resolveSgdRate } from "@/lib/currency";
 import { parseDisplayDate as parseDate } from "@/lib/date-utils";
 
@@ -20,13 +20,58 @@ export interface CurrencyConversionMetadata {
   source: "frankfurter" | "exchangerate-api" | "mas";
 }
 
+// Provider/location-bearing field labels — ONLY these are scanned for a country
+// name, so an incidental clinical mention ("patient travelled to Thailand")
+// elsewhere in the document can't drive the currency inference.
+const LOCATION_LABEL = /provider|clinic|hospital|address|company|facility|centre|center|vendor|merchant|payee|billed\s*from/i;
+
+// A Singapore provider address must not be read as a foreign country merely
+// because it contains a place-name like "Little India" or "China Street": a
+// domestic address that names Singapore suppresses country inference entirely.
+const SINGAPORE_HINT = /\bsingapore\b|\bs'?pore\b/i;
+
+// The ¥ symbol is shared by Japanese Yen and Chinese Yuan (RMB); the detector
+// defaults it to JPY. These signals mark a document/portal as RMB/CNY — a Chinese
+// e-invoice (发票), an explicit RMB/CNY code, or 人民币 — so a ¥ amount on it is
+// reinterpreted as CNY rather than JPY.
+const RMB_SIGNAL = /\bRMB|\bCNY|人民[币幣]|发票|發票/i;
+
+/** True when any field label/value carries a Chinese-Yuan (RMB) signal. */
+function hasRmbSignal(
+  pdfFields: Record<string, string>,
+  pageFields?: Record<string, string>
+): boolean {
+  for (const fields of [pdfFields, pageFields ?? {}]) {
+    for (const [label, value] of Object.entries(fields)) {
+      if (RMB_SIGNAL.test(value) || RMB_SIGNAL.test(label)) return true;
+    }
+  }
+  return false;
+}
+
 /**
- * Scan extracted PDF fields for foreign-currency amounts. For each one found,
- * look up the MAS historical SGD exchange rate for the incurred date and persist
- * a CURRENCY_CONVERSION ValidationResult.
- *
- * This is non-fatal — failures are logged and silently ignored.
+ * Infer the document's currency from the provider's country when NO explicit
+ * currency token exists. Scans ONLY location-bearing fields (provider/address/…)
+ * so an incidental country mention in clinical text can't drive the currency.
+ * Returns null for a Singapore (domestic) address or when no known country is
+ * found. Only meaningful for bare-number receipts (e.g. a PHP service invoice
+ * that prints plain numbers with "Philippines" only in the address).
  */
+function inferProviderCurrency(
+  pdfFields: Record<string, string>,
+  pageFields?: Record<string, string>
+): string | null {
+  const located: string[] = [];
+  for (const fields of [pdfFields, pageFields ?? {}]) {
+    for (const [label, value] of Object.entries(fields)) {
+      if (LOCATION_LABEL.test(label)) located.push(value);
+    }
+  }
+  const text = located.join(" ");
+  if (SINGAPORE_HINT.test(text)) return null;
+  return detectCountryCurrency(text);
+}
+
 /** Numeric values of the portal's primary/total amount fields (receipt/claim/total). */
 function collectPrimaryAmounts(fields: Record<string, string>): number[] {
   const out: number[] = [];
@@ -38,6 +83,12 @@ function collectPrimaryAmounts(fields: Record<string, string>): number[] {
   return out;
 }
 
+/**
+ * Scan extracted document fields for foreign-currency amounts, convert each to
+ * SGD using the incurred-date exchange rate (Frankfurter/ECB, then
+ * ExchangeRate-API as fallback), and persist CURRENCY_CONVERSION ValidationResult
+ * rows. Non-fatal — failures are logged and ignored.
+ */
 export async function checkForeignCurrency(
   trackedItemId: string,
   pdfFields: Record<string, string>,
@@ -104,6 +155,53 @@ export async function checkForeignCurrency(
     }
   }
 
+  // Portal fields can state the claim currency without an amount — e.g. a Remarks
+  // field reading "In Ringgit". Harvest that signal too, so bare document/portal
+  // amounts (no code glued to the number) infer the right currency instead of
+  // being skipped.
+  for (const [label, value] of Object.entries(pageFields ?? {})) {
+    const signal = detectCurrencyCode(value) ?? detectCurrencyCode(label);
+    if (signal) documentCurrencies.add(signal);
+  }
+
+  // Disambiguate the shared ¥ symbol: on a document/portal that signals RMB/CNY
+  // (a Chinese e-invoice), a ¥-sourced amount the detector read as JPY is really
+  // Chinese Yuan. Reclassify those entries CNY (leaving explicit "JPY"/円 amounts
+  // untouched) so the conversion uses the correct currency and rate.
+  if (hasRmbSignal(pdfFields, pageFields)) {
+    let swapped = 0;
+    for (const [key, entry] of [...seen]) {
+      const raw = entry.parsed.raw;
+      if (entry.parsed.code === "JPY" && /[¥￥]/.test(raw) && !/\bJPY\b|円|日本/i.test(raw)) {
+        seen.delete(key);
+        const cnyKey = `CNY:${entry.parsed.amount}`;
+        const existing = seen.get(cnyKey);
+        if (existing) {
+          for (const l of entry.labels) if (!existing.labels.includes(l)) existing.labels.push(l);
+        } else {
+          seen.set(cnyKey, { labels: entry.labels, parsed: { ...entry.parsed, code: "CNY" } });
+        }
+        swapped++;
+      }
+    }
+    if (swapped > 0) {
+      // Rebuild the currency sets so the bare-number inference below uses CNY, not
+      // the stale ¥→JPY signal.
+      seenCurrencies.clear();
+      for (const { parsed } of seen.values()) seenCurrencies.add(parsed.code);
+      if (!seenCurrencies.has("JPY") && documentCurrencies.delete("JPY")) documentCurrencies.add("CNY");
+    }
+  }
+
+  // Last-resort provider-country inference: no currency token appeared ANYWHERE
+  // (no code, symbol, or currency word), so fall back to the provider's country
+  // (e.g. a Philippine service invoice printing bare numbers → PHP). Gated on a
+  // total absence of currency signals so it never overrides an explicit currency.
+  if (seenCurrencies.size === 0 && documentCurrencies.size === 0) {
+    const countryCurrency = inferProviderCurrency(pdfFields, pageFields);
+    if (countryCurrency) documentCurrencies.add(countryCurrency);
+  }
+
   // Infer the document currency for bare-number totals from the union of
   // amount-glued currencies and document-level signals. Applied only when the
   // whole document points to exactly ONE foreign currency, so a bare total is
@@ -111,8 +209,11 @@ export async function checkForeignCurrency(
   // "Receipt Amount / Total Invoice: 27,030.50" (currency omitted on the number
   // but stated elsewhere) and the "RM"-label / "ringgit"-in-words receipt case.
   const effectiveCurrencies = new Set<string>([...seenCurrencies, ...documentCurrencies]);
-  if (effectiveCurrencies.size === 1) {
-    const inferredCode = effectiveCurrencies.values().next().value as string;
+  const claimCurrency = effectiveCurrencies.size === 1
+    ? (effectiveCurrencies.values().next().value as string)
+    : null;
+  if (claimCurrency) {
+    const inferredCode = claimCurrency;
     for (const [label, value] of bareCandidates) {
       const trimmed = value.trim();
       const amount = parseFloat(trimmed.replace(/,/g, ""));
@@ -220,6 +321,11 @@ export async function checkForeignCurrency(
   const portalSeen = new Map<string, { labels: string[]; parsed: ParsedAmount }>();
   for (const [label, value] of Object.entries(portalFields)) {
     if (!isAmountField(label)) continue;
+    // Only EXPLICIT-currency portal amounts are converted. A bare portal amount is
+    // NOT inferred as the claim currency: portals frequently pre-convert to SGD
+    // (e.g. Receipt Amount 31.37 with a remark "amount already in Singapore
+    // Dollar"), so treating a bare portal figure as foreign would mis-convert an
+    // SGD value. The foreign figure is taken from the DOCUMENT instead.
     const parsed = parseCurrencyAmount(value); // null for SGD / bare numbers
     if (!parsed) continue;
     const key = `${parsed.code}:${parsed.amount}`;
