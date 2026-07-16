@@ -78,9 +78,10 @@ const HOSPITAL_KEYS: { key: string; name: string; kind: HospitalKind }[] = [
  */
 export function detectHospital(text: string): HospitalMatch | null {
   if (!text?.trim()) return null;
+  // Wrap in spaces so a name at the very start/end still has word boundaries.
   const haystack = ` ${normalize(text)} `;
   for (const h of HOSPITAL_KEYS) {
-    if (haystack.includes(` ${h.key} `) || haystack.includes(h.key)) {
+    if (haystack.includes(` ${h.key} `)) {
       return { name: h.name, kind: h.kind };
     }
   }

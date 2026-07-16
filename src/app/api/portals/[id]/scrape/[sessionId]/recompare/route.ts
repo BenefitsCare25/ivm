@@ -23,7 +23,7 @@ import {
   buildRequiredDocValidations,
   buildBillStatusValidation,
 } from "@/lib/intelligence";
-import { buildClaimPolicyValidations, buildDocumentText, isFlexClaim } from "@/lib/validations/claim-policy";
+import { buildClaimPolicyValidations, buildHospitalSearchText, isFlexClaim } from "@/lib/validations/claim-policy";
 import type { TemplateField, RequiredDocument, BusinessRule, RequiredDocumentCheck, TrackedItemStatus } from "@/types/portal";
 
 export async function POST(
@@ -278,7 +278,7 @@ export async function POST(
         flexClaim,
         pageData: { ...((item.listData as Record<string, string>) ?? {}), ...detailData },
         groupingFields,
-        documentText: buildDocumentText(reconstructedExtractions),
+        documentText: buildHospitalSearchText(reconstructedExtractions, recognizedDocs),
       });
 
       const billRow = buildBillStatusValidation(billStatusSignal);

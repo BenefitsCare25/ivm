@@ -18,7 +18,7 @@ import {
   buildBillStatusValidation,
 } from "@/lib/intelligence";
 import type { ValidationRowData } from "@/lib/intelligence/validation-builders";
-import { buildClaimPolicyValidations, buildDocumentText } from "@/lib/validations/claim-policy";
+import { buildClaimPolicyValidations, buildHospitalSearchText } from "@/lib/validations/claim-policy";
 import type { AIProvider } from "@/lib/ai/types";
 import type { DocTypeRecord } from "@/lib/intelligence";
 import type { MatchedTemplate } from "@/lib/comparison-templates";
@@ -251,20 +251,6 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
       }
     }
 
-    // ── Global claim policy checks (run on the finalized comparison) ──
-    // Rule 1: claimant absent from every document → pending document (REQUIRE_DOC).
-    // Rule 2: flex Polyclinic claim backed by a hospital bill → wrong claim type.
-    const policy = buildClaimPolicyValidations({
-      fieldComparisons: comparisonResult.fieldComparisons,
-      flexClaim: input.flexClaim ?? false,
-      pageData: { ...listData, ...effectiveDetailData },
-      groupingFields: input.groupingFields ?? [],
-      documentText: buildDocumentText(fileExtractions),
-    });
-    claimantMissing = policy.claimantMissing;
-    wrongClaimType = policy.wrongClaimType;
-    policyRows = policy.rows;
-
     // Clobber guard: the worker decided up front (before the destructive
     // intelligence step) whether this degraded re-run should keep the previous
     // comparison rather than overwrite it. Honour that decision here too.
@@ -277,6 +263,23 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
     }
 
     if (!preservedPrior) {
+      // ── Global claim policy checks (run on the finalized comparison) ──
+      // Rule 1: claimant absent from every document → pending document (REQUIRE_DOC).
+      // Rule 2: flex Polyclinic claim backed by a hospital bill → wrong claim type.
+      // Skipped when preserving a prior result: on a degraded re-run a claimant's
+      // document may have failed to extract (transient), and that must NOT flip a
+      // previously-good item to "pending document" / "wrong claim type".
+      const policy = buildClaimPolicyValidations({
+        fieldComparisons: comparisonResult.fieldComparisons,
+        flexClaim: input.flexClaim ?? false,
+        pageData: { ...listData, ...effectiveDetailData },
+        groupingFields: input.groupingFields ?? [],
+        documentText: buildHospitalSearchText(fileExtractions, recognizedDocs),
+      });
+      claimantMissing = policy.claimantMissing;
+      wrongClaimType = policy.wrongClaimType;
+      policyRows = policy.rows;
+
       const documentTypesByFile = Object.fromEntries(
         fileExtractions.map((e) => [e.fileName, e.documentType])
       );

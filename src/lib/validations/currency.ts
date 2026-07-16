@@ -149,12 +149,17 @@ export async function checkForeignCurrency(
   // it too, tagged origin:"portal" so the reviewer sees the SGD equivalent of the
   // figure the portal recorded. Deduped independently of the document amounts.
   const portalFields = pageFields ?? {};
+  // Skip portal amounts already surfaced by the document pass (same currency +
+  // amount) so one figure appearing on both sides doesn't emit two near-identical
+  // conversion alerts.
+  const documentKeys = new Set(conversions.map((c) => `${c.originalCurrency}:${c.originalAmount}`));
   const portalSeen = new Map<string, { labels: string[]; parsed: ParsedAmount }>();
   for (const [label, value] of Object.entries(portalFields)) {
     if (!isAmountField(label)) continue;
     const parsed = parseCurrencyAmount(value); // null for SGD / bare numbers
     if (!parsed) continue;
     const key = `${parsed.code}:${parsed.amount}`;
+    if (documentKeys.has(key)) continue;
     const existing = portalSeen.get(key);
     if (existing) existing.labels.push(label);
     else portalSeen.set(key, { labels: [label], parsed });

@@ -158,19 +158,26 @@ Never pass Lucide icon components as props from Server → Client Components (fu
 - **Duplicate detection: REMOVED.** The per-document fingerprint check (`deduplicator.ts`) and the earlier cross-item visit check (`cross-item.ts`) no longer exist; no `DUPLICATE` `ValidationResult` rows are produced anywhere.
 
 ### Portal Tracker — Foreign Currency Conversion
-- **Purpose**: Detect foreign-currency amounts in extracted PDF fields, convert to SGD using the incurred date's exchange rate
-- **Code**: `src/lib/validations/currency.ts` — `checkForeignCurrency()`, called by `item-detail-extraction.ts` after PDF extraction
-- **Currency detection**: `src/lib/currency/detector.ts` — `parseCurrencyAmount()` matches 18 currency patterns (USD, EUR, GBP, MYR, etc.), `isDateField()` matches incurred/service/visit/billing date labels
+- **Purpose**: Detect foreign-currency amounts and convert to SGD using the incurred date's exchange rate
+- **Code**: `src/lib/validations/currency.ts` — `checkForeignCurrency(trackedItemId, pdfFields, pageFields)`, called by `item-detail-extraction.ts` after extraction
+- **Both sides scanned**: a **document pass** over extracted PDF fields (with bare-number inference from document-level currency signals), AND a **portal pass** over `pageFields` amount fields (rule: a non-SGD *portal* receipt amount is converted too). Portal rows carry `origin:"portal"` and a "Portal — " message prefix; document rows carry `origin:"document"`. Deduped independently per side. Alert-only (`CURRENCY_CONVERSION` WARNING, non-flagging)
+- **Currency detection**: `src/lib/currency/detector.ts` — `parseCurrencyAmount()` matches 18 currency patterns (returns null for SGD/bare numbers), `isDateField()` matches incurred/service/visit/billing date labels
 - **Date resolution**: `findIncurredDate()` collects all date fields from portal page + PDF data, returns highest-priority match using `DATE_FIELD_PRIORITY` (Incurred Date > Service Date > Visit Date > Invoice Date > Discharge Date). Falls back to today if no date field found
 - **Date parsing**: `parseDate()` handles ISO, DD/MM/YYYY, MM/DD/YYYY (disambiguates by range — if first number > 12 it's DD/MM, if second > 12 it's MM/DD, both ≤ 12 defaults DD/MM for SG locale), `DD Mon YYYY`, `Mon DD, YYYY`
-- **Rate providers** (in order): 
-  1. MAS API (`src/lib/currency/mas-rates.ts`) — official SG government historical rates, 18 currencies, date-accurate with 10-day lookback for holidays
-  2. ExchangeRate-API (`src/lib/currency/exchangerate-api.ts`) — 160+ currencies, tries historical endpoint first (`/history/SGD/{Y}/{M}/{D}`), falls back to latest if plan doesn't support history
-- **Orchestrator**: `resolveSgdRate()` in `src/lib/currency/index.ts` — MAS first, ExchangeRate-API fallback
-- **RateResult type**: `rate`, `actualDate`, `isFallback`, `isFuture`, `isHistorical`, `source` ("mas" | "exchangerate-api")
-- **Caching**: ExchangeRate-API uses bounded `dateCache` (max 60 entries, 1-hour TTL, LRU eviction) + `failedHistorical` negative cache (prevents repeated 403s on free plan from burning API quota)
-- **UI**: `comparison-column.tsx` shows badges — ESTIMATED (future), NEAREST DATE (MAS fallback), LIVE (exchangerate-api non-historical only)
+- **Rate providers** (in order) via `resolveSgdRate()` in `src/lib/currency/index.ts`:
+  1. **Frankfurter (ECB)** (`src/lib/currency/frankfurter.ts`) — free, keyless, date-accurate historical rates. **Primary source.**
+  2. ExchangeRate-API (`src/lib/currency/exchangerate-api.ts`) — fallback; tries historical endpoint first (`/history/SGD/{Y}/{M}/{D}`), falls back to latest if plan lacks history
+  - (MAS was retired — its old API 404s and data.gov.sg datasets end in 2015. Do NOT reintroduce a MAS-first path.)
+- **RateResult type**: `rate`, `actualDate`, `isFallback`, `isFuture`, `isHistorical`, `source` ("frankfurter" | "exchangerate-api")
+- **Caching**: ExchangeRate-API uses bounded `dateCache` (max 60 entries, 1-hour TTL, LRU eviction) + `failedHistorical` negative cache
+- **UI**: `comparison-column.tsx` shows badges — ESTIMATED (future), NEAREST DATE (fallback), LIVE (exchangerate-api non-historical only)
 - **Env var**: `EXCHANGE_RATE_API_KEY` — optional, from https://www.exchangerate-api.com (free plan: 1,500 req/mo, paid plans support historical endpoint)
+
+### Portal Tracker — Global Claim Policy Verdicts
+- **Purpose**: Two built-in, global (all-portal) adjudication rules that run on every item after comparison, in `src/lib/validations/claim-policy.ts` (`buildClaimPolicyValidations`) — shared by the worker (`item-detail-comparison.ts`) and the recompare route so both paths yield identical verdicts.
+- **Rule 1 — Claimant not in document → "pending document"**: locates the claimant field among the compared fields (`/claimant|life assured|insured|patient/i`, prefers a field literally "Claimant"); if its status is `MISSING_IN_PDF`, emits a `CLAIMANT_MATCH` FAIL row and sets the item to **`REQUIRE_DOC`** ("Require Doc" = pending document), which takes precedence over FLAGGED.
+- **Rule 2 — Flex Polyclinic claim with a hospital bill → wrong claim type**: gated to **flex claims** (`isFlexClaim()` — portal name/base URL contains "flex"). When the claim-type value (from portal grouping fields, else a claim-type-labelled field) matches `/poly clinic|pcn/i` AND the document text contains a known SG hospital (`src/lib/reference/sg-hospitals.ts` → `detectHospital()`, longest-name-first match over govt + private lists), emits a `WRONG_CLAIM_TYPE` FAIL row ("should be an Insurance Claim") and FLAGs the item. **Triggers on BOTH govt and private hospitals** (a Polyclinic claim backed by any hospital bill is the same category error); message names the hospital + kind. Known limitation: scans ALL document text, so a referral letter merely *mentioning* a hospital could false-positive — flags for human review, never auto-rejects.
+- **FWA registration**: `CLAIMANT_MATCH` ("Pending Document", priority 2) and `WRONG_CLAIM_TYPE` ("Wrong Claim Type", priority 2) in `FWA_RULE_TYPES`/`FWA_PRIORITY`/`FWA_LABELS` (`src/types/portal.ts`); both FAIL, so they outrank rule/mismatch badges (below TAMPERING). Deleted+reinserted by both paths alongside `BUSINESS_RULE`/`REQUIRED_DOCUMENT`/`BILL_STATUS`.
 
 ### Portal Tracker — Comparison Template Business Rules
 - **Rule types**: `BusinessRule.type` — `"ai"` (default; natural-language judged by the model) or `"code"` (deterministic field/operator/value check). Code rules carry `field`, `operator` (`eq|ne|gt|gte|lt|lte|is_empty|not_empty`), and either `value` (literal) or `compareField` (another field). Use code rules for exact numeric/equality checks (e.g. "Outstanding Balance == 0") instead of asking the LLM to do arithmetic.
