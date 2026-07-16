@@ -105,9 +105,14 @@ async function processPortalScrape(
         })),
       });
 
-      // Fetch created items for enqueueing detail jobs
+      // Fetch created items for enqueueing detail jobs.
+      // Order MUST match the session-items table display order
+      // ([createdAt asc, id asc]) so jobs are enqueued — and FIFO-processed — in
+      // the same top-to-bottom order the user sees. Without an explicit orderBy
+      // Postgres returns arbitrary heap order and processing appears to jump rows.
       const trackedItems = await db.trackedItem.findMany({
         where: { scrapeSessionId: sessionId },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: { id: true, detailPageUrl: true },
       });
 

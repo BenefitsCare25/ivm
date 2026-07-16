@@ -71,6 +71,8 @@ export async function POST(
 
     const items = await db.trackedItem.findMany({
       where: { scrapeSessionId: sessionId, status: "DISCOVERED" },
+      // Match the table display order so retries process top-to-bottom.
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: {
         id: true,
         scrapeSession: {

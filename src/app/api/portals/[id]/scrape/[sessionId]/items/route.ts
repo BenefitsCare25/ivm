@@ -39,7 +39,9 @@ export async function GET(
     const [items, total] = await Promise.all([
       db.trackedItem.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        // Match the session-items table + processing order (insertion order;
+        // createdAt ties within a createMany batch, so id is the real tiebreak).
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         skip: (page - 1) * limit,
         take: limit,
         select: {

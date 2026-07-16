@@ -71,6 +71,8 @@ async function recoverOrphanedDiscoveredItems(): Promise<void> {
 
   const discovered = await db.trackedItem.findMany({
     where: { status: "DISCOVERED" },
+    // Match the table display order so recovered items process top-to-bottom.
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: {
       id: true,
       scrapeSession: {
