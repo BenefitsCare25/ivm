@@ -17,6 +17,8 @@ import {
   buildRequiredDocValidations,
   buildBillStatusValidation,
 } from "@/lib/intelligence";
+import type { ValidationRowData } from "@/lib/intelligence/validation-builders";
+import { buildClaimPolicyValidations, buildDocumentText } from "@/lib/validations/claim-policy";
 import type { AIProvider } from "@/lib/ai/types";
 import type { DocTypeRecord } from "@/lib/intelligence";
 import type { MatchedTemplate } from "@/lib/comparison-templates";
@@ -48,6 +50,10 @@ interface ComparisonInput {
   comparisonModel: string | null;
   /** User's Document Type library — used for alias-aware document recognition. */
   cachedDocTypes?: DocTypeRecord[];
+  /** Portal is a flex-claim portal (name/URL contains "flex") — gates the wrong-claim-type policy. */
+  flexClaim?: boolean;
+  /** Portal grouping fields — used to resolve the claim-type value for the policy checks. */
+  groupingFields?: string[];
 }
 
 interface ComparisonOutput {
@@ -179,6 +185,9 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
 
   let ruleFlag = false;
   let preservedPrior = false;
+  let claimantMissing = false;
+  let wrongClaimType = false;
+  let policyRows: ValidationRowData[] = [];
 
   if (comparisonResult) {
     if (matchedTemplate && matchedTemplate.fields.length > 0) {
@@ -242,6 +251,20 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
       }
     }
 
+    // ── Global claim policy checks (run on the finalized comparison) ──
+    // Rule 1: claimant absent from every document → pending document (REQUIRE_DOC).
+    // Rule 2: flex Polyclinic claim backed by a hospital bill → wrong claim type.
+    const policy = buildClaimPolicyValidations({
+      fieldComparisons: comparisonResult.fieldComparisons,
+      flexClaim: input.flexClaim ?? false,
+      pageData: { ...listData, ...effectiveDetailData },
+      groupingFields: input.groupingFields ?? [],
+      documentText: buildDocumentText(fileExtractions),
+    });
+    claimantMissing = policy.claimantMissing;
+    wrongClaimType = policy.wrongClaimType;
+    policyRows = policy.rows;
+
     // Clobber guard: the worker decided up front (before the destructive
     // intelligence step) whether this degraded re-run should keep the previous
     // comparison rather than overwrite it. Honour that decision here too.
@@ -259,7 +282,7 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
       );
       ruleFlag = await saveComparisonResult(
         trackedItemId, comparisonResult, displayProvider, templateId, matchedTemplate,
-        billStatusSignal, documentTypesByFile,
+        billStatusSignal, documentTypesByFile, policyRows,
         partialFailure ? { partialFailure: true, unreadableFiles: failedFiles } : undefined
       );
     }
@@ -275,14 +298,17 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
   ) ?? false;
 
   // A partial failure always surfaces the item — the comparison ran on incomplete
-  // data, so a clean "COMPARED" would be misleading.
+  // data, so a clean "COMPARED" would be misleading. A missing claimant (rule 1)
+  // is a "pending document" verdict (REQUIRE_DOC) and takes precedence over FLAGGED.
   const finalStatus: TrackedItemStatus = noDocuments
     ? "REQUIRE_DOC"
     : allExtractionsFailed
       ? "ERROR"
-      : (preservedPrior || partialFailure || hasMismatch || ruleFlag || hasMissingDoc)
-        ? "FLAGGED"
-        : "COMPARED";
+      : claimantMissing
+        ? "REQUIRE_DOC"
+        : (preservedPrior || partialFailure || hasMismatch || ruleFlag || hasMissingDoc || wrongClaimType)
+          ? "FLAGGED"
+          : "COMPARED";
 
   const reviewMessage: string | null = allExtractionsFailed
     ? `AI could not read any of the ${failedFiles.length} submitted document(s): ${failedFiles.join(", ")}. Manual review required.`
@@ -342,6 +368,7 @@ async function saveComparisonResult(
   matchedTemplate: MatchedTemplate | null,
   billStatusSignal: BillStatusSignal | null,
   documentTypesByFile: Record<string, string>,
+  policyRows: ValidationRowData[],
   failureContext?: { partialFailure: boolean; unreadableFiles: string[] },
 ): Promise<boolean> {
   const comparisonsJson = toInputJson(comparisonResult.fieldComparisons);
@@ -367,7 +394,10 @@ async function saveComparisonResult(
   });
 
   await db.validationResult.deleteMany({
-    where: { trackedItemId, ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT", "BILL_STATUS"] } },
+    where: {
+      trackedItemId,
+      ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT", "BILL_STATUS", "CLAIMANT_MATCH", "WRONG_CLAIM_TYPE"] },
+    },
   });
 
   let ruleFlag = false;
@@ -401,6 +431,9 @@ async function saveComparisonResult(
       ? buildRequiredDocValidations(comparisonResult.requiredDocumentsCheck, matchedTemplate.requiredDocuments)
       : []),
     ...(billRow ? [billRow] : []),
+    // Global claim-policy rows (claimant-not-in-document, wrong-claim-type) —
+    // apply regardless of whether a template matched.
+    ...policyRows,
   ];
 
   // On a partial extraction failure, a required document could well be inside a

@@ -23,7 +23,8 @@ import {
   buildRequiredDocValidations,
   buildBillStatusValidation,
 } from "@/lib/intelligence";
-import type { TemplateField, RequiredDocument, BusinessRule, RequiredDocumentCheck } from "@/types/portal";
+import { buildClaimPolicyValidations, buildDocumentText, isFlexClaim } from "@/lib/validations/claim-policy";
+import type { TemplateField, RequiredDocument, BusinessRule, RequiredDocumentCheck, TrackedItemStatus } from "@/types/portal";
 
 export async function POST(
   req: NextRequest,
@@ -35,9 +36,10 @@ export async function POST(
 
     const portal = await db.portal.findFirst({
       where: { id, userId: session.user.id },
-      select: { id: true, groupingFields: true },
+      select: { id: true, groupingFields: true, name: true, baseUrl: true },
     });
     if (!portal) throw new NotFoundError("Portal");
+    const flexClaim = isFlexClaim(portal.name, portal.baseUrl);
 
     const scrapeSession = await db.scrapeSession.findFirst({
       where: { id: sessionId, portalId: id },
@@ -259,7 +261,7 @@ export async function POST(
       await db.validationResult.deleteMany({
         where: {
           trackedItemId: item.id,
-          ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT", "BILL_STATUS"] },
+          ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT", "BILL_STATUS", "CLAIMANT_MATCH", "WRONG_CLAIM_TYPE"] },
         },
       });
 
@@ -270,10 +272,20 @@ export async function POST(
 
       // Required-document + bill-status rows come from the SAME shared builders
       // as the worker, so both paths emit identical alerts.
+      // Global claim-policy checks — identical logic to the worker path.
+      const policy = buildClaimPolicyValidations({
+        fieldComparisons: result.fieldComparisons,
+        flexClaim,
+        pageData: { ...((item.listData as Record<string, string>) ?? {}), ...detailData },
+        groupingFields,
+        documentText: buildDocumentText(reconstructedExtractions),
+      });
+
       const billRow = buildBillStatusValidation(billStatusSignal);
       const extraRows = [
         ...buildRequiredDocValidations(result.requiredDocumentsCheck, templateRequiredDocuments),
         ...(billRow ? [billRow] : []),
+        ...policy.rows,
       ];
       const validationInserts = [...ruleValidations, ...extraRows].map((v) =>
         db.validationResult.create({
@@ -290,9 +302,15 @@ export async function POST(
 
       const hasMismatch = result.mismatchCount > 0;
       const hasMissingDoc = result.requiredDocumentsCheck?.some((d: RequiredDocumentCheck) => !d.found) ?? false;
+      // Missing claimant → "pending document" (REQUIRE_DOC), precedence over FLAGGED.
+      const status: TrackedItemStatus = policy.claimantMissing
+        ? "REQUIRE_DOC"
+        : (hasMismatch || ruleFlag || hasMissingDoc || policy.wrongClaimType)
+          ? "FLAGGED"
+          : "COMPARED";
       await db.trackedItem.update({
         where: { id: item.id },
-        data: { status: (hasMismatch || ruleFlag || hasMissingDoc) ? "FLAGGED" : "COMPARED" },
+        data: { status },
       });
       return true;
     }

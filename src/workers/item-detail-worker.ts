@@ -20,6 +20,7 @@ import { toInputJson } from "@/lib/utils";
 import { runExtraction } from "./item-detail-extraction";
 import { runIntelligencePipeline } from "./item-detail-extraction";
 import { runComparison, shouldPreservePriorComparison } from "./item-detail-comparison";
+import { isFlexClaim } from "@/lib/validations/claim-policy";
 import { recoverStuckItems, handleFinalFailure } from "./item-detail-recovery";
 import type { DetailSelectors } from "@/types/portal";
 import type { BrowserContext, Page } from "playwright";
@@ -325,6 +326,8 @@ async function processItemDetailCore(
         displayProvider,
         comparisonModel: portal.comparisonModel as string | null,
         cachedDocTypes,
+        flexClaim: isFlexClaim(portal.name, portal.baseUrl),
+        groupingFields: (portal.groupingFields as string[]) ?? [],
       });
 
       // ── Final status ────────────────────────────────────────
