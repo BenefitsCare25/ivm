@@ -174,6 +174,90 @@ export async function scrapeListPage(
   return results;
 }
 
+// CSS selectors for the structures the fallback extractor reads. Shared between
+// the content-settle wait and the extractor so the "wait for it" and "read it"
+// steps can never target different things.
+const FALLBACK_LABEL_SELECTOR = '[class*="label"], [class*="field-name"], [class*="key"]';
+
+/**
+ * Extract label→value pairs from an already-rendered detail page. Prefers the
+ * portal's configured fieldSelectors; otherwise falls back to the label/value
+ * structures common in admin panels (table rows, definition lists, label divs).
+ */
+async function extractDetailFields(
+  page: Page,
+  selectors: DetailSelectors
+): Promise<Record<string, string>> {
+  const fields: Record<string, string> = {};
+
+  if (selectors.fieldSelectors && Object.keys(selectors.fieldSelectors).length > 0) {
+    for (const [name, selector] of Object.entries(selectors.fieldSelectors)) {
+      const el = await page.$(selector);
+      fields[name] = el ? (await el.textContent() ?? "").trim() : "";
+    }
+    return fields;
+  }
+
+  // Fallback: extract label-value patterns common in detail pages
+  // Pattern 1: <th>Label</th><td>Value</td>
+  const tableRows = await page.$$("tr");
+  for (const row of tableRows) {
+    const th = await row.$("th, td:first-child");
+    const td = await row.$("td:last-child");
+    if (th && td) {
+      const isSame = await th.evaluate((el, other) => el === other, td);
+      if (!isSame) {
+        const label = (await th.textContent() ?? "").trim().replace(/:$/, "");
+        const value = (await td.textContent() ?? "").trim();
+        if (label && value) fields[label] = value;
+      }
+    }
+  }
+
+  // Pattern 2: <dt>Label</dt><dd>Value</dd>
+  const dts = await page.$$("dt");
+  for (const dt of dts) {
+    const dd = await dt.evaluateHandle((el) => el.nextElementSibling);
+    const ddEl = dd.asElement();
+    if (ddEl) {
+      const label = (await dt.textContent() ?? "").trim().replace(/:$/, "");
+      const value = (await ddEl.textContent() ?? "").trim();
+      if (label && value) fields[label] = value;
+    }
+  }
+
+  // Pattern 3: <div class="label">Label</div><div class="value">Value</div>
+  // (common in custom admin panels — label followed by sibling value)
+  const labelEls = await page.$$(FALLBACK_LABEL_SELECTOR);
+  for (const labelEl of labelEls) {
+    const valueEl = await labelEl.evaluateHandle((el) => el.nextElementSibling);
+    const valNode = valueEl.asElement();
+    if (valNode) {
+      const label = (await labelEl.textContent() ?? "").trim().replace(/:$/, "");
+      const value = (await valNode.textContent() ?? "").trim();
+      if (label && value && !fields[label]) fields[label] = value;
+    }
+  }
+
+  return fields;
+}
+
+// Detail-page settle budget: keep re-extracting until the page yields a real
+// result or this elapses. A rendered claim detail has many fields; MIN_ ... is
+// the floor that separates "real content" from a still-loading shell.
+const DETAIL_SETTLE_TIMEOUT_MS = 15_000;
+const DETAIL_POLL_INTERVAL_MS = 1_000;
+const MIN_DETAIL_FIELDS = 2;
+
+/** Count fields that actually have a non-empty value (not just a present key). */
+function countPopulatedFields(fields: Record<string, string>): number {
+  let n = 0;
+  for (const v of Object.values(fields)) {
+    if (v && v.trim()) n++;
+  }
+  return n;
+}
+
 /**
  * Scrapes a detail page, extracting all visible field label-value pairs.
  */
@@ -184,68 +268,33 @@ export async function scrapeDetailPage(
 ): Promise<Record<string, string>> {
   // Use "domcontentloaded" (not "networkidle"): SPA/long-polling portal pages
   // never reach network idle, and a client-side redirect during load makes
-  // goto abort with net::ERR_ABORTED. The explicit content-settle wait below
-  // already handles async SPA rendering, so networkidle added only fragility.
+  // goto abort with net::ERR_ABORTED. The poll-extract loop below handles async
+  // SPA rendering, so networkidle added only fragility.
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
 
-  // SPA settle: wait for content to render before extracting fields
-  await page
-    .waitForFunction(() => document.body.innerText.length > 200, { timeout: 10_000 })
-    .catch(() => {});
-
-  const fields: Record<string, string> = {};
-
-  if (selectors.fieldSelectors && Object.keys(selectors.fieldSelectors).length > 0) {
-    for (const [name, selector] of Object.entries(selectors.fieldSelectors)) {
-      const el = await page.$(selector);
-      fields[name] = el ? (await el.textContent() ?? "").trim() : "";
-    }
-  } else {
-    // Fallback: extract label-value patterns common in detail pages
-    // Pattern 1: <th>Label</th><td>Value</td>
-    const tableRows = await page.$$("tr");
-    for (const row of tableRows) {
-      const th = await row.$("th, td:first-child");
-      const td = await row.$("td:last-child");
-      if (th && td) {
-        const isSame = await th.evaluate((el, other) => el === other, td);
-        if (!isSame) {
-          const label = (await th.textContent() ?? "").trim().replace(/:$/, "");
-          const value = (await td.textContent() ?? "").trim();
-          if (label && value) fields[label] = value;
-        }
-      }
-    }
-
-    // Pattern 2: <dt>Label</dt><dd>Value</dd>
-    const dts = await page.$$("dt");
-    for (const dt of dts) {
-      const dd = await dt.evaluateHandle((el) => el.nextElementSibling);
-      const ddEl = dd.asElement();
-      if (ddEl) {
-        const label = (await dt.textContent() ?? "").trim().replace(/:$/, "");
-        const value = (await ddEl.textContent() ?? "").trim();
-        if (label && value) fields[label] = value;
-      }
-    }
-
-    // Pattern 3: <div class="label">Label</div><div class="value">Value</div>
-    // (common in custom admin panels — label followed by sibling value)
-    const labelEls = await page.$$('[class*="label"], [class*="field-name"], [class*="key"]');
-    for (const labelEl of labelEls) {
-      const valueEl = await labelEl.evaluateHandle((el) => el.nextElementSibling);
-      const valNode = valueEl.asElement();
-      if (valNode) {
-        const label = (await labelEl.textContent() ?? "").trim().replace(/:$/, "");
-        const value = (await valNode.textContent() ?? "").trim();
-        if (label && value && !fields[label]) fields[label] = value;
-      }
-    }
+  // Poll-extract until the page yields a real result (>= MIN_DETAIL_FIELDS
+  // populated values) or the settle budget is exhausted. Keying on the ACTUAL
+  // extracted content — not a proxy structure signal — avoids the SPA race where
+  // the persistent nav shell (or an empty table/label shell) is present before
+  // the claim detail renders: a shell yields 0–1 populated fields, so we keep
+  // polling until the real fields load instead of capturing an empty/partial
+  // result and falling back to list data (losing Claimant/Provider). Best-effort:
+  // whatever the last attempt produced is still returned once the budget is up.
+  const deadline = Date.now() + DETAIL_SETTLE_TIMEOUT_MS;
+  let fields: Record<string, string> = {};
+  for (;;) {
+    fields = await extractDetailFields(page, selectors);
+    if (countPopulatedFields(fields) >= MIN_DETAIL_FIELDS) break;
+    if (Date.now() >= deadline) break;
+    await page.waitForTimeout(DETAIL_POLL_INTERVAL_MS);
   }
 
   const cleaned = filterGarbageFields(fields);
 
-  logger.info({ fieldCount: Object.keys(cleaned).length, rawFieldCount: Object.keys(fields).length, url }, "[scraper] Scraped detail page");
+  logger.info(
+    { fieldCount: Object.keys(cleaned).length, rawFieldCount: Object.keys(fields).length, populated: countPopulatedFields(fields), url },
+    "[scraper] Scraped detail page"
+  );
 
   return cleaned;
 }
