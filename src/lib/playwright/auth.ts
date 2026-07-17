@@ -99,22 +99,45 @@ export async function authenticateWithCredentials(
   return { context, page };
 }
 
-const LOGIN_URL_PATTERNS = [/\/login/i, /\/signin/i, /\/auth/i, /\/sso/i, /\/account\/login/i];
+const LOGIN_URL_PATTERNS = [/\/login/i, /\/signin/i, /\/sign-in/i, /\/auth/i, /\/sso/i, /\/account\/login/i];
+// A dead session frequently redirects to a LOGOUT / session-ended interstitial
+// (e.g. Inspro lands on `/admin/logout` → "You have logged out successfully",
+// which has NO password field and no "login" in the URL). These pages are an
+// unauthenticated state and must be treated exactly like a login page, otherwise
+// keep-alive/resolveAuth read a dead session as still valid.
+const LOGOUT_URL_PATTERNS = [
+  /\/logout/i, /\/logoff/i, /\/signout/i, /\/sign-out/i,
+  /\/logged-?out/i, /session[-_]?expired/i, /session[-_]?timeout/i,
+];
+// Body-text markers of an ended/expired session, for logout pages whose URL isn't
+// obviously a logout route. Checked only on SHORT pages so a data-heavy
+// authenticated page (which may carry a "Logout" nav link) is never misread.
+const LOGGED_OUT_TEXT =
+  /you have (been )?logged out|logged out successfully|log(ged)?\s*off|session (has )?(expired|ended|timed out)|back to login|please (log|sign)\s*in( again)?|sign in to continue/i;
+const MAX_INTERSTITIAL_TEXT = 2000;
 
 export async function isLoginPage(page: Page, expectedUrl?: string): Promise<boolean> {
   const currentUrl = page.url();
   if (LOGIN_URL_PATTERNS.some((p) => p.test(currentUrl))) return true;
+  if (LOGOUT_URL_PATTERNS.some((p) => p.test(currentUrl))) return true;
 
   const hasPasswordInput = await page.$('input[type="password"]').then((el) => !!el).catch(() => false);
-  if (!hasPasswordInput) return false;
-
-  if (expectedUrl) {
-    const expectedPath = new URL(expectedUrl).pathname;
-    const currentPath = new URL(currentUrl).pathname;
-    return currentPath !== expectedPath;
+  if (hasPasswordInput) {
+    if (expectedUrl) {
+      const expectedPath = new URL(expectedUrl).pathname;
+      const currentPath = new URL(currentUrl).pathname;
+      return currentPath !== expectedPath;
+    }
+    return true;
   }
 
-  return true;
+  // No password field and not an obvious login/logout URL — catch an explicit
+  // "logged out / session expired" interstitial by its text, bounded to short
+  // pages so authenticated content is never falsely flagged.
+  const bodyText = (await page.textContent("body").catch(() => "")) ?? "";
+  if (bodyText.length <= MAX_INTERSTITIAL_TEXT && LOGGED_OUT_TEXT.test(bodyText)) return true;
+
+  return false;
 }
 
 /**
