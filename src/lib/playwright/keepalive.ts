@@ -1,9 +1,14 @@
-import { Cookie } from "playwright";
+import { BrowserContext, Cookie } from "playwright";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { encrypt } from "@/lib/crypto";
 import { toInputJson } from "@/lib/utils";
-import { authenticateWithCookies, isLoginPage, decodeCookieData } from "./auth";
+import {
+  authenticateWithCookies,
+  authenticateWithCredentials,
+  isLoginPage,
+  decodeCookieData,
+} from "./auth";
 
 /**
  * Portal session keep-alive.
@@ -17,9 +22,15 @@ import { authenticateWithCookies, isLoginPage, decodeCookieData } from "./auth";
  *     `cookieExpiresAt` forward — so a still-valid session isn't prematurely
  *     declared "expired" by IVM's own 24h capture window.
  *
- * It cannot defeat an absolute session lifetime; in that case it detects the
- * death early (lands on the login page) and marks the cookies expired so the UI
- * and `resolveAuth` reflect reality. Non-fatal per portal.
+ * If the session is dead (lands on a login/logout page) the sweep self-heals
+ * when the portal has stored credentials: it re-logs in, captures fresh cookies
+ * and persists them. Without credentials it can only mark the cookies expired so
+ * the UI and `resolveAuth` reflect reality (re-capture required). Non-fatal per
+ * portal.
+ *
+ * NOTE: on single-session portals (one active session per login, e.g. Inspro)
+ * this sweep contends with a human using the same account and will evict them —
+ * disable it (`PORTAL_KEEPALIVE_MINUTES=off`) or give IVM a dedicated login.
  */
 
 // How many portals to check at once (each opens a short-lived browser context).
@@ -38,11 +49,17 @@ interface KeepAliveTarget {
   baseUrl: string;
   listPageUrl: string | null;
   cookies: Cookie[];
+  encryptedUsername: string | null;
+  encryptedPassword: string | null;
 }
+
+type KeepAliveOutcome = "refreshed" | "relogin" | "expired";
 
 export interface KeepAliveSummary {
   checked: number;
   refreshed: number;
+  /** Sessions that were dead but re-established via credential login. */
+  reloggedIn: number;
   expired: number;
 }
 
@@ -54,7 +71,13 @@ export async function runPortalKeepAlive(): Promise<KeepAliveSummary> {
       name: true,
       baseUrl: true,
       listPageUrl: true,
-      credential: { select: { cookieData: true } },
+      credential: {
+        select: {
+          cookieData: true,
+          encryptedUsername: true,
+          encryptedPassword: true,
+        },
+      },
     },
   });
 
@@ -68,10 +91,19 @@ export async function runPortalKeepAlive(): Promise<KeepAliveSummary> {
       cookies = [];
     }
     if (cookies.length === 0) continue;
-    targets.push({ id: p.id, name: p.name, baseUrl: p.baseUrl, listPageUrl: p.listPageUrl, cookies });
+    targets.push({
+      id: p.id,
+      name: p.name,
+      baseUrl: p.baseUrl,
+      listPageUrl: p.listPageUrl,
+      cookies,
+      encryptedUsername: p.credential.encryptedUsername,
+      encryptedPassword: p.credential.encryptedPassword,
+    });
   }
 
   let refreshed = 0;
+  let reloggedIn = 0;
   let expired = 0;
   for (let i = 0; i < targets.length; i += CONCURRENCY) {
     const batch = targets.slice(i, i + CONCURRENCY);
@@ -79,6 +111,7 @@ export async function runPortalKeepAlive(): Promise<KeepAliveSummary> {
     results.forEach((r, idx) => {
       if (r.status === "fulfilled") {
         if (r.value === "refreshed") refreshed++;
+        else if (r.value === "relogin") reloggedIn++;
         else if (r.value === "expired") expired++;
       } else {
         logger.warn({ err: r.reason, portalId: batch[idx].id }, "[keepalive] Portal check failed (non-fatal)");
@@ -86,43 +119,106 @@ export async function runPortalKeepAlive(): Promise<KeepAliveSummary> {
     });
   }
 
-  logger.info({ checked: targets.length, refreshed, expired }, "[keepalive] Portal keep-alive sweep complete");
-  return { checked: targets.length, refreshed, expired };
+  logger.info({ checked: targets.length, refreshed, reloggedIn, expired }, "[keepalive] Portal keep-alive sweep complete");
+  return { checked: targets.length, refreshed, reloggedIn, expired };
 }
 
-async function keepAliveOne(target: KeepAliveTarget): Promise<"refreshed" | "expired"> {
+async function keepAliveOne(target: KeepAliveTarget): Promise<KeepAliveOutcome> {
   const targetUrl = target.listPageUrl ?? target.baseUrl;
-  const context = await authenticateWithCookies({ cookies: target.cookies });
+
+  // 1) Ping with the stored cookies to check liveness (and capture rotations).
+  const cookieContext = await authenticateWithCookies({ cookies: target.cookies });
+  let sessionAlive = false;
+  let freshCookies: Cookie[] = [];
   try {
-    const page = await context.newPage();
+    const page = await cookieContext.newPage();
     await page.goto(targetUrl, { waitUntil: "networkidle", timeout: 30_000 });
-
-    // Only a genuine login page (URL pattern or password field) counts as dead —
-    // a transient error page has no password input, so it's treated as alive and
-    // left untouched. A network error throws and is caught upstream (no change).
-    if (await isLoginPage(page, targetUrl)) {
-      await db.portalCredential.update({
-        where: { portalId: target.id },
-        data: { cookieExpiresAt: new Date(Date.now() - 60_000) },
-      });
-      logger.warn({ portalId: target.id, portal: target.name }, "[keepalive] Session expired on portal — marked cookies expired");
-      return "expired";
-    }
-
-    // Alive: persist the current (possibly refreshed) cookie set and extend the
-    // expiry window. Skip the cookieData write if the context somehow reports no
-    // cookies, so we never blank out a working credential.
-    const fresh = await context.cookies();
-    const data: { cookieExpiresAt: Date; cookieData?: ReturnType<typeof toInputJson> } = {
-      cookieExpiresAt: new Date(Date.now() + REFRESH_TTL_MS),
-    };
-    if (fresh.length > 0) {
-      data.cookieData = toInputJson({ __encrypted: encrypt(JSON.stringify(fresh)) });
-    }
-    await db.portalCredential.update({ where: { portalId: target.id }, data });
-    logger.info({ portalId: target.id, portal: target.name, cookieCount: fresh.length }, "[keepalive] Session alive — cookies refreshed");
-    return "refreshed";
+    // A genuine login/logout page (URL pattern, password field, or logged-out
+    // interstitial) means the session is dead; anything else is treated as alive.
+    sessionAlive = !(await isLoginPage(page, targetUrl));
+    if (sessionAlive) freshCookies = await cookieContext.cookies();
   } finally {
-    await context.close();
+    await cookieContext.close();
+  }
+
+  if (sessionAlive) {
+    await persistAlive(target, freshCookies);
+    logger.info(
+      { portalId: target.id, portal: target.name, cookieCount: freshCookies.length },
+      "[keepalive] Session alive — cookies refreshed"
+    );
+    return "refreshed";
+  }
+
+  // 2) Session dead — self-heal via credential re-login when credentials exist.
+  if (target.encryptedUsername && target.encryptedPassword) {
+    const healed = await tryCredentialRelogin(target, targetUrl);
+    if (healed && healed.length > 0) {
+      await persistAlive(target, healed);
+      logger.info(
+        { portalId: target.id, portal: target.name, cookieCount: healed.length },
+        "[keepalive] Session re-established via credential login"
+      );
+      return "relogin";
+    }
+    logger.warn(
+      { portalId: target.id, portal: target.name },
+      "[keepalive] Credential re-login failed — marking cookies expired"
+    );
+  }
+
+  // 3) No credentials or re-login failed — mark expired so the UI/resolveAuth
+  //    reflect reality (cookies must be re-captured).
+  await db.portalCredential.update({
+    where: { portalId: target.id },
+    data: { cookieExpiresAt: new Date(Date.now() - 60_000) },
+  });
+  logger.warn(
+    { portalId: target.id, portal: target.name },
+    "[keepalive] Session expired on portal — marked cookies expired"
+  );
+  return "expired";
+}
+
+/** Persist a live/refreshed cookie set and extend the expiry window. Skips the
+ *  cookieData write if the set is empty so a working credential is never blanked. */
+async function persistAlive(target: KeepAliveTarget, cookies: Cookie[]): Promise<void> {
+  const data: { cookieExpiresAt: Date; cookieData?: ReturnType<typeof toInputJson> } = {
+    cookieExpiresAt: new Date(Date.now() + REFRESH_TTL_MS),
+  };
+  if (cookies.length > 0) {
+    data.cookieData = toInputJson({ __encrypted: encrypt(JSON.stringify(cookies)) });
+  }
+  await db.portalCredential.update({ where: { portalId: target.id }, data });
+}
+
+/**
+ * Re-establish a dead session via credential login and return the fresh cookies.
+ * Best-effort: never throws, returns null on any failure (bad/absent creds,
+ * changed login form, still-on-login after submit). Mirrors `resolveAuth`'s
+ * credential fallback (loginUrl = baseUrl, default form selectors).
+ */
+async function tryCredentialRelogin(
+  target: KeepAliveTarget,
+  targetUrl: string
+): Promise<Cookie[] | null> {
+  if (!target.encryptedUsername || !target.encryptedPassword) return null;
+  let context: BrowserContext | null = null;
+  try {
+    const res = await authenticateWithCredentials({
+      loginUrl: target.baseUrl,
+      encryptedUsername: target.encryptedUsername,
+      encryptedPassword: target.encryptedPassword,
+    });
+    context = res.context;
+    // Confirm the login actually took by loading the target page.
+    await res.page.goto(targetUrl, { waitUntil: "networkidle", timeout: 30_000 });
+    if (await isLoginPage(res.page, targetUrl)) return null;
+    return await context.cookies();
+  } catch (err) {
+    logger.warn({ err, portalId: target.id }, "[keepalive] Credential re-login threw (non-fatal)");
+    return null;
+  } finally {
+    if (context) await context.close();
   }
 }
