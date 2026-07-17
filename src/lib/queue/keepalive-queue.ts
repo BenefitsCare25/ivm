@@ -5,6 +5,18 @@ import { logger } from "@/lib/logger";
 const QUEUE_NAME = "portal-keepalive";
 const DEFAULT_MINUTES = 15;
 
+/**
+ * Keep-alive OFF switch. Set PORTAL_KEEPALIVE_MINUTES to `off`/`false`/`0`/`-1`
+ * to disable the sweep entirely — required for single-session portals where
+ * pinging from the server evicts the user's own browser session.
+ */
+function isKeepAliveDisabled(): boolean {
+  const raw = (process.env.PORTAL_KEEPALIVE_MINUTES ?? "").trim().toLowerCase();
+  if (raw === "off" || raw === "false" || raw === "disabled") return true;
+  const n = Number(raw);
+  return Number.isFinite(n) && n <= 0;
+}
+
 /** Interval between keep-alive sweeps. Overridable via PORTAL_KEEPALIVE_MINUTES. */
 function repeatEveryMs(): number {
   const raw = Number(process.env.PORTAL_KEEPALIVE_MINUTES);
@@ -43,6 +55,12 @@ export async function scheduleKeepAlive(): Promise<void> {
   const existing = await queue.getRepeatableJobs();
   for (const job of existing) {
     await queue.removeRepeatableByKey(job.key);
+  }
+
+  // Explicitly disabled — leave the schedule empty (jobs already removed above).
+  if (isKeepAliveDisabled()) {
+    logger.info("[keepalive] Portal keep-alive DISABLED via PORTAL_KEEPALIVE_MINUTES");
+    return;
   }
 
   const every = repeatEveryMs();
