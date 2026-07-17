@@ -132,6 +132,7 @@ async function processItemDetailCore(
         credential: portal.credential,
         baseUrl: portal.baseUrl,
         listPageUrl: portal.listPageUrl,
+        portalId: portal.id,
       }));
       await emitItemEvent(trackedItemId, "AUTH_SUCCESS", { landingUrl: page.url() });
     } catch (authErr) {

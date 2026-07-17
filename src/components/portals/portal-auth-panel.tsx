@@ -43,6 +43,7 @@ export function PortalAuthPanel({
   const [capturingCookies, setCapturingCookies] = useState(false);
   const [capturedCount, setCapturedCount] = useState(0);
   const [showManualPaste, setShowManualPaste] = useState(false);
+  const [showCreds, setShowCreds] = useState(false);
 
   useEffect(() => {
     if (!isCookies) return;
@@ -62,12 +63,45 @@ export function PortalAuthPanel({
     setCapturedCount(0);
     setCapturingCookies(false);
     setShowManualPaste(false);
+    setShowCreds(false);
     setCredUsername("");
     setCredPassword("");
     setCredError(null);
     setCredSaving(false);
     onClose();
   }
+
+  const credFields = (
+    <>
+      <div className="grid gap-2 max-w-sm">
+        <Input
+          placeholder="Username / Email"
+          value={credUsername}
+          onChange={(e) => setCredUsername(e.target.value)}
+          autoComplete="username"
+        />
+        <Input
+          type="password"
+          placeholder="Password"
+          value={credPassword}
+          onChange={(e) => setCredPassword(e.target.value)}
+          autoComplete="current-password"
+          onKeyDown={(e) => e.key === "Enter" && saveCredentials()}
+        />
+      </div>
+      {credError && <p className="text-xs text-destructive">{credError}</p>}
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          onClick={saveCredentials}
+          disabled={credSaving || !credUsername.trim() || !credPassword.trim()}
+        >
+          {credSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+          Save Credentials
+        </Button>
+      </div>
+    </>
+  );
 
   async function handleCaptureCookies() {
     setCapturingCookies(true);
@@ -265,37 +299,36 @@ export function PortalAuthPanel({
             <p className="text-xs text-muted-foreground">
               Update the login credentials used to authenticate with this portal.
             </p>
-            <div className="grid gap-2 max-w-sm">
-              <Input
-                placeholder="Username / Email"
-                value={credUsername}
-                onChange={(e) => setCredUsername(e.target.value)}
-                autoComplete="username"
-              />
-              <Input
-                type="password"
-                placeholder="Password"
-                value={credPassword}
-                onChange={(e) => setCredPassword(e.target.value)}
-                autoComplete="current-password"
-                onKeyDown={(e) => e.key === "Enter" && saveCredentials()}
-              />
-            </div>
-            {credError && <p className="text-xs text-destructive">{credError}</p>}
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={saveCredentials}
-                disabled={credSaving || !credUsername.trim() || !credPassword.trim()}
-              >
-                {credSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                Save Credentials
-              </Button>
+            {credFields}
+            <div className="flex">
               <Button variant="ghost" size="sm" onClick={handleClose}>
                 Cancel
               </Button>
             </div>
           </>
+        )}
+
+        {isCookies && (
+          <div className="border-t border-border pt-3 space-y-2">
+            <button
+              onClick={() => setShowCreds(!showCreds)}
+              className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+            >
+              {showCreds
+                ? "Hide login credentials"
+                : "+ Add login credentials (auto re-login if the session drops mid-scrape)"}
+            </button>
+            {showCreds && (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Optional. Stored encrypted and used to log in automatically if the cookie
+                  session expires during a scrape — so a run won&apos;t break half-way. Use a
+                  dedicated IVM account to avoid contending with your own login.
+                </p>
+                {credFields}
+              </div>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>

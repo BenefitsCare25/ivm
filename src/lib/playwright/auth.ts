@@ -1,7 +1,37 @@
 import { BrowserContext, Page, Cookie } from "playwright";
 import { createBrowserContext } from "./browser";
-import { decrypt } from "@/lib/crypto";
+import { decrypt, encrypt } from "@/lib/crypto";
+import { db } from "@/lib/db";
+import { toInputJson } from "@/lib/utils";
 import { logger } from "@/lib/logger";
+
+// Window applied to cookies captured by an automatic credential re-login. Keeps
+// it modest — the keep-alive sweep extends it further when it confirms liveness.
+const RELOGIN_COOKIE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Persist the freshly-authenticated session cookies back onto the portal
+ * credential so subsequent items/runs use fast cookie auth instead of logging in
+ * again. Best-effort — a failure here never blocks the scrape. No-op without a
+ * portalId (one-off callers like analyze/discovery don't need persistence).
+ */
+async function persistFreshCookies(portalId: string | undefined, context: BrowserContext): Promise<void> {
+  if (!portalId) return;
+  try {
+    const cookies = await context.cookies();
+    if (cookies.length === 0) return;
+    await db.portalCredential.update({
+      where: { portalId },
+      data: {
+        cookieData: toInputJson({ __encrypted: encrypt(JSON.stringify(cookies)) }),
+        cookieExpiresAt: new Date(Date.now() + RELOGIN_COOKIE_TTL_MS),
+      },
+    });
+    logger.info({ portalId, cookieCount: cookies.length }, "[playwright] Persisted fresh cookies after credential login");
+  } catch (err) {
+    logger.warn({ err, portalId }, "[playwright] Failed to persist cookies after credential login (non-fatal)");
+  }
+}
 
 /**
  * Decrypts cookieData stored by the portal credential routes.
@@ -153,6 +183,9 @@ export async function resolveAuth(portal: {
   } | null;
   baseUrl: string;
   listPageUrl: string | null;
+  /** When set, cookies from an automatic credential re-login are persisted back
+   *  onto this portal so the rest of the run uses fast cookie auth. */
+  portalId?: string;
 }): Promise<{ context: BrowserContext; page: Page }> {
   const cred = portal.credential;
 
@@ -181,14 +214,19 @@ export async function resolveAuth(portal: {
     }
   }
 
-  // Fall back to credentials
+  // Fall back to credentials. This is the mid-run self-heal: when the cookie
+  // session dies during a scrape, the next item lands here, logs in again, and
+  // the run continues instead of breaking. Fresh cookies are persisted so only
+  // the first post-expiry item pays the full-login cost.
   if (cred?.encryptedUsername && cred?.encryptedPassword) {
     logger.info("[playwright] Using credential-based authentication");
-    return authenticateWithCredentials({
+    const result = await authenticateWithCredentials({
       loginUrl: portal.baseUrl,
       encryptedUsername: cred.encryptedUsername,
       encryptedPassword: cred.encryptedPassword,
     });
+    await persistFreshCookies(portal.portalId, result.context);
+    return result;
   }
 
   throw new Error("No authentication method available — provide cookies or credentials");

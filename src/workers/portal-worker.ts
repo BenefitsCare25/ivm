@@ -45,6 +45,7 @@ async function processPortalScrape(
       credential: portal.credential,
       baseUrl: portal.baseUrl,
       listPageUrl: portal.listPageUrl,
+      portalId: portal.id,
     });
 
     try {
