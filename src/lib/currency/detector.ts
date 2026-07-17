@@ -192,9 +192,12 @@ export function detectCurrencyCode(text: string): string | null {
 }
 
 // Labels that look monetary (often contain "fee"/"amount") but are actually
-// counts, rates, dosages or percentages — must NEVER be currency-converted
-// (e.g. "Imaging Reporting Fee Quantity: 1.50" is 1.5 units, not RM 1.50).
-const NON_MONETARY_LABEL = /quantit|\bqty\b|\bunits?\b|\bnos?\.?\b|\bcount\b|dosage|percent|\bpcs?\b|tablet|capsule|\bqnty\b/i;
+// counts, rates, dosages, percentages or IDENTIFIERS — must NEVER be read as an
+// amount (e.g. "Imaging Reporting Fee Quantity: 1.50" is 1.5 units, not RM 1.50;
+// "Invoice Number: 575729" is an ID, not a $575,729 amount). The identifier terms
+// (number/no/id/ref/#) stop "Invoice/Claim/Bill Number" from matching the broad
+// "invoice|claim|bill" amount keywords below and being misread as a value.
+const NON_MONETARY_LABEL = /quantit|\bqty\b|\bunits?\b|\bnos?\.?\b|\bcount\b|dosage|percent|\bpcs?\b|tablet|capsule|\bqnty\b|\bnumber\b|\bid\b|referen|\bref\.?\b|\b#/i;
 
 /** Returns true if a field label looks like a monetary amount field. */
 export function isAmountField(label: string): boolean {

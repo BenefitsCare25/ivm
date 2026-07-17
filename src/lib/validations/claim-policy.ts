@@ -6,7 +6,6 @@ import {
   detectGiroCdaPayment,
   detectPossibleDuplicate,
   detectSpecialistIndication,
-  maxAmountFromFields,
 } from "@/lib/reference/claim-signals";
 
 /**
@@ -15,8 +14,7 @@ import {
  *
  *  Claimant     — Claimant not in supporting document → "pending document" (REQUIRE_DOC).
  *  Rule 1       — Government subsidy/deduction (CPF/MediSave, CHAS, CDC voucher) → flag.
- *  Rule 2       — Flex claim that is a specialist consultation (receipt > $100 or a
- *                 specialist indication) → flag for review.
+ *  Rule 2       — Flex claim with a specialist-treatment indication → flag for review.
  *  Rule 3       — Payment via GIRO from a Child Development Account (CDA) → flag (not claimable).
  *  Rule 4       — Portal-flagged "possible duplicate" claim → flag.
  *  Rule 6       — Polyclinic claim whose supporting document is from a hospital (not a
@@ -27,9 +25,6 @@ import {
  *  `src/lib/validations/currency.ts`; its flag is threaded into the item status
  *  by the worker/recompare paths.)
  */
-
-// Flex specialist-consultation receipt-amount threshold (SGD).
-const SPECIALIST_AMOUNT_THRESHOLD = 100;
 
 // Field-name patterns. "claimant" is preferred; the others are fallbacks for
 // portals that label the insured party differently.
@@ -135,7 +130,7 @@ export interface ClaimPolicyResult {
   nonClaimablePayment: boolean;
   /** Portal-flagged possible duplicate → FLAGGED (rule 4). */
   possibleDuplicate: boolean;
-  /** Flex specialist consultation (amount > threshold or specialist signal) → FLAGGED for review (rule 2). */
+  /** Flex specialist-treatment indication → FLAGGED for review (rule 2). */
   specialistReview: boolean;
 }
 
@@ -234,31 +229,18 @@ export function buildClaimPolicyValidations(input: {
   }
 
   // ── Rule 2: flex specialist consultation → flag for review ──
+  // Fires only on an explicit specialist-treatment indication in the document /
+  // portal values. (The former "receipt amount > $100" threshold was removed — a
+  // dollar figure alone doesn't imply a specialist consultation.)
   let specialistReview = false;
-  if (flexClaim) {
-    const amount = maxAmountFromFields([...documentFields, ...pagePairs]);
-    const specialistSignal = detectSpecialistIndication(specialistText);
-    const overThreshold = amount > SPECIALIST_AMOUNT_THRESHOLD;
-    if (specialistSignal || overThreshold) {
-      specialistReview = true;
-      const reason = specialistSignal
-        ? overThreshold
-          ? `specialist treatment indicated and receipt amount ${amount.toFixed(2)} exceeds ${SPECIALIST_AMOUNT_THRESHOLD}`
-          : "specialist treatment indicated"
-        : `receipt amount ${amount.toFixed(2)} exceeds ${SPECIALIST_AMOUNT_THRESHOLD}`;
-      rows.push({
-        ruleType: "SPECIALIST_REVIEW",
-        status: "WARNING",
-        message: `Possible specialist consultation (SP) — ${reason}. Manual review recommended.`,
-        metadata: {
-          severity: "review",
-          amount,
-          threshold: SPECIALIST_AMOUNT_THRESHOLD,
-          specialistSignal,
-          overThreshold,
-        },
-      });
-    }
+  if (flexClaim && detectSpecialistIndication(specialistText)) {
+    specialistReview = true;
+    rows.push({
+      ruleType: "SPECIALIST_REVIEW",
+      status: "WARNING",
+      message: `Possible specialist consultation (SP) — specialist treatment indicated. Manual review recommended.`,
+      metadata: { severity: "review", specialistSignal: true },
+    });
   }
 
   // ── Rule 6: Polyclinic claim whose document is from a hospital (not a polyclinic) ──

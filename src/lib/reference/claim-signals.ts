@@ -6,8 +6,6 @@
  * claim for a human reviewer.
  */
 
-import { isAmountField, parseCurrencyAmount } from "@/lib/currency/detector";
-
 // ── Rule 1: government subsidy / deduction (CPF/MediSave, CHAS, CDC voucher) ──
 // The subsidised/deducted portion of a bill is not claimable, so the presence of
 // any of these mechanisms flags the claim.
@@ -77,23 +75,4 @@ const SPECIALIST_RE =
 
 export function detectSpecialistIndication(text: string): boolean {
   return !!text && SPECIALIST_RE.test(text);
-}
-
-/**
- * Largest SGD/bare numeric value among amount-labelled fields, used for the flex
- * specialist-consultation receipt-amount threshold. Strips currency symbols and
- * thousands separators; ignores non-monetary labels (quantities, counts). Skips
- * explicit foreign-currency amounts: the $100 threshold is SGD, and reading a
- * foreign figure (e.g. "IDR 50000") as SGD would wildly overstate the value —
- * foreign receipts are flagged by the currency rule instead.
- */
-export function maxAmountFromFields(fields: { label: string; value: string }[]): number {
-  let max = 0;
-  for (const { label, value } of fields) {
-    if (!isAmountField(label)) continue;
-    if (parseCurrencyAmount(value)) continue; // explicit foreign currency → not SGD
-    const n = parseFloat(String(value).replace(/[^0-9.]/g, ""));
-    if (!isNaN(n) && n > max) max = n;
-  }
-  return max;
 }
