@@ -242,7 +242,11 @@ export async function runIntelligencePipeline({
   listData?: Record<string, string>;
   acceptableDocumentTypeIds: string[];
   cachedDocTypes?: DocTypeRecord[];
-}): Promise<{ documentTypeId: string | null; documentTypeName: string | null; fileName: string }[]> {
+}): Promise<{
+  classifiedDocs: { documentTypeId: string | null; documentTypeName: string | null; fileName: string }[];
+  /** Rule 5: a foreign-currency amount was detected → the caller flags the claim. */
+  foreignCurrencyDetected: boolean;
+}> {
   let docTypeById: Map<string, DocTypeRecord> | undefined;
   if (cachedDocTypes) {
     docTypeById = new Map(cachedDocTypes.map((dt) => [dt.id, dt]));
@@ -310,12 +314,17 @@ export async function runIntelligencePipeline({
     }
   }
 
+  // Rule 5: detect + convert foreign currency. Awaited (not fire-and-forget) so
+  // its detection result can flag the claim; still non-fatal on error.
+  let foreignCurrencyDetected = false;
   if (Object.keys(pdfRawFields).length > 0) {
     const allPageData = { ...(listData ?? {}), ...effectiveDetailData };
-    checkForeignCurrency(trackedItemId, pdfRawFields, allPageData).catch((err) =>
-      logger.warn({ err, trackedItemId }, "[worker] Currency check failed (non-fatal)")
-    );
+    try {
+      foreignCurrencyDetected = await checkForeignCurrency(trackedItemId, pdfRawFields, allPageData);
+    } catch (err) {
+      logger.warn({ err, trackedItemId }, "[worker] Currency check failed (non-fatal)");
+    }
   }
 
-  return classifiedDocs;
+  return { classifiedDocs, foreignCurrencyDetected };
 }

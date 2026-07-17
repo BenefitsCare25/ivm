@@ -1,21 +1,45 @@
 import type { FieldComparison } from "@/types/portal";
 import type { ValidationRowData } from "@/lib/intelligence/validation-builders";
 import { detectHospital } from "@/lib/reference/sg-hospitals";
+import {
+  detectSubsidyDeduction,
+  detectGiroCdaPayment,
+  detectPossibleDuplicate,
+  detectSpecialistIndication,
+  maxAmountFromFields,
+} from "@/lib/reference/claim-signals";
 
 /**
  * Global claims-adjudication policy checks, shared by the detail worker and the
  * recompare route so an item yields identical verdicts regardless of path.
  *
- *  Rule 1 — Claimant not in supporting document → "pending document" (REQUIRE_DOC).
- *  Rule 2 — Flex Polyclinic claim whose document is a hospital bill → wrong claim
- *           type (should be an Insurance Claim).
+ *  Claimant     — Claimant not in supporting document → "pending document" (REQUIRE_DOC).
+ *  Rule 1       — Government subsidy/deduction (CPF/MediSave, CHAS, CDC voucher) → flag.
+ *  Rule 2       — Flex claim that is a specialist consultation (receipt > $100 or a
+ *                 specialist indication) → flag for review.
+ *  Rule 3       — Payment via GIRO from a Child Development Account (CDA) → flag (not claimable).
+ *  Rule 4       — Portal-flagged "possible duplicate" claim → flag.
+ *  Rule 6       — Polyclinic claim whose supporting document is from a hospital (not a
+ *                 polyclinic) → wrong claim type. For flex portals the verdict names the
+ *                 correct claim type (Insurance Claim).
+ *
+ *  (Rule 5, foreign currency, is handled deterministically in
+ *  `src/lib/validations/currency.ts`; its flag is threaded into the item status
+ *  by the worker/recompare paths.)
  */
+
+// Flex specialist-consultation receipt-amount threshold (SGD).
+const SPECIALIST_AMOUNT_THRESHOLD = 100;
 
 // Field-name patterns. "claimant" is preferred; the others are fallbacks for
 // portals that label the insured party differently.
 const CLAIMANT_FIELD_RE = /claimant|life\s*assured|\binsured\b|\bpatient\b/i;
 // Claim-type value indicating a polyclinic submission (abbreviated wording).
 const POLYCLINIC_RE = /poly\s*clinic|\bpcn\b/i;
+// A billing document whose provider text itself names a polyclinic is a genuine
+// polyclinic document — never flag rule 6 for it, even if a hospital name is
+// mentioned incidentally elsewhere.
+const POLYCLINIC_PROVIDER_RE = /poly\s*clinic/i;
 // Claim-type field labels (used alongside grouping fields to gather candidates).
 const CLAIM_TYPE_FIELD_RE = /claim\s*type|claim\s*category|benefit\s*type|visit\s*type/i;
 // Billing-document families whose provider IS "where the claim is from".
@@ -103,8 +127,34 @@ export interface ClaimPolicyResult {
   rows: ValidationRowData[];
   /** Claimant not found in any document → REQUIRE_DOC ("pending document"). */
   claimantMissing: boolean;
-  /** Flex Polyclinic claim backed by a hospital bill → FLAGGED. */
+  /** Polyclinic claim backed by a hospital bill → FLAGGED (rule 6). */
   wrongClaimType: boolean;
+  /** Government subsidy/deduction (CPF/MediSave, CHAS, CDC voucher) → FLAGGED (rule 1). */
+  subsidyDeduction: boolean;
+  /** GIRO payment from a Child Development Account → FLAGGED (rule 3). */
+  nonClaimablePayment: boolean;
+  /** Portal-flagged possible duplicate → FLAGGED (rule 4). */
+  possibleDuplicate: boolean;
+  /** Flex specialist consultation (amount > threshold or specialist signal) → FLAGGED for review (rule 2). */
+  specialistReview: boolean;
+}
+
+type FieldPair = { label: string; value: string };
+
+/** Concatenate field pairs into searchable "label value" text. */
+function pairsToText(pairs: FieldPair[]): string {
+  return pairs.map((p) => `${p.label} ${p.value}`).join(" \n ");
+}
+
+/** Concatenate field VALUES only — used where matching a field label would
+ *  over-trigger (e.g. a portal column literally named "Specialist Clinic Code"). */
+function valuesToText(pairs: FieldPair[]): string {
+  return pairs.map((p) => p.value).join(" \n ");
+}
+
+/** Field map → pairs. */
+function mapToPairs(fields: Record<string, string>): FieldPair[] {
+  return Object.entries(fields).map(([label, value]) => ({ label, value }));
 }
 
 /**
@@ -116,12 +166,24 @@ export function buildClaimPolicyValidations(input: {
   flexClaim: boolean;
   pageData: Record<string, string>;
   groupingFields: string[];
+  /** Provider-scoped billing text — used for hospital detection (rule 6). */
   documentText: string;
+  /** All extracted document fields — used for subsidy/GIRO/specialist detection + amounts. */
+  documentFields: { label: string; value: string }[];
 }): ClaimPolicyResult {
-  const { fieldComparisons, flexClaim, pageData, groupingFields, documentText } = input;
+  const { fieldComparisons, flexClaim, pageData, groupingFields, documentText, documentFields } = input;
   const rows: ValidationRowData[] = [];
 
-  // ── Rule 1: claimant not in supporting document ──
+  const pagePairs = mapToPairs(pageData);
+  // Subsidy/GIRO signals may sit in a field label ("CHAS Subsidy") or value, so
+  // scan labels+values. The duplicate marker is portal-side only.
+  const documentSignalText = pairsToText(documentFields);
+  const pageText = pairsToText(pagePairs);
+  // Specialist detection scans VALUES only (a portal column merely LABELLED
+  // "Specialist …" must not flag every claim).
+  const specialistText = `${valuesToText(documentFields)} \n ${valuesToText(pagePairs)}`;
+
+  // ── Claimant not in supporting document → pending document (REQUIRE_DOC) ──
   const missing = findMissingClaimant(fieldComparisons);
   const claimantMissing = !!missing;
   if (missing) {
@@ -134,30 +196,106 @@ export function buildClaimPolicyValidations(input: {
     });
   }
 
-  // ── Rule 2: flex Polyclinic claim with a hospital document ──
-  let wrongClaimType = false;
+  // ── Rule 1: government subsidy / deduction (CPF/MediSave, CHAS, CDC voucher) ──
+  const subsidy = detectSubsidyDeduction(documentSignalText);
+  const subsidyDeduction = !!subsidy;
+  if (subsidy) {
+    rows.push({
+      ruleType: "SUBSIDY_DEDUCTION",
+      status: "FAIL",
+      message: `Government subsidy/deduction detected (${subsidy.kind}) — the subsidised/deducted portion is not claimable.`,
+      metadata: { severity: "critical", subsidyKind: subsidy.kind, evidence: subsidy.evidence },
+    });
+  }
+
+  // ── Rule 3: GIRO payment from a Child Development Account (CDA) ──
+  const cda = detectGiroCdaPayment(documentSignalText);
+  const nonClaimablePayment = !!cda;
+  if (cda) {
+    rows.push({
+      ruleType: "NON_CLAIMABLE_PAYMENT",
+      status: "FAIL",
+      message: `Non-claimable payment detected — ${cda.evidence}. Amounts paid from a CDA are not claimable.`,
+      metadata: { severity: "critical", evidence: cda.evidence },
+    });
+  }
+
+  // ── Rule 4: portal-flagged possible duplicate ──
+  // Read only from the portal page data — this is a marker the portal surfaces.
+  const duplicate = detectPossibleDuplicate(pageText);
+  const possibleDuplicate = !!duplicate;
+  if (duplicate) {
+    rows.push({
+      ruleType: "POSSIBLE_DUPLICATE",
+      status: "FAIL",
+      message: `Portal flagged a possible duplicate claim ("${duplicate.evidence}") — review for potential duplicate.`,
+      metadata: { severity: "critical", evidence: duplicate.evidence },
+    });
+  }
+
+  // ── Rule 2: flex specialist consultation → flag for review ──
+  let specialistReview = false;
   if (flexClaim) {
-    const claimType = resolveClaimTypeValues(pageData, groupingFields).find((v) => isPolyclinicClaim(v));
-    if (claimType) {
-      const hospital = detectHospital(documentText);
-      if (hospital) {
-        wrongClaimType = true;
-        const kindLabel = hospital.kind === "govt" ? "government hospital" : "private hospital";
-        rows.push({
-          ruleType: "WRONG_CLAIM_TYPE",
-          status: "FAIL",
-          message: `Submitted as a Polyclinic claim, but the document is from ${hospital.name} (${kindLabel}) — should be an Insurance Claim.`,
-          metadata: {
-            severity: "critical",
-            claimType,
-            hospital: hospital.name,
-            hospitalKind: hospital.kind,
-            correctClaimType: "Insurance Claim",
-          },
-        });
-      }
+    const amount = maxAmountFromFields([...documentFields, ...pagePairs]);
+    const specialistSignal = detectSpecialistIndication(specialistText);
+    const overThreshold = amount > SPECIALIST_AMOUNT_THRESHOLD;
+    if (specialistSignal || overThreshold) {
+      specialistReview = true;
+      const reason = specialistSignal
+        ? overThreshold
+          ? `specialist treatment indicated and receipt amount ${amount.toFixed(2)} exceeds ${SPECIALIST_AMOUNT_THRESHOLD}`
+          : "specialist treatment indicated"
+        : `receipt amount ${amount.toFixed(2)} exceeds ${SPECIALIST_AMOUNT_THRESHOLD}`;
+      rows.push({
+        ruleType: "SPECIALIST_REVIEW",
+        status: "WARNING",
+        message: `Possible specialist consultation (SP) — ${reason}. Manual review recommended.`,
+        metadata: {
+          severity: "review",
+          amount,
+          threshold: SPECIALIST_AMOUNT_THRESHOLD,
+          specialistSignal,
+          overThreshold,
+        },
+      });
     }
   }
 
-  return { rows, claimantMissing, wrongClaimType };
+  // ── Rule 6: Polyclinic claim whose document is from a hospital (not a polyclinic) ──
+  // Applies to all portals. When the provider text itself names a polyclinic it is
+  // a genuine polyclinic document and is never flagged. For flex portals the verdict
+  // names the correct claim type (Insurance Claim).
+  let wrongClaimType = false;
+  const claimType = resolveClaimTypeValues(pageData, groupingFields).find((v) => isPolyclinicClaim(v));
+  if (claimType && !POLYCLINIC_PROVIDER_RE.test(documentText)) {
+    const hospital = detectHospital(documentText);
+    if (hospital) {
+      wrongClaimType = true;
+      const kindLabel = hospital.kind === "govt" ? "government hospital" : "private hospital";
+      rows.push({
+        ruleType: "WRONG_CLAIM_TYPE",
+        status: "FAIL",
+        message: flexClaim
+          ? `Submitted as a Polyclinic claim, but the document is from ${hospital.name} (${kindLabel}) — should be an Insurance Claim.`
+          : `Submitted as a Polyclinic claim, but the supporting document is from ${hospital.name} (${kindLabel}) — not a polyclinic document.`,
+        metadata: {
+          severity: "critical",
+          claimType,
+          hospital: hospital.name,
+          hospitalKind: hospital.kind,
+          ...(flexClaim ? { correctClaimType: "Insurance Claim" } : {}),
+        },
+      });
+    }
+  }
+
+  return {
+    rows,
+    claimantMissing,
+    wrongClaimType,
+    subsidyDeduction,
+    nonClaimablePayment,
+    possibleDuplicate,
+    specialistReview,
+  };
 }

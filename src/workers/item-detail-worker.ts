@@ -14,6 +14,8 @@ import {
   type ItemDetailJobResult,
 } from "@/lib/queue/item-detail-queue";
 import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-queue";
+import { scheduleKeepAlive, startKeepAliveWorker } from "@/lib/queue/keepalive-queue";
+import { runPortalKeepAlive } from "@/lib/playwright/keepalive";
 import { runFullCleanup } from "@/lib/storage/cleanup";
 import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
 import { toInputJson } from "@/lib/utils";
@@ -293,8 +295,9 @@ async function processItemDetailCore(
 
       // ── Intelligence pipeline ───────────────────────────────
       const acceptableTypeIds = item.scrapeSession.acceptableDocumentTypeIds;
+      let foreignCurrencyDetected = false;
       if (!preservePrior) {
-        await runIntelligencePipeline({
+        const intelligence = await runIntelligencePipeline({
           trackedItemId,
           portalId,
           portalItemId: item.portalItemId,
@@ -307,6 +310,7 @@ async function processItemDetailCore(
           acceptableDocumentTypeIds: acceptableTypeIds,
           cachedDocTypes,
         });
+        foreignCurrencyDetected = intelligence.foreignCurrencyDetected;
       }
 
       // ── Template lookup + AI comparison ─────────────────────
@@ -336,6 +340,7 @@ async function processItemDetailCore(
         cachedDocTypes,
         flexClaim: isFlexClaim(portal.name, portal.baseUrl),
         groupingFields: (portal.groupingFields as string[]) ?? [],
+        foreignCurrency: foreignCurrencyDetected,
       });
 
       // ── Final status ────────────────────────────────────────
@@ -519,9 +524,19 @@ if (cleanupWorker) {
   logger.info("[worker] Storage cleanup worker started");
 }
 
+scheduleKeepAlive().catch((err) =>
+  logger.error({ err }, "[worker] Failed to schedule portal keep-alive")
+);
+
+const keepAliveWorker = startKeepAliveWorker(runPortalKeepAlive);
+if (keepAliveWorker) {
+  logger.info("[worker] Portal keep-alive worker started");
+}
+
 process.on("SIGTERM", async () => {
   if (worker) await worker.close();
   if (cleanupWorker) await cleanupWorker.close();
+  if (keepAliveWorker) await keepAliveWorker.close();
   await closeBrowser();
   process.exit(0);
 });
@@ -529,6 +544,7 @@ process.on("SIGTERM", async () => {
 process.on("SIGINT", async () => {
   if (worker) await worker.close();
   if (cleanupWorker) await cleanupWorker.close();
+  if (keepAliveWorker) await keepAliveWorker.close();
   await closeBrowser();
   process.exit(0);
 });

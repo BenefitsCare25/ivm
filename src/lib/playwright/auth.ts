@@ -8,7 +8,7 @@ import { logger } from "@/lib/logger";
  * Supports both the encrypted sentinel format `{ __encrypted: "..." }` and
  * legacy plaintext arrays written before encryption was introduced.
  */
-function decodeCookieData(raw: unknown): Cookie[] {
+export function decodeCookieData(raw: unknown): Cookie[] {
   if (!raw) return [];
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const obj = raw as Record<string, unknown>;

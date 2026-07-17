@@ -88,12 +88,16 @@ function collectPrimaryAmounts(fields: Record<string, string>): number[] {
  * SGD using the incurred-date exchange rate (Frankfurter/ECB, then
  * ExchangeRate-API as fallback), and persist CURRENCY_CONVERSION ValidationResult
  * rows. Non-fatal — failures are logged and ignored.
+ *
+ * Returns true when a foreign-currency amount was detected on either side (the
+ * submitted document or the portal record) so the caller can FLAG the claim —
+ * independent of whether a live rate could be fetched.
  */
 export async function checkForeignCurrency(
   trackedItemId: string,
   pdfFields: Record<string, string>,
   pageFields?: Record<string, string>
-): Promise<void> {
+): Promise<boolean> {
   // Resolve incurred date — prefer portal data (more reliable), fall back to PDF fields
   const incurredDate = findIncurredDate(pageFields ?? {}) ?? findIncurredDate(pdfFields);
   const dateToUse = incurredDate ?? new Date().toISOString().split("T")[0];
@@ -281,31 +285,38 @@ export async function checkForeignCurrency(
     .sort((a, b) => keyRank(a.labels) - keyRank(b.labels) || b.parsed.amount - a.parsed.amount)
     .slice(0, MAX_CONVERSIONS);
 
-  for (const { labels, parsed } of ranked) {
-    const label = labels.join(" / ");
-    try {
-      const result = await resolveSgdRate(parsed.code, dateToUse);
-      if (result === null) continue;
+  // Rate lookups are independent per (currency, date) and internally cached —
+  // fetch them concurrently so this awaited path costs one round-trip, not the
+  // sum of up to MAX_CONVERSIONS sequential fetches.
+  const documentConversions = await Promise.all(
+    ranked.map(async ({ labels, parsed }): Promise<CurrencyConversionMetadata | null> => {
+      const label = labels.join(" / ");
+      try {
+        const result = await resolveSgdRate(parsed.code, dateToUse);
+        if (result === null) return null;
 
-      const sgdAmount = Math.round(parsed.amount * result.rate * 100) / 100;
-      conversions.push({
-        fieldLabel: label,
-        origin: "document",
-        originalCurrency: parsed.code,
-        originalAmount: parsed.amount,
-        sgdAmount,
-        rate: result.rate,
-        rateDate: result.actualDate,
-        raw: parsed.raw,
-        isFallback: result.isFallback,
-        isFuture: result.isFuture,
-        isHistorical: result.isHistorical,
-        source: result.source,
-      });
-    } catch (err) {
-      logger.warn({ err, trackedItemId, label: labels[0], currency: parsed.code }, "[currency] Rate fetch failed (non-fatal)");
-    }
-  }
+        const sgdAmount = Math.round(parsed.amount * result.rate * 100) / 100;
+        return {
+          fieldLabel: label,
+          origin: "document",
+          originalCurrency: parsed.code,
+          originalAmount: parsed.amount,
+          sgdAmount,
+          rate: result.rate,
+          rateDate: result.actualDate,
+          raw: parsed.raw,
+          isFallback: result.isFallback,
+          isFuture: result.isFuture,
+          isHistorical: result.isHistorical,
+          source: result.source,
+        };
+      } catch (err) {
+        logger.warn({ err, trackedItemId, label: labels[0], currency: parsed.code }, "[currency] Rate fetch failed (non-fatal)");
+        return null;
+      }
+    })
+  );
+  for (const conv of documentConversions) if (conv) conversions.push(conv);
 
   // ── Portal-side currency ──────────────────────────────────────────
   // The scan above covers extracted DOCUMENT fields. The portal's own amount
@@ -339,33 +350,41 @@ export async function checkForeignCurrency(
     .sort((a, b) => keyRank(a.labels) - keyRank(b.labels) || b.parsed.amount - a.parsed.amount)
     .slice(0, MAX_CONVERSIONS);
 
-  for (const { labels, parsed } of portalRanked) {
-    const label = labels.join(" / ");
-    try {
-      const result = await resolveSgdRate(parsed.code, dateToUse);
-      if (result === null) continue;
+  const portalConversions = await Promise.all(
+    portalRanked.map(async ({ labels, parsed }): Promise<CurrencyConversionMetadata | null> => {
+      const label = labels.join(" / ");
+      try {
+        const result = await resolveSgdRate(parsed.code, dateToUse);
+        if (result === null) return null;
 
-      const sgdAmount = Math.round(parsed.amount * result.rate * 100) / 100;
-      conversions.push({
-        fieldLabel: label,
-        origin: "portal",
-        originalCurrency: parsed.code,
-        originalAmount: parsed.amount,
-        sgdAmount,
-        rate: result.rate,
-        rateDate: result.actualDate,
-        raw: parsed.raw,
-        isFallback: result.isFallback,
-        isFuture: result.isFuture,
-        isHistorical: result.isHistorical,
-        source: result.source,
-      });
-    } catch (err) {
-      logger.warn({ err, trackedItemId, label: labels[0], currency: parsed.code }, "[currency] Portal rate fetch failed (non-fatal)");
-    }
-  }
+        const sgdAmount = Math.round(parsed.amount * result.rate * 100) / 100;
+        return {
+          fieldLabel: label,
+          origin: "portal",
+          originalCurrency: parsed.code,
+          originalAmount: parsed.amount,
+          sgdAmount,
+          rate: result.rate,
+          rateDate: result.actualDate,
+          raw: parsed.raw,
+          isFallback: result.isFallback,
+          isFuture: result.isFuture,
+          isHistorical: result.isHistorical,
+          source: result.source,
+        };
+      } catch (err) {
+        logger.warn({ err, trackedItemId, label: labels[0], currency: parsed.code }, "[currency] Portal rate fetch failed (non-fatal)");
+        return null;
+      }
+    })
+  );
+  for (const conv of portalConversions) if (conv) conversions.push(conv);
 
-  if (conversions.length === 0) return;
+  // A foreign amount on either side flags the claim, even if every rate fetch
+  // failed (rare) and no conversion row could be written.
+  const foreignDetected = seen.size > 0 || portalSeen.size > 0;
+
+  if (conversions.length === 0) return foreignDetected;
 
   // Replace previous results from prior attempts
   await db.validationResult.deleteMany({
@@ -387,6 +406,7 @@ export async function checkForeignCurrency(
   );
 
   logger.info({ trackedItemId, count: conversions.length }, "[currency] Foreign currency conversions saved");
+  return foreignDetected;
 }
 
 function findIncurredDate(fields: Record<string, string>): string | null {

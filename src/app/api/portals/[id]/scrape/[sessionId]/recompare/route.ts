@@ -104,6 +104,21 @@ export async function POST(
     const CONCURRENCY = 5;
     let recompared = 0;
 
+    // Document-intrinsic verdicts (foreign currency, subsidy, GIRO-from-CDA) depend
+    // on the source files, which recompare does NOT re-extract — so it must PRESERVE
+    // them rather than re-derive from the narrower reconstructed field set (which
+    // would silently drop a flag). One batched query maps which items carry any such
+    // preserved flag, avoiding a per-item lookup inside the concurrency loop.
+    const PRESERVED_DOC_RULE_TYPES = ["CURRENCY_CONVERSION", "SUBSIDY_DEDUCTION", "NON_CLAIMABLE_PAYMENT"];
+    const preservedRows = await db.validationResult.findMany({
+      where: {
+        trackedItemId: { in: matchingItems.map((i) => i.id) },
+        ruleType: { in: PRESERVED_DOC_RULE_TYPES },
+      },
+      select: { trackedItemId: true },
+    });
+    const itemsWithPreservedFlag = new Set(preservedRows.map((r) => r.trackedItemId));
+
     async function processOne(item: typeof matchingItems[0]): Promise<boolean> {
       const detailData = (item.detailData as Record<string, string>) ?? {};
       if (Object.keys(detailData).length === 0) return false;
@@ -257,11 +272,13 @@ export async function POST(
         update: comparisonData,
       });
 
-      // Clear old business rule + required document validation results
+      // Clear old business rule + required document + re-derivable policy results.
+      // SUBSIDY_DEDUCTION / NON_CLAIMABLE_PAYMENT / CURRENCY_CONVERSION are
+      // document-intrinsic and preserved (see itemsWithPreservedFlag) — do NOT delete.
       await db.validationResult.deleteMany({
         where: {
           trackedItemId: item.id,
-          ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT", "BILL_STATUS", "CLAIMANT_MATCH", "WRONG_CLAIM_TYPE"] },
+          ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT", "BILL_STATUS", "CLAIMANT_MATCH", "WRONG_CLAIM_TYPE", "POSSIBLE_DUPLICATE", "SPECIALIST_REVIEW"] },
         },
       });
 
@@ -279,13 +296,25 @@ export async function POST(
         pageData: { ...((item.listData as Record<string, string>) ?? {}), ...detailData },
         groupingFields,
         documentText: buildHospitalSearchText(reconstructedExtractions, recognizedDocs),
+        documentFields: reconstructedExtractions.flatMap((e) => e.fields),
       });
+
+      // Document-intrinsic flags (currency/subsidy/GIRO) are preserved, not
+      // re-derived — a subsidy/GIRO signal may live in a document field that was
+      // not part of the reconstructed comparison set. Re-derivable policy flags
+      // (possible-duplicate, specialist) come from the current evaluation.
+      const preservedDocFlag = itemsWithPreservedFlag.has(item.id);
+      const policyFlag = policy.possibleDuplicate || policy.specialistReview;
 
       const billRow = buildBillStatusValidation(billStatusSignal);
       const extraRows = [
         ...buildRequiredDocValidations(result.requiredDocumentsCheck, templateRequiredDocuments),
         ...(billRow ? [billRow] : []),
-        ...policy.rows,
+        // Drop the document-intrinsic policy rows — their persisted originals are
+        // authoritative and preserved (not deleted above).
+        ...policy.rows.filter(
+          (r) => r.ruleType !== "SUBSIDY_DEDUCTION" && r.ruleType !== "NON_CLAIMABLE_PAYMENT"
+        ),
       ];
       const validationInserts = [...ruleValidations, ...extraRows].map((v) =>
         db.validationResult.create({
@@ -305,7 +334,7 @@ export async function POST(
       // Missing claimant → "pending document" (REQUIRE_DOC), precedence over FLAGGED.
       const status: TrackedItemStatus = policy.claimantMissing
         ? "REQUIRE_DOC"
-        : (hasMismatch || ruleFlag || hasMissingDoc || policy.wrongClaimType)
+        : (hasMismatch || ruleFlag || hasMissingDoc || policy.wrongClaimType || policyFlag || preservedDocFlag)
           ? "FLAGGED"
           : "COMPARED";
       await db.trackedItem.update({

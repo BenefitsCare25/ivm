@@ -54,6 +54,8 @@ interface ComparisonInput {
   flexClaim?: boolean;
   /** Portal grouping fields — used to resolve the claim-type value for the policy checks. */
   groupingFields?: string[];
+  /** Rule 5: a foreign-currency amount was detected during extraction → flag the claim. */
+  foreignCurrency?: boolean;
 }
 
 interface ComparisonOutput {
@@ -197,9 +199,6 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
 
   let ruleFlag = false;
   let preservedPrior = false;
-  let claimantMissing = false;
-  let wrongClaimType = false;
-  let policyRows: ValidationRowData[] = [];
 
   if (comparisonResult) {
     if (matchedTemplate && matchedTemplate.fields.length > 0) {
@@ -275,32 +274,49 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
     }
 
     if (!preservedPrior) {
-      // ── Global claim policy checks (run on the finalized comparison) ──
-      // Rule 1: claimant absent from every document → pending document (REQUIRE_DOC).
-      // Rule 2: flex Polyclinic claim backed by a hospital bill → wrong claim type.
-      // Skipped when preserving a prior result: on a degraded re-run a claimant's
-      // document may have failed to extract (transient), and that must NOT flip a
-      // previously-good item to "pending document" / "wrong claim type".
-      const policy = buildClaimPolicyValidations({
-        fieldComparisons: comparisonResult.fieldComparisons,
-        flexClaim: input.flexClaim ?? false,
-        pageData: { ...listData, ...effectiveDetailData },
-        groupingFields: input.groupingFields ?? [],
-        documentText: buildHospitalSearchText(fileExtractions, recognizedDocs),
-      });
-      claimantMissing = policy.claimantMissing;
-      wrongClaimType = policy.wrongClaimType;
-      policyRows = policy.rows;
-
       const documentTypesByFile = Object.fromEntries(
         fileExtractions.map((e) => [e.fileName, e.documentType])
       );
       ruleFlag = await saveComparisonResult(
         trackedItemId, comparisonResult, displayProvider, templateId, matchedTemplate,
-        billStatusSignal, documentTypesByFile, policyRows,
+        billStatusSignal, documentTypesByFile,
         partialFailure ? { partialFailure: true, unreadableFiles: failedFiles } : undefined
       );
     }
+  }
+
+  // ── Global claim policy checks ──────────────────────────────────────────
+  // Evaluated + persisted independently of the comparison: rules 1/3 (subsidy,
+  // GIRO-from-CDA) need only document fields, rule 4 (possible duplicate) only
+  // portal data, and rule 6 (polyclinic vs hospital) only claim-type + provider
+  // — so an item with documents but no comparison (e.g. no portal page fields)
+  // is still adjudicated. Skipped entirely when preserving a prior result: on a
+  // degraded re-run a document may have transiently failed to extract, and that
+  // must NOT flip a previously-good item to a policy verdict.
+  let claimantMissing = false;
+  let wrongClaimType = false;
+  let policyFlag = false;
+  const runPolicy =
+    !(input.preservePrior ?? false) && !preservedPrior && !noDocuments && !allExtractionsFailed;
+  if (runPolicy) {
+    const policy = buildClaimPolicyValidations({
+      fieldComparisons: comparisonResult?.fieldComparisons ?? [],
+      flexClaim: input.flexClaim ?? false,
+      pageData: { ...listData, ...effectiveDetailData },
+      groupingFields: input.groupingFields ?? [],
+      documentText: buildHospitalSearchText(fileExtractions, recognizedDocs),
+      documentFields: fileExtractions.flatMap((e) => e.fields),
+    });
+    claimantMissing = policy.claimantMissing;
+    wrongClaimType = policy.wrongClaimType;
+    // Rules 1/3/4 (subsidy, non-claimable payment, possible duplicate) and rule 2
+    // (specialist review) all flag the item.
+    policyFlag =
+      policy.subsidyDeduction ||
+      policy.nonClaimablePayment ||
+      policy.possibleDuplicate ||
+      policy.specialistReview;
+    await persistPolicyValidations(trackedItemId, policy.rows);
   }
 
   // Persist a visible alert for the unreadable-document case. The comparison
@@ -341,7 +357,8 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
         ? "REQUIRE_DOC"
         : claimantMissing
           ? "REQUIRE_DOC"
-          : (preservedPrior || partialFailure || hasMismatch || ruleFlag || hasMissingDoc || wrongClaimType)
+          : (preservedPrior || partialFailure || hasMismatch || ruleFlag || hasMissingDoc ||
+             wrongClaimType || policyFlag || (input.foreignCurrency ?? false))
             ? "FLAGGED"
             : "COMPARED";
 
@@ -405,7 +422,6 @@ async function saveComparisonResult(
   matchedTemplate: MatchedTemplate | null,
   billStatusSignal: BillStatusSignal | null,
   documentTypesByFile: Record<string, string>,
-  policyRows: ValidationRowData[],
   failureContext?: { partialFailure: boolean; unreadableFiles: string[] },
 ): Promise<boolean> {
   const comparisonsJson = toInputJson(comparisonResult.fieldComparisons);
@@ -430,10 +446,14 @@ async function saveComparisonResult(
     update: comparisonData,
   });
 
+  // Owns only the comparison-derived rows. The global claim-policy rows
+  // (CLAIMANT_MATCH/WRONG_CLAIM_TYPE/SUBSIDY_DEDUCTION/…) are cleared + written
+  // separately by persistPolicyValidations, which also runs when there is no
+  // comparison — so they must NOT be deleted here.
   await db.validationResult.deleteMany({
     where: {
       trackedItemId,
-      ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT", "BILL_STATUS", "CLAIMANT_MATCH", "WRONG_CLAIM_TYPE", "UNREADABLE_DOCUMENT"] },
+      ruleType: { in: ["BUSINESS_RULE", "REQUIRED_DOCUMENT", "BILL_STATUS", "UNREADABLE_DOCUMENT"] },
     },
   });
 
@@ -468,9 +488,6 @@ async function saveComparisonResult(
       ? buildRequiredDocValidations(comparisonResult.requiredDocumentsCheck, matchedTemplate.requiredDocuments)
       : []),
     ...(billRow ? [billRow] : []),
-    // Global claim-policy rows (claimant-not-in-document, wrong-claim-type) —
-    // apply regardless of whether a template matched.
-    ...policyRows,
   ];
 
   // On a partial extraction failure, a required document could well be inside a
@@ -511,6 +528,40 @@ async function saveComparisonResult(
   }
 
   return ruleFlag;
+}
+
+/** Global claim-policy rule types — owned by persistPolicyValidations. */
+export const POLICY_RULE_TYPES = [
+  "CLAIMANT_MATCH", "WRONG_CLAIM_TYPE", "SUBSIDY_DEDUCTION",
+  "NON_CLAIMABLE_PAYMENT", "POSSIBLE_DUPLICATE", "SPECIALIST_REVIEW",
+] as const;
+
+/**
+ * Clear + rewrite the global claim-policy rows for an item. Always deletes the
+ * policy rule types first (so a rule that no longer fires is cleared), then
+ * inserts whatever the policy produced. Idempotent across re-runs.
+ */
+async function persistPolicyValidations(
+  trackedItemId: string,
+  rows: ValidationRowData[]
+): Promise<void> {
+  await db.validationResult.deleteMany({
+    where: { trackedItemId, ruleType: { in: [...POLICY_RULE_TYPES] } },
+  });
+  if (rows.length === 0) return;
+  await Promise.all(
+    rows.map((v) =>
+      db.validationResult.create({
+        data: {
+          trackedItemId,
+          ruleType: v.ruleType,
+          status: v.status,
+          message: v.message,
+          metadata: toInputJson(v.metadata),
+        },
+      })
+    )
+  );
 }
 
 export function annotateSourceFiles<T extends { fieldName: string; sourceFile?: string }>(
