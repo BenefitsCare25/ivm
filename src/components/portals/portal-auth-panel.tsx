@@ -44,6 +44,8 @@ export function PortalAuthPanel({
   const [capturedCount, setCapturedCount] = useState(0);
   const [showManualPaste, setShowManualPaste] = useState(false);
   const [showCreds, setShowCreds] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   useEffect(() => {
     if (!isCookies) return;
@@ -68,7 +70,27 @@ export function PortalAuthPanel({
     setCredPassword("");
     setCredError(null);
     setCredSaving(false);
+    setTesting(false);
+    setTestResult(null);
     onClose();
+  }
+
+  async function testLogin() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch(`/api/portals/${portalId}/test-auth`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setTestResult({ ok: false, message: data.message || "Test failed" });
+      } else {
+        setTestResult({ ok: data.ok, message: data.message });
+      }
+    } catch (err) {
+      setTestResult({ ok: false, message: err instanceof Error ? err.message : "Test failed" });
+    } finally {
+      setTesting(false);
+    }
   }
 
   const credFields = (
@@ -90,7 +112,7 @@ export function PortalAuthPanel({
         />
       </div>
       {credError && <p className="text-xs text-destructive">{credError}</p>}
-      <div className="flex gap-2">
+      <div className="flex gap-2 items-center">
         <Button
           size="sm"
           onClick={saveCredentials}
@@ -99,7 +121,24 @@ export function PortalAuthPanel({
           {credSaving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
           Save Credentials
         </Button>
+        <Button size="sm" variant="outline" onClick={testLogin} disabled={testing}>
+          {testing ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+          )}
+          Test login
+        </Button>
       </div>
+      <p className="text-[11px] text-muted-foreground">
+        Test runs the last <strong>saved</strong> credentials against the portal (up to ~30s). Save first, then test.
+      </p>
+      {testResult && (
+        <p className={`text-xs ${testResult.ok ? "text-emerald-600" : "text-destructive"}`}>
+          {testResult.ok ? "✓ " : "✕ "}
+          {testResult.message}
+        </p>
+      )}
     </>
   );
 
