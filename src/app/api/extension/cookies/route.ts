@@ -8,6 +8,7 @@ import { authLimiter } from "@/lib/rate-limit";
 import { toInputJson } from "@/lib/utils";
 import { encrypt } from "@/lib/crypto";
 import { verifyExtensionToken } from "@/lib/extension-token";
+import { deriveCookieExpiresAt } from "@/lib/cookie-expiry";
 
 const extensionCookieSchema = z.object({
   url: z.string().url(),
@@ -79,7 +80,7 @@ export async function POST(req: Request) {
 
     const portal = portals[0];
 
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const expiresAt = deriveCookieExpiresAt(cookies);
 
     const encryptedCookies = toInputJson({ __encrypted: encrypt(JSON.stringify(cookies)) });
 

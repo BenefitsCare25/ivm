@@ -5,6 +5,7 @@ import { saveCookiesSchema } from "@/lib/validations/portal";
 import { errorResponse, UnauthorizedError, NotFoundError, ValidationError } from "@/lib/errors";
 import { toInputJson } from "@/lib/utils";
 import { encrypt } from "@/lib/crypto";
+import { deriveCookieExpiresAt } from "@/lib/cookie-expiry";
 
 export async function POST(
   req: Request,
@@ -27,9 +28,12 @@ export async function POST(
     });
     if (!portal) throw new NotFoundError("Portal");
 
+    // Honour the captured cookies' real lifetime (e.g. a "remember me" token) so a
+    // long-lived session isn't dropped at a fixed 24h; falls back to 24h when only
+    // session cookies are present.
     const expiresAt = parsed.data.expiresAt
       ? new Date(parsed.data.expiresAt)
-      : new Date(Date.now() + 24 * 60 * 60 * 1000); // Default: 24 hours
+      : deriveCookieExpiresAt(parsed.data.cookies);
 
     const encryptedCookies = toInputJson({ __encrypted: encrypt(JSON.stringify(parsed.data.cookies)) });
 

@@ -51,6 +51,13 @@ export function SessionActions({
   const [providerGroups, setProviderGroups] = useState<ProviderGroupSummary[]>([]);
 
   const authBad = authStatus === "expired" || authStatus === "session_expired" || authStatus === "missing";
+  // The credential itself is unusable (cookies expired with no fallback, or nothing
+  // configured) — resuming would fail immediately, so gate the resume actions on this
+  // and NOT on `authBad`. `session_expired` means the credential is valid again
+  // (cookies re-captured) but the session carries a stale mid-run auth flag; resuming
+  // there is exactly the "re-capture then Continue" path and it clears the flag —
+  // gating it on `authBad` deadlocks the session (the only clearer is unreachable).
+  const credentialBad = authStatus === "expired" || authStatus === "missing";
 
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const done = (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) + (counts.ERROR ?? 0) + (counts.SKIPPED ?? 0) + (counts.VERIFIED ?? 0) + (counts.REQUIRE_DOC ?? 0) + (counts.FILTERED ?? 0);
@@ -277,9 +284,9 @@ export function SessionActions({
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span className="flex-1">
             {authStatus === "session_expired"
-              ? "Portal session expired during scraping. Update cookies on the portal page before retrying."
+              ? "Portal session expired mid-scrape. Re-capture cookies on the portal page (if you haven't), then click Continue/Retry below to resume the remaining items."
               : authStatus === "expired"
-              ? "Portal cookies have expired. Update authentication on the portal page before retrying."
+              ? "Portal cookies have expired. Update authentication on the portal page, then Continue/Retry to resume."
               : "Authentication not configured. Set up cookies or credentials before retrying."}
           </span>
           <Link
@@ -300,8 +307,8 @@ export function SessionActions({
               variant="outline"
               size="sm"
               onClick={() => reprocess("failed")}
-              disabled={loading !== null || authBad}
-              title={authBad ? "Update portal authentication before retrying" : undefined}
+              disabled={loading !== null || credentialBad}
+              title={credentialBad ? "Update portal authentication before retrying" : undefined}
             >
               {loading === "failed" ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -333,8 +340,8 @@ export function SessionActions({
             variant="outline"
             size="sm"
             onClick={() => reprocess("unprocessed")}
-            disabled={loading !== null || authBad}
-            title={authBad ? "Update portal authentication before continuing" : undefined}
+            disabled={loading !== null || credentialBad}
+            title={credentialBad ? "Update portal authentication before continuing" : undefined}
           >
             {loading === "unprocessed" ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
