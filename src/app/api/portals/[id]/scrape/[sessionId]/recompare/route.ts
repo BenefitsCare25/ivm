@@ -9,6 +9,11 @@ import { filterFieldsByTemplate, itemMatchesGroupingKey, filterComparisonsByTemp
 import { withCodeRuleResults } from "@/lib/business-rules/evaluate-code-rules";
 import { buildBusinessRuleValidations } from "@/lib/business-rules/persist";
 import { runVisionChecks, type VisionCheckFile } from "@/lib/ai/vision-checks";
+import {
+  applyCurrencyConversionEvidence,
+  parseCurrencyConversionEvidence,
+  withCurrencyConversionFields,
+} from "@/lib/comparison-reconciliation";
 import { annotateSourceFiles } from "@/workers/item-detail-comparison";
 import { toInputJson } from "@/lib/utils";
 import { logger } from "@/lib/logger";
@@ -115,7 +120,7 @@ export async function POST(
         trackedItemId: { in: matchingItems.map((i) => i.id) },
         ruleType: { in: PRESERVED_DOC_RULE_TYPES },
       },
-      select: { trackedItemId: true },
+      select: { trackedItemId: true, ruleType: true, metadata: true },
     });
     const itemsWithPreservedFlag = new Set(preservedRows.map((r) => r.trackedItemId));
 
@@ -135,6 +140,11 @@ export async function POST(
         if (c.pdfValue != null) pdfFields[c.fieldName] = c.pdfValue;
         if (c.sourceFile) pdfFieldSources[c.fieldName] = c.sourceFile;
       }
+      const currencyConversions = preservedRows
+        .filter((row) => row.trackedItemId === item.id && row.ruleType === "CURRENCY_CONVERSION")
+        .map((row) => parseCurrencyConversionEvidence(row.metadata))
+        .filter((conversion) => conversion !== null);
+      const comparisonPdfFields = withCurrencyConversionFields(pdfFields, currencyConversions);
 
       // Rebuild per-file document evidence from the stored comparison so the
       // deterministic recogniser (alias library, billing family, bill status)
@@ -164,7 +174,7 @@ export async function POST(
 
       const { filteredPageFields, filteredPdfFields } = filterFieldsByTemplate(
         detailData,
-        pdfFields,
+        comparisonPdfFields,
         templateFields
       );
 
@@ -249,6 +259,7 @@ export async function POST(
             businessRules: templateBusinessRules,
             files: visionFiles,
             pdfFieldSources,
+            documentTypesByFile: docTypesByFile,
             provider,
             apiKey,
             visionModel,
@@ -257,6 +268,16 @@ export async function POST(
         } catch (visionErr) {
           logger.warn({ err: visionErr, itemId: item.id }, "[recompare] Vision verification failed (non-fatal)");
         }
+      }
+
+      if (currencyConversions.length > 0) {
+        result.fieldComparisons = applyCurrencyConversionEvidence(
+          result.fieldComparisons,
+          templateFields,
+          currencyConversions
+        );
+        result.matchCount = result.fieldComparisons.filter((comparison) => comparison.status === "MATCH").length;
+        result.mismatchCount = result.fieldComparisons.filter((comparison) => comparison.status === "MISMATCH").length;
       }
 
       const comparisonData = {

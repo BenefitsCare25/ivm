@@ -190,10 +190,11 @@ function parseComparisonResponse(rawText: string): Omit<ComparisonResponse, "raw
     const comparisons: FieldComparison[] = (parsed.fieldComparisons ?? []).map(
       (fc: Record<string, unknown>) => {
         const documentLineMatches = parseDocumentLineMatches(fc.documentLineMatches);
+        const rawPdfValue = fc.pdfValue != null ? String(fc.pdfValue).trim() : "";
         return {
           fieldName: String(fc.fieldName ?? ""),
           pageValue: fc.pageValue != null ? String(fc.pageValue) : null,
-          pdfValue: fc.pdfValue != null ? String(fc.pdfValue) : null,
+          pdfValue: rawPdfValue || null,
           status: VALID_STATUSES.includes(fc.status as ComparisonFieldStatus)
             ? (fc.status as ComparisonFieldStatus)
             : "UNCERTAIN",

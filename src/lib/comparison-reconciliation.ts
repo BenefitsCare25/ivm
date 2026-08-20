@@ -8,6 +8,75 @@ export interface GroupedTemplateField {
   verifyWithVision?: boolean;
 }
 
+export interface CurrencyConversionEvidence {
+  fieldLabel: string;
+  origin: "document" | "portal";
+  originalCurrency: string;
+  originalAmount: number;
+  sgdAmount: number;
+  rate: number;
+  rateDate: string;
+  raw: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Validate persisted JSON before using it as deterministic comparison evidence. */
+export function parseCurrencyConversionEvidence(value: unknown): CurrencyConversionEvidence | null {
+  if (!isRecord(value)) return null;
+  const origin = value.origin;
+  const fieldLabel = typeof value.fieldLabel === "string" ? value.fieldLabel.trim() : "";
+  const originalCurrency =
+    typeof value.originalCurrency === "string" ? value.originalCurrency.trim().toUpperCase() : "";
+  const rateDate = typeof value.rateDate === "string" ? value.rateDate.trim() : "";
+  const originalAmount = Number(value.originalAmount);
+  const sgdAmount = Number(value.sgdAmount);
+  const rate = Number(value.rate);
+
+  if (
+    (origin !== "document" && origin !== "portal") ||
+    !fieldLabel ||
+    !originalCurrency ||
+    !rateDate ||
+    !Number.isFinite(originalAmount) ||
+    !Number.isFinite(sgdAmount) ||
+    !Number.isFinite(rate)
+  ) {
+    return null;
+  }
+
+  return {
+    fieldLabel,
+    origin,
+    originalCurrency,
+    originalAmount,
+    sgdAmount,
+    rate,
+    rateDate,
+    raw: typeof value.raw === "string" && value.raw.trim()
+      ? value.raw.trim()
+      : `${originalCurrency} ${originalAmount.toFixed(2)}`,
+  };
+}
+
+/** Add explicit SGD conversion evidence to the fields shown to the comparison model. */
+export function withCurrencyConversionFields(
+  pdfFields: Record<string, string>,
+  conversions: CurrencyConversionEvidence[]
+): Record<string, string> {
+  if (conversions.length === 0) return pdfFields;
+  const enriched = { ...pdfFields };
+  for (const conversion of conversions) {
+    if (conversion.origin !== "document") continue;
+    enriched[`${conversion.fieldLabel} (converted to SGD)`] =
+      `${conversion.originalCurrency} ${conversion.originalAmount.toFixed(2)} = SGD ${conversion.sgdAmount.toFixed(2)} ` +
+      `(rate ${conversion.rate.toFixed(4)} on ${conversion.rateDate})`;
+  }
+  return enriched;
+}
+
 const STATUS_PRIORITY: Record<FieldComparison["status"], number> = {
   MATCH: 5,
   MISMATCH: 4,
@@ -24,6 +93,10 @@ function normalizeName(value: string): string {
 
 function normalizeExactValue(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function hasDocumentValue(value: string | null | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function uniqueNames(values: string[]): string[] {
@@ -160,14 +233,27 @@ export function reconcileFieldComparisons(
 
     const sorted = [...rows].sort((a, b) =>
       STATUS_PRIORITY[b.status] - STATUS_PRIORITY[a.status] ||
-      Number(b.pdfValue != null) - Number(a.pdfValue != null) ||
+      Number(hasDocumentValue(b.pdfValue)) - Number(hasDocumentValue(a.pdfValue)) ||
       b.confidence - a.confidence
     );
     const selected: FieldComparison = { ...sorted[0], fieldName: field.portalFieldName };
+    if (!hasDocumentValue(selected.pdfValue)) selected.pdfValue = null;
     const lineMatches = mergeLineMatches(rows);
     if (lineMatches.length > 0) selected.documentLineMatches = lineMatches;
-    if (selected.status === "MATCH" && selected.pdfValue == null && lineMatches[0]) {
+    if (selected.status === "MATCH" && !hasDocumentValue(selected.pdfValue) && lineMatches[0]) {
       selected.pdfValue = lineMatches[0].value;
+    }
+
+    // A model-emitted MATCH is not valid without document evidence. Converting
+    // it here makes the invariant true for every caller and allows the normal
+    // deterministic/vision fallbacks below to recover it when possible.
+    if (selected.status === "MATCH" && !hasDocumentValue(selected.pdfValue)) {
+      selected.status = selected.pageValue?.trim() ? "MISSING_IN_PDF" : "UNCERTAIN";
+      selected.confidence = Math.min(selected.confidence, 0.5);
+      selected.notes = [
+        selected.notes,
+        "Model returned MATCH without a document value or supporting line evidence.",
+      ].filter(Boolean).join(" ");
     }
 
     if (
@@ -194,4 +280,78 @@ export function reconcileFieldComparisons(
   }
 
   return reconciled;
+}
+
+function conversionScore(
+  conversion: CurrencyConversionEvidence,
+  field: GroupedTemplateField
+): number {
+  if (conversion.origin !== "document") return -1;
+  const label = normalizeName(conversion.fieldLabel);
+  let score = AMOUNT_LABEL_RE.test(label) ? 1 : 0;
+  for (const documentName of field.documentFieldNames) {
+    const mapped = normalizeName(documentName);
+    if (label === mapped) score = Math.max(score, 4);
+    else if (label.includes(mapped) || mapped.includes(label)) score = Math.max(score, 3);
+  }
+  return score;
+}
+
+/**
+ * Populate a missing document amount from the currency-validation result that
+ * already converted the billing document's foreign amount to SGD.
+ */
+export function applyCurrencyConversionEvidence(
+  comparisons: FieldComparison[],
+  templateFields: TemplateField[],
+  conversions: CurrencyConversionEvidence[]
+): FieldComparison[] {
+  if (conversions.length === 0) return comparisons;
+  const groupedFields = groupTemplateFields(templateFields);
+
+  return comparisons.map((comparison) => {
+    const field = findCanonicalField(comparison.fieldName, groupedFields);
+    if (!field || field.mode !== "numeric" || !comparison.pageValue) return comparison;
+    const visionOnlyMatch =
+      comparison.status === "MATCH" &&
+      comparison.visionVerification?.verdict === "CONFIRMED" &&
+      hasDocumentValue(comparison.pdfValue) &&
+      normalizeExactValue(comparison.pdfValue) === normalizeExactValue(comparison.pageValue);
+    if (comparison.status === "MATCH" && hasDocumentValue(comparison.pdfValue) && !visionOnlyMatch) {
+      return comparison;
+    }
+
+    const ranked = conversions
+      .map((conversion) => ({ conversion, score: conversionScore(conversion, field) }))
+      .filter((entry) => entry.score >= 0)
+      .sort((a, b) => b.score - a.score);
+    const conversion = ranked[0]?.conversion;
+    const portalAmount = numericCandidates(comparison.pageValue)[0];
+    if (!conversion || portalAmount == null) return comparison;
+
+    const tolerance = field.tolerance ?? 0;
+    const difference = Math.abs(portalAmount - conversion.sgdAmount);
+    const status = difference <= tolerance ? "MATCH" : "MISMATCH";
+    const pdfValue = `${conversion.originalCurrency} ${conversion.originalAmount.toFixed(2)} (SGD ${conversion.sgdAmount.toFixed(2)})`;
+    const lineMatch = { label: conversion.fieldLabel, value: conversion.raw };
+
+    return {
+      ...comparison,
+      fieldName: field.portalFieldName,
+      pdfValue,
+      status,
+      confidence: Math.max(comparison.confidence, 0.95),
+      documentLineMatches: [
+        ...(comparison.documentLineMatches ?? []).filter(
+          (match) => normalizeName(match.label) !== normalizeName(lineMatch.label) || match.value !== lineMatch.value
+        ),
+        lineMatch,
+      ],
+      notes: [
+        comparison.notes,
+        `Compared against converted billing amount SGD ${conversion.sgdAmount.toFixed(2)} ` +
+          `(rate ${conversion.rate.toFixed(4)} on ${conversion.rateDate}; difference SGD ${difference.toFixed(2)}).`,
+      ].filter(Boolean).join(" "),
+    };
+  });
 }

@@ -29,6 +29,7 @@ interface ComparisonField {
   status: ComparisonFieldStatus;
   confidence: number;
   notes?: string;
+  documentLineMatches?: Array<{ label: string; value: string; sourceFile?: string }>;
   visionVerification?: VisionVerification;
 }
 
@@ -256,7 +257,7 @@ export function ItemDetailView({ item, portalId, sessionId, validations }: ItemD
                             {field.pageValue ?? "—"}
                           </td>
                           <td className="px-3 py-2 text-muted-foreground max-w-[180px] truncate">
-                            {field.pdfValue ?? "—"}
+                            {field.pdfValue?.trim() || field.documentLineMatches?.[0]?.value || "—"}
                           </td>
                           <td className="px-3 py-2">
                             <div className="flex items-center gap-1.5">

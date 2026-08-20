@@ -92,6 +92,7 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                     const isMismatch = field.status === "MISMATCH";
                     const lineMatches = field.documentLineMatches ?? [];
                     const hasLineMatches = isMismatch && lineMatches.length > 0;
+                    const displayedPdfValue = field.pdfValue?.trim() || lineMatches[0]?.value || null;
                     return (
                       <Fragment key={i}>
                         <tr
@@ -104,7 +105,7 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                             {field.pageValue || "—"}
                           </td>
                           <td className="px-2 py-1.5 text-muted-foreground max-w-[200px]">
-                            <div className="truncate" title={field.pdfValue ?? ""}>{field.pdfValue || "—"}</div>
+                            <div className="truncate" title={displayedPdfValue ?? ""}>{displayedPdfValue || "—"}</div>
                             {field.sourceFile && (
                               <div
                                 className="mt-0.5 truncate text-[10px] text-muted-foreground/60"

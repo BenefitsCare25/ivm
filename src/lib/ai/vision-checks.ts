@@ -2,6 +2,7 @@ import { logger } from "@/lib/logger";
 import { verifyWithVision } from "./vision-verify";
 import { rasterizePdfToImages } from "./pdf-raster";
 import { fieldNameMatchesPortal } from "@/lib/comparison-templates";
+import { selectVisionSourceFile } from "./vision-source-selection";
 import type { AIProvider, RasterImage } from "./types";
 import type {
   BusinessRule,
@@ -31,6 +32,7 @@ interface RunVisionChecksArgs {
   businessRules: BusinessRule[];
   files: VisionCheckFile[];
   pdfFieldSources?: Record<string, string>;
+  documentTypesByFile?: Record<string, string>;
   /** Buffers already downloaded earlier this job (avoids a second storage fetch). */
   preloadedBuffers?: Map<string, Buffer>;
   provider: AIProvider;
@@ -46,7 +48,10 @@ interface RunVisionChecksArgs {
  * in place (applying verdicts) and returns the count of checks performed.
  */
 export async function runVisionChecks(args: RunVisionChecksArgs): Promise<number> {
-  const { comparisonResult, fields, businessRules, files, pdfFieldSources, preloadedBuffers, provider, apiKey, visionModel, baseURL } = args;
+  const {
+    comparisonResult, fields, businessRules, files, pdfFieldSources, documentTypesByFile,
+    preloadedBuffers, provider, apiKey, visionModel, baseURL,
+  } = args;
 
   // Only verify against formats the vision model accepts.
   const usableFiles = files.filter((f) => SUPPORTED_MIME(f.mimeType));
@@ -60,13 +65,18 @@ export async function runVisionChecks(args: RunVisionChecksArgs): Promise<number
     | { kind: "rule"; br: BusinessRuleResult; file: VisionCheckFile; question: string };
   const tasks: Task[] = [];
 
-  const pickFile = (preferredName?: string): VisionCheckFile => {
-    if (preferredName) {
-      const m = usableFiles.find((f) => f.originalName === preferredName);
-      if (m) return m;
-    }
-    return usableFiles[0];
-  };
+  const pickFile = (
+    preferredName?: string,
+    fieldName?: string,
+    templateField?: TemplateField
+  ): VisionCheckFile => selectVisionSourceFile({
+    files: usableFiles,
+    preferredName,
+    fieldName,
+    templateField,
+    pdfFieldSources,
+    documentTypesByFile,
+  });
 
   for (const fc of comparisonResult.fieldComparisons) {
     if (tasks.length >= MAX_VISION_VERIFICATIONS) break;
@@ -79,7 +89,7 @@ export async function runVisionChecks(args: RunVisionChecksArgs): Promise<number
     tasks.push({
       kind: "field",
       fc,
-      file: pickFile(pdfFieldSources?.[fc.fieldName]),
+      file: pickFile(pdfFieldSources?.[fc.fieldName], fc.fieldName, tf),
       question:
         `The portal record shows "${fc.fieldName}" = "${fc.pageValue ?? ""}". ` +
         `The text extracted from this document showed "${fc.pdfValue ?? "(none)"}". ` +
@@ -164,7 +174,7 @@ export async function runVisionChecks(args: RunVisionChecksArgs): Promise<number
         task.fc.visionVerification = { ...result, sourceFile: task.file.originalName };
         if (result.verdict === "CONFIRMED") {
           task.fc.status = "MATCH";
-          task.fc.pdfValue ??= task.fc.pageValue;
+          if (!task.fc.pdfValue?.trim()) task.fc.pdfValue = task.fc.pageValue;
           task.fc.notes = `${task.fc.notes ? task.fc.notes + " " : ""}[Vision-verified: ${result.explanation}]`;
           fieldChanged = true;
         }

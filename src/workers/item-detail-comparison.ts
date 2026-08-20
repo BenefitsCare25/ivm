@@ -6,6 +6,11 @@ import { findMatchingTemplate, filterFieldsByTemplate, filterComparisonsByTempla
 import { withCodeRuleResults } from "@/lib/business-rules/evaluate-code-rules";
 import { buildBusinessRuleValidations } from "@/lib/business-rules/persist";
 import { runVisionChecks, type VisionCheckFile } from "@/lib/ai/vision-checks";
+import {
+  applyCurrencyConversionEvidence,
+  parseCurrencyConversionEvidence,
+  withCurrencyConversionFields,
+} from "@/lib/comparison-reconciliation";
 import { withEventTracking } from "@/lib/portal-events";
 import { toInputJson } from "@/lib/utils";
 import {
@@ -115,6 +120,19 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
   // (canonical type, billing-document family, interim/final bill status).
   const recognizedDocs = recognizeDocuments(fileExtractions, cachedDocTypes ?? []);
   const billStatusSignal = buildBillStatusSignal(recognizedDocs);
+  const documentTypesByFile = Object.fromEntries(
+    fileExtractions.map((extraction) => [extraction.fileName, extraction.documentType])
+  );
+  const currencyRows = input.foreignCurrency
+    ? await db.validationResult.findMany({
+        where: { trackedItemId, ruleType: "CURRENCY_CONVERSION" },
+        select: { metadata: true },
+      })
+    : [];
+  const currencyConversions = currencyRows
+    .map((row) => parseCurrencyConversionEvidence(row.metadata))
+    .filter((conversion) => conversion !== null);
+  const comparisonPdfFields = withCurrencyConversionFields(pdfFields, currencyConversions);
 
   let comparisonResult;
   let templateId: string | null = null;
@@ -126,7 +144,7 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
     matchedTemplate = template;
 
     let comparePageFields = comparablePageData;
-    let comparePdfFields = pdfFields;
+    let comparePdfFields = comparisonPdfFields;
     let templateFields: TemplateField[] | undefined;
 
     // Feed the LLM the raw type AND the alias-resolved canonical name + billing
@@ -142,7 +160,7 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
     if (template) {
       templateId = template.id;
       templateFields = template.fields;
-      const filtered = filterFieldsByTemplate(comparablePageData, pdfFields, template.fields);
+      const filtered = filterFieldsByTemplate(comparablePageData, comparisonPdfFields, template.fields);
       comparePageFields = filtered.filteredPageFields;
       comparePdfFields = filtered.filteredPdfFields;
 
@@ -205,7 +223,7 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
       comparisonResult.fieldComparisons = filterComparisonsByTemplate(
         comparisonResult.fieldComparisons,
         matchedTemplate.fields,
-        pdfFields
+        comparisonPdfFields
       );
       comparisonResult.matchCount = comparisonResult.fieldComparisons.filter((c) => c.status === "MATCH").length;
       comparisonResult.mismatchCount = comparisonResult.fieldComparisons.filter((c) => c.status === "MISMATCH").length;
@@ -252,6 +270,7 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
           businessRules: matchedTemplate.businessRules,
           files: downloadedFiles,
           pdfFieldSources,
+          documentTypesByFile,
           preloadedBuffers: fileBuffers,
           provider,
           apiKey,
@@ -261,6 +280,16 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
       } catch (err) {
         logger.warn({ err, trackedItemId }, "[worker] Vision verification failed (non-fatal)");
       }
+    }
+
+    if (matchedTemplate && currencyConversions.length > 0) {
+      comparisonResult.fieldComparisons = applyCurrencyConversionEvidence(
+        comparisonResult.fieldComparisons,
+        matchedTemplate.fields,
+        currencyConversions
+      );
+      comparisonResult.matchCount = comparisonResult.fieldComparisons.filter((c) => c.status === "MATCH").length;
+      comparisonResult.mismatchCount = comparisonResult.fieldComparisons.filter((c) => c.status === "MISMATCH").length;
     }
 
     // Clobber guard: the worker decided up front (before the destructive
@@ -275,9 +304,6 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
     }
 
     if (!preservedPrior) {
-      const documentTypesByFile = Object.fromEntries(
-        fileExtractions.map((e) => [e.fileName, e.documentType])
-      );
       ruleFlag = await saveComparisonResult(
         trackedItemId, comparisonResult, displayProvider, templateId, matchedTemplate,
         billStatusSignal, documentTypesByFile,
