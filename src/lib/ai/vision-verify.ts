@@ -5,6 +5,7 @@ import { logger } from "@/lib/logger";
 import { stripMarkdownFences } from "./parse";
 import { rasterizePdfToImages } from "./pdf-raster";
 import { downscaleImages } from "./image-scale";
+import { callCodexJson } from "./codex";
 import type { AIProvider, RasterImage } from "./types";
 import type { VisionVerdict } from "@/types/portal";
 
@@ -90,6 +91,17 @@ export async function verifyWithVision(req: VisionVerifyRequest): Promise<Vision
           ? await rasterizePdfToImages(req.fileData, { maxPages: 4 })
           : [{ data: req.fileData, mimeType: req.mimeType as RasterImage["mimeType"] }]);
       return await withOpenAI(req, await downscaleImages(base));
+    }
+    if (req.provider === "codex") {
+      const base: RasterImage[] = req.images
+        ?? (isPdf
+          ? await rasterizePdfToImages(req.fileData, { maxPages: 4 })
+          : [{ data: req.fileData, mimeType: req.mimeType as RasterImage["mimeType"] }]);
+      const response = await callCodexJson(systemPrompt(), req.question, {
+        model: req.model,
+        images: await downscaleImages(base),
+      });
+      return parse(response.text, req.model);
     }
     return { verdict: "UNCERTAIN", explanation: `Unsupported provider ${req.provider}`, model: req.model };
   } catch (err) {

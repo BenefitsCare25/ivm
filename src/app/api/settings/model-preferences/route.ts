@@ -4,8 +4,7 @@ import { db } from "@/lib/db";
 import { modelPreferencesSchema, PROVIDER_MODELS } from "@/lib/validations/api-key";
 import { errorResponse, UnauthorizedError, ValidationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
-import type { AIProvider } from "@/lib/ai/types";
-import type { ModelPreferences } from "@/lib/validations/api-key";
+import type { AIProvider, ModelPreferences } from "@/lib/validations/api-key";
 
 export async function GET() {
   try {

@@ -121,10 +121,10 @@ export async function runVisionChecks(args: RunVisionChecksArgs): Promise<number
     );
   }
 
-  // For local, rasterize each unique PDF ONCE (canvas render is the expensive step) and
+  // For local/Codex, rasterize each unique PDF ONCE (canvas render is the expensive step) and
   // reuse the pages across every task on that file, rather than re-decoding per task.
   const rasterCache = new Map<string, RasterImage[]>();
-  if (provider === "local") {
+  if (provider === "local" || provider === "codex") {
     const pdfPaths = [
       ...new Set(tasks.filter((t) => t.file.mimeType === "application/pdf").map((t) => t.file.storagePath)),
     ];

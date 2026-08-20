@@ -7,6 +7,7 @@ import { env } from "@/lib/env";
 import { withRetry } from "@/lib/retry";
 import { getMappingSystemPrompt, getMappingUserPrompt } from "./prompts";
 import { parseMappingResponse } from "./parse-mapping";
+import { callCodexJson } from "./codex";
 import type { AIMappingRequest, AIMappingResponse } from "./types";
 
 interface TextCallResult {
@@ -155,6 +156,15 @@ export async function proposeFieldMappings(
         { maxRetries: 2, operation: "mapping:gemini" }
       );
       rawText = result.rawText;
+      rawResponse = result.rawResponse;
+      break;
+    }
+    case "codex": {
+      const result = await withRetry(
+        () => callCodexJson(systemPrompt, userPrompt, { model: request.model }),
+        { maxRetries: 2, operation: "mapping:codex" }
+      );
+      rawText = result.text;
       rawResponse = result.rawResponse;
       break;
     }

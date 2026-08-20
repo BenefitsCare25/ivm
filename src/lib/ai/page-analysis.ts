@@ -8,6 +8,7 @@ import { AppError } from "@/lib/errors";
 import { PROVIDER_MODELS } from "@/lib/validations/api-key";
 import { stripMarkdownFences, extractJsonObject } from "./parse";
 import { getPageAnalysisSystemPrompt, getPageAnalysisUserPrompt } from "./prompts-portal";
+import { callCodexJson } from "./codex";
 import type { AIProvider } from "./types";
 import type { ListSelectors, DetailSelectors } from "@/types/portal";
 
@@ -50,6 +51,16 @@ export async function analyzePageStructure(
       rawText = await analyzeWithOpenAI(request);
     } else if (provider === "gemini") {
       rawText = await analyzeWithGemini(request);
+    } else if (provider === "codex") {
+      const response = await callCodexJson(
+        getPageAnalysisSystemPrompt(),
+        getPageAnalysisUserPrompt(request.url, request.htmlSnippet),
+        {
+          model: request.model,
+          images: [{ data: request.screenshot, mimeType: "image/png" }],
+        }
+      );
+      rawText = response.text;
     } else {
       throw new AppError(`Unsupported provider: ${provider}`, 400, "UNSUPPORTED_PROVIDER");
     }

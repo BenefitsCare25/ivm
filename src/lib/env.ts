@@ -13,7 +13,14 @@ const envSchema = z.object({
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   S3_ENDPOINT: z.string().optional(),
-  AI_PROVIDER: z.enum(["anthropic", "openai", "gemini"]).default("anthropic"),
+  AI_PROVIDER: z.enum(["codex", "anthropic", "openai", "gemini"]).default("codex"),
+  // Deployment-wide ChatGPT OAuth through the official Codex App Server.
+  // No OpenAI API key is used or stored by IVM.
+  CODEX_CLI_PATH: z.string().optional(),
+  IVM_CODEX_HOME: z.string().optional(),
+  CODEX_REVIEW_MODEL: z.string().default("gpt-5.6-terra"),
+  CODEX_REVIEW_EFFORT: z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]).default("medium"),
+  CODEX_AI_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-6"),
   OPENAI_MODEL: z.string().default("gpt-4.1"),
   GEMINI_MODEL: z.string().default("gemini-2.5-flash"),

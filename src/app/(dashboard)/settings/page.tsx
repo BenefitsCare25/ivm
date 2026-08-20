@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { ApiKeysForm } from "@/components/settings/api-keys-form";
-import { ProxyStatusCard } from "@/components/settings/proxy-status-card";
+import { ChatGptStatusCard } from "@/components/settings/chatgpt-status-card";
 import { ChangePasswordForm } from "@/components/settings/change-password-form";
 import { DocumentTypesManager } from "@/components/settings/document-types-manager";
 
@@ -11,7 +11,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Manage your API keys and application preferences
+          Review the shared AI connection and application preferences
         </p>
       </div>
 
@@ -19,10 +19,10 @@ export default function SettingsPage() {
         <div>
           <h2 className="text-lg font-medium text-foreground">AI Provider</h2>
           <p className="text-sm text-muted-foreground">
-            System default uses the Claude pay plan. Add your own key to override it.
+            All AI processing uses the deployment-wide ChatGPT OAuth connection. Personal keys are fallback only.
           </p>
         </div>
-        <ProxyStatusCard />
+        <ChatGptStatusCard />
         <ApiKeysForm />
       </section>
 

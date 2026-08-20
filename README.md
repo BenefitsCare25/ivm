@@ -147,6 +147,10 @@ npm run dev                   # http://localhost:3000
 | `NEXTAUTH_URL` | Yes | App URL (e.g. `http://localhost:3000`) |
 | `NEXTAUTH_SECRET` | Yes | Min 32-char random string |
 | `ENCRYPTION_KEY` | Yes | 64-char hex (32 bytes) for AES-256-GCM |
+| `AI_PROVIDER` | No | Set to `codex` for deployment-wide ChatGPT OAuth (default) |
+| `IVM_CODEX_HOME` | No | Persistent Codex auth/config directory owned by the IVM service account |
+| `CODEX_REVIEW_MODEL` | No | ChatGPT model for every AI stage (default `gpt-5.6-terra`) |
+| `CODEX_REVIEW_EFFORT` | No | Reasoning effort (default `medium`) |
 | `ANTHROPIC_API_KEY` | No | Fallback AI key if no BYOK configured |
 | `REDIS_URL` | No | Redis for rate limiting + queue (falls back to in-memory) |
 | `STORAGE_PROVIDER` | No | `local` (default) or `s3` |
@@ -203,6 +207,28 @@ Full interactive docs available at `/docs` (Swagger UI) or `/docs/openapi.json` 
 ---
 
 ## Deployment
+
+### One-time ChatGPT OAuth setup
+
+Install the Codex CLI on the server, then authenticate once as the same operating-system
+account that runs the IVM web and worker processes. The browser/device authorization is an
+administrator deployment task; IVM frontend users never enter a key or authorize ChatGPT.
+
+```bash
+sudo install -d -m 700 -o azureuser -g azureuser /var/lib/ivm/codex
+sudo -u azureuser env CODEX_HOME=/var/lib/ivm/codex codex login --device-auth
+sudo -u azureuser env CODEX_HOME=/var/lib/ivm/codex codex login status
+```
+
+Set `AI_PROVIDER=codex` and `IVM_CODEX_HOME=/var/lib/ivm/codex` in `/etc/ivm/.env`, then
+restart every IVM process. Codex App Server persists and refreshes the ChatGPT OAuth session
+inside that protected directory. Extraction, mapping, page analysis, comparison, and visual
+verification all use the same configured ChatGPT model.
+
+Use a dedicated service account and restrict the auth directory to that account. Claims can
+contain sensitive or medical personal data, so obtain privacy/legal approval and confirm the
+organization's ChatGPT data controls and cross-border processing requirements before sending
+production records through a personal ChatGPT Pro plan.
 
 - **VPS**: Azure VM (`ivm-vm`), `20.198.253.167`, Ubuntu 24.04, 8GB RAM
 - **SSH**: `ssh -i ~/Downloads/ivm-vm_key.pem azureuser@20.198.253.167`

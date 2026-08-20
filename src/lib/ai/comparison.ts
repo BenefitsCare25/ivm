@@ -5,6 +5,7 @@ import { logger } from "@/lib/logger";
 import { AppError } from "@/lib/errors";
 import { PROVIDER_MODELS } from "@/lib/validations/api-key";
 import { stripMarkdownFences } from "./parse";
+import { callCodexJson } from "./codex";
 import { getComparisonSystemPrompt, getComparisonUserPrompt, getTemplatedComparisonUserPrompt } from "./prompts-comparison";
 import type { AIProvider } from "./types";
 import type { FieldComparison, ComparisonFieldStatus, TemplateField, BusinessRuleResult, RequiredDocumentCheck, DiagnosisAssessment, DocumentLineMatch } from "@/types/portal";
@@ -58,6 +59,13 @@ export async function compareFields(
     result = await compareWithOpenAI(request, userPrompt);
   } else if (provider === "gemini") {
     result = await compareWithGemini(request, userPrompt);
+  } else if (provider === "codex") {
+    const response = await callCodexJson(
+      request.systemPromptOverride ?? getComparisonSystemPrompt(),
+      userPrompt,
+      { model: request.model }
+    );
+    result = { text: response.text, truncated: false };
   } else {
     throw new AppError(`Unsupported provider: ${provider}`, 400, "UNSUPPORTED_PROVIDER");
   }

@@ -4,6 +4,7 @@ import { extractTextFromDocx } from "./docx-extractor";
 import { extractWithAnthropic } from "./anthropic";
 import { extractWithOpenAI } from "./openai";
 import { extractWithGemini } from "./gemini";
+import { extractWithCodex } from "./codex";
 import { extractWithProxyReadTool } from "./proxy-extraction";
 import { rasterizePdfToImages } from "./pdf-raster";
 import { downscaleImages } from "./image-scale";
@@ -29,7 +30,7 @@ export async function extractFieldsFromDocument(
 
   // Local vision models (oMLX / Qwen3-VL) accept images, not PDFs, and are bottlenecked
   // by image resolution — rasterize PDFs and downscale all images before sending.
-  if (request.provider === "local" && !enrichedRequest.textContent) {
+  if ((request.provider === "local" || request.provider === "codex") && !enrichedRequest.textContent) {
     let pages: RasterImage[] | null = null;
     if (request.mimeType === PDF_MIME) {
       pages = await rasterizePdfToImages(request.fileData);
@@ -65,6 +66,8 @@ export async function extractFieldsFromDocument(
           return extractWithOpenAI(enrichedRequest);
         case "gemini":
           return extractWithGemini(enrichedRequest);
+        case "codex":
+          return extractWithCodex(enrichedRequest);
         default:
           throw new AppError(`Unsupported AI provider: ${enrichedRequest.provider}`, 400, "INVALID_PROVIDER");
       }

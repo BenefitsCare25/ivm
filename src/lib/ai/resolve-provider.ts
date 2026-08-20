@@ -2,8 +2,9 @@ import { db } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
 import { env } from "@/lib/env";
 import { ValidationError } from "@/lib/errors";
-import { PROVIDER_MODELS, type ModelPreferences } from "@/lib/validations/api-key";
+import { PROVIDER_MODELS, type AIProvider as ApiKeyProvider, type ModelPreferences } from "@/lib/validations/api-key";
 import type { AIProvider } from "./types";
+import { getCodexAccountStatus } from "./codex-app-server";
 
 export interface ResolvedProvider {
   provider: AIProvider;
@@ -40,6 +41,21 @@ async function isProxyHealthy(url: string): Promise<boolean> {
 }
 
 export async function resolveProviderAndKey(userId: string): Promise<ResolvedProvider> {
+  // The deployment-wide ChatGPT OAuth connection is authoritative when selected.
+  // Tokens are owned by Codex App Server; IVM never receives an API key or OAuth token.
+  if (env.AI_PROVIDER === "codex") {
+    const account = await getCodexAccountStatus();
+    if (account.connected) {
+      return {
+        provider: "codex",
+        apiKey: "",
+        visionModel: env.CODEX_REVIEW_MODEL,
+        textModel: env.CODEX_REVIEW_MODEL,
+        displayProvider: "ChatGPT Pro (OAuth)",
+      };
+    }
+  }
+
   const user = await db.user.findUnique({
     where: { id: userId },
     select: {
@@ -55,7 +71,7 @@ export async function resolveProviderAndKey(userId: string): Promise<ResolvedPro
       ? user.apiKeys.find((k) => k.provider === user.preferredProvider)
       : null;
     const key = preferred ?? user.apiKeys[0];
-    const provider = key.provider as AIProvider;
+    const provider = key.provider as ApiKeyProvider;
     const prefs = (user.modelPreferences as ModelPreferences | null)?.[provider];
     const defaults = PROVIDER_MODELS[provider].defaults;
 
@@ -97,6 +113,8 @@ export async function resolveProviderAndKey(userId: string): Promise<ResolvedPro
   }
 
   throw new ValidationError(
-    "No API key configured. Go to Settings to add your API key for Claude, OpenAI, or Gemini."
+    env.AI_PROVIDER === "codex"
+      ? "The deployment ChatGPT OAuth connection is unavailable and no fallback provider is configured."
+      : "No API key configured. Go to Settings to add your API key for Claude, OpenAI, or Gemini."
   );
 }
