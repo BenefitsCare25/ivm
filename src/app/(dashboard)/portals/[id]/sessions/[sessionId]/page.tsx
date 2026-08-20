@@ -69,6 +69,9 @@ export default async function SessionItemsPage({
       createdAt: true,
       _count: { select: { trackedItems: true } },
       trackedItems: {
+        // Filter-excluded claims remain stored for audit/completion accounting,
+        // but are intentionally omitted from the operator-facing item listing.
+        where: { status: { not: "FILTERED" } },
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: {
           id: true,
