@@ -199,7 +199,11 @@ export async function POST(
 
       // Filter out extra field comparisons the AI added beyond the template config
       if (templateFields.length > 0) {
-        result.fieldComparisons = filterComparisonsByTemplate(result.fieldComparisons, templateFields);
+        result.fieldComparisons = filterComparisonsByTemplate(
+          result.fieldComparisons,
+          templateFields,
+          filteredPdfFields
+        );
         result.matchCount = result.fieldComparisons.filter((c) => c.status === "MATCH").length;
         result.mismatchCount = result.fieldComparisons.filter((c) => c.status === "MISMATCH").length;
       }

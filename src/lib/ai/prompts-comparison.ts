@@ -1,4 +1,5 @@
 import type { TemplateField } from "@/types/portal";
+import { groupTemplateFields } from "@/lib/comparison-reconciliation";
 
 export const DIAGNOSIS_JSON_SCHEMA = `"diagnosisAssessment": {
     "diagnosis": "The assessed medical diagnosis",
@@ -69,21 +70,22 @@ export function getTemplatedComparisonUserPrompt(
   pdfFields: Record<string, string>,
   templateFields: TemplateField[]
 ): string {
-  const rules = templateFields.map((f) => {
-    // Support both old fieldName and new portalFieldName/documentFieldName
-    const portalName = f.portalFieldName ?? (f as unknown as Record<string, string>).fieldName ?? "";
-    const docName = f.documentFieldName ?? portalName;
-    if (f.mode === "exact") return `- Portal "${portalName}" ↔ Document "${docName}": EXACT match required — any difference is MISMATCH`;
+  const rules = groupTemplateFields(templateFields).map((f) => {
+    const portalName = f.portalFieldName;
+    const docName = f.documentFieldNames.length === 1
+      ? `Document "${f.documentFieldNames[0]}"`
+      : `Document ONE OF ${JSON.stringify(f.documentFieldNames)}`;
+    if (f.mode === "exact") return `- Portal "${portalName}" ↔ ${docName}: EXACT match required — any difference is MISMATCH`;
     if (f.mode === "numeric") {
       const tol = f.tolerance ?? 0;
-      return `- Portal "${portalName}" ↔ Document "${docName}": NUMERIC comparison — values within ${tol} tolerance are MATCH`;
+      return `- Portal "${portalName}" ↔ ${docName}: NUMERIC comparison — values within ${tol} tolerance are MATCH`;
     }
-    return `- Portal "${portalName}" ↔ Document "${docName}": FUZZY match — ignore formatting differences (dates, names, whitespace, currency symbols, leading punctuation on reference numbers). For organization names, apply semantic parent-brand matching: treat as MATCH if the names share the same root brand and one is plausibly a branch or variant of the other. For fields containing multiple identifiers joined by "&", "/", or "," — split them and check each against ALL document fields; treat as MATCH only if every individual value is found somewhere in the documents.`;
+    return `- Portal "${portalName}" ↔ ${docName}: FUZZY match — ignore formatting differences (dates, names, whitespace, currency symbols, leading punctuation on reference numbers). For organization names, apply semantic parent-brand matching: treat as MATCH if the names share the same root brand and one is plausibly a branch or variant of the other. For fields containing multiple identifiers joined by "&", "/", or "," — split them and check each against ALL document fields; treat as MATCH only if every individual value is found somewhere in the documents.`;
   }).join("\n");
 
   return `Compare the following data from a web portal page against data extracted from associated PDF documents.
 
-IMPORTANT: Only compare the fields listed below. Ignore all other fields.
+IMPORTANT: Compare only the portal fields listed below and return exactly ONE result row per portal field. Document labels listed as ONE OF are alternatives for the same value. Ignore all other fields.
 
 ## Matching Rules
 ${rules}

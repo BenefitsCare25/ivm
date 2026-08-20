@@ -1,6 +1,7 @@
 import type { TemplateField, RequiredDocument, BusinessRule } from "@/types/portal";
 import { BUSINESS_RULE_SEVERITY_LABELS } from "@/types/portal";
 import { DIAGNOSIS_JSON_SCHEMA, DIAGNOSIS_RULES } from "./prompts-comparison";
+import { groupTemplateFields } from "@/lib/comparison-reconciliation";
 
 const MAX_VALUE_LENGTH = 200;
 
@@ -126,14 +127,18 @@ export function buildFullComparisonUserPrompt(config: FullPromptConfig): string 
   // Code rules are evaluated deterministically in-process, not by the model.
   const aiRules = businessRules.filter((r) => r.type !== "code");
 
-  const fieldMappingLines = fields.map((f) => {
+  const groupedFields = groupTemplateFields(fields);
+  const fieldMappingLines = groupedFields.map((f) => {
     const modeDesc =
       f.mode === "exact"
         ? "EXACT match required — any difference is MISMATCH"
         : f.mode === "numeric"
           ? `NUMERIC comparison — values within ${f.tolerance ?? 0} tolerance are MATCH`
           : "FUZZY match — ignore formatting differences (dates, names, whitespace, currency symbols)";
-    return `- Portal "${f.portalFieldName}" ↔ Document "${f.documentFieldName}" — ${modeDesc}`;
+    const documentLabels = f.documentFieldNames.length === 1
+      ? `Document "${f.documentFieldNames[0]}"`
+      : `Document ONE OF ${JSON.stringify(f.documentFieldNames)}`;
+    return `- Portal "${f.portalFieldName}" ↔ ${documentLabels} — ${modeDesc}`;
   });
 
   const ruleLines = aiRules.map(
@@ -150,7 +155,7 @@ export function buildFullComparisonUserPrompt(config: FullPromptConfig): string 
   let prompt = `Compare the following portal claim record against submitted documents.\n`;
 
   if (fields.length > 0) {
-    prompt += `\n## 1. Field Mappings (compare ONLY these pairs)\nIMPORTANT: Only compare the field pairs listed below. Do NOT compare any other fields — ignore all fields not listed here.\n${fieldMappingLines.join("\n")}\n`;
+    prompt += `\n## 1. Field Mappings (compare ONLY these portal fields)\nIMPORTANT: Return exactly ONE fieldComparisons row per portal field below. Labels listed as ONE OF are alternatives for the same document value; use the best-supported label that is present. Do NOT return duplicate rows for a portal field and do NOT compare any unlisted field.\n${fieldMappingLines.join("\n")}\n`;
   }
 
   if (aiRules.length > 0) {

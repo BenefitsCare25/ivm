@@ -217,9 +217,11 @@ export function inferDefaultMode(fieldName: string): { mode: MatchMode; toleranc
 export interface TemplateField {
   portalFieldName: string;
   documentFieldName: string;
+  /** Alternative labels used by different document issuers for the same value. */
+  documentFieldAliases?: string[];
   mode: MatchMode;
   tolerance?: number;
-  /** Re-verify a MISMATCH on this field against the source document with vision. */
+  /** Re-verify a mismatch/missing result against the source document with vision. */
   verifyWithVision?: boolean;
 }
 
@@ -443,9 +445,9 @@ export interface FieldComparison {
   confidence: number;
   notes?: string;
   sourceFile?: string;
-  /** When status=MISMATCH, optional list of document line items where the portal value was found */
+  /** Optional document line items where the portal value was found. */
   documentLineMatches?: DocumentLineMatch[];
-  /** Set when a MISMATCH was re-checked against the source document with vision. */
+  /** Set when a mismatch/missing value was re-checked against the source document with vision. */
   visionVerification?: VisionVerification;
 }
 

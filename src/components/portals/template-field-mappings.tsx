@@ -95,7 +95,7 @@ export function TemplateFieldMappings({ fields: initial, saving, onSave }: Props
               <span>Portal field</span>
               <span>Document field</span>
               <span>Mode</span>
-              <span title="Re-verify a mismatch against the source document with a vision model">Vision</span>
+              <span title="Re-verify a mismatch or missing value against the source document with a vision model">Vision</span>
               <span />
             </div>
             {fields.map((f, idx) => (
@@ -124,7 +124,7 @@ export function TemplateFieldMappings({ fields: initial, saving, onSave }: Props
                 <button
                   type="button"
                   onClick={() => toggleVision(idx)}
-                  title={f.verifyWithVision ? "Vision re-check ON — mismatches are re-verified against the document" : "Enable vision re-check on mismatch"}
+                  title={f.verifyWithVision ? "Vision re-check ON — mismatches and missing values are re-verified against the document" : "Enable vision re-check on mismatch or missing value"}
                   aria-pressed={f.verifyWithVision ?? false}
                   className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
                     f.verifyWithVision

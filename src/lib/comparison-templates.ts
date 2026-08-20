@@ -1,5 +1,11 @@
 import { db } from "@/lib/db";
 import type { TemplateField, RequiredDocument, BusinessRule, FieldComparison } from "@/types/portal";
+import {
+  fieldNameMatchesPortal,
+  reconcileFieldComparisons,
+} from "@/lib/comparison-reconciliation";
+
+export { fieldNameMatchesPortal } from "@/lib/comparison-reconciliation";
 
 export interface MatchedTemplate {
   id: string;
@@ -224,19 +230,15 @@ export function filterFieldsByTemplate(
  * field. Allows the combined-name forms the model emits (e.g. "Claim Amount / Total").
  * Shared so the template filter and vision re-check resolve fields identically.
  */
-export function fieldNameMatchesPortal(comparisonFieldName: string, portalFieldName: string): boolean {
-  const name = comparisonFieldName.toLowerCase().trim();
-  const allowed = portalFieldName.toLowerCase().trim();
-  return name === allowed || name.startsWith(allowed + " /") || name.startsWith(allowed + "/");
-}
-
 export function filterComparisonsByTemplate(
   fieldComparisons: FieldComparison[],
-  templateFields: TemplateField[]
+  templateFields: TemplateField[],
+  pdfFields: Record<string, string> = {}
 ): FieldComparison[] {
   if (templateFields.length === 0) return fieldComparisons;
 
-  return fieldComparisons.filter((fc) =>
+  const filtered = fieldComparisons.filter((fc) =>
     templateFields.some((tf) => fieldNameMatchesPortal(fc.fieldName, tf.portalFieldName))
   );
+  return reconcileFieldComparisons(filtered, templateFields, pdfFields);
 }

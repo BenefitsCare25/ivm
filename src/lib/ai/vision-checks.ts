@@ -41,7 +41,7 @@ interface RunVisionChecksArgs {
 
 /**
  * Selectively re-check flagged results against the source document with a vision
- * model. Only fires on violations/mismatches for fields & rules the user marked
+ * model. Only fires on violations/mismatches/missing values for fields & rules the user marked
  * `verifyWithVision`, capped to control cost & latency. Mutates comparisonResult
  * in place (applying verdicts) and returns the count of checks performed.
  */
@@ -70,10 +70,12 @@ export async function runVisionChecks(args: RunVisionChecksArgs): Promise<number
 
   for (const fc of comparisonResult.fieldComparisons) {
     if (tasks.length >= MAX_VISION_VERIFICATIONS) break;
-    if (fc.status !== "MISMATCH") continue;
+    if (fc.status !== "MISMATCH" && fc.status !== "MISSING_IN_PDF" && fc.status !== "UNCERTAIN") continue;
     // Match the same way the template filter does (handles "Claim Amount / Total").
-    const tf = fields.find((f) => fieldNameMatchesPortal(fc.fieldName, f.portalFieldName));
-    if (!tf?.verifyWithVision) continue;
+    const tf = fields.find(
+      (f) => f.verifyWithVision && fieldNameMatchesPortal(fc.fieldName, f.portalFieldName)
+    );
+    if (!tf) continue;
     tasks.push({
       kind: "field",
       fc,
@@ -162,6 +164,7 @@ export async function runVisionChecks(args: RunVisionChecksArgs): Promise<number
         task.fc.visionVerification = { ...result, sourceFile: task.file.originalName };
         if (result.verdict === "CONFIRMED") {
           task.fc.status = "MATCH";
+          task.fc.pdfValue ??= task.fc.pageValue;
           task.fc.notes = `${task.fc.notes ? task.fc.notes + " " : ""}[Vision-verified: ${result.explanation}]`;
           fieldChanged = true;
         }

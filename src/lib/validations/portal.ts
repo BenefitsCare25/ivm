@@ -130,6 +130,7 @@ export type UpdateTrackedItemInput = z.infer<typeof updateTrackedItemSchema>;
 export const templateFieldSchema = z.object({
   portalFieldName: z.string().min(1).max(200),
   documentFieldName: z.string().min(1).max(200),
+  documentFieldAliases: z.array(z.string().min(1).max(200)).max(20).optional(),
   mode: z.enum(["fuzzy", "exact", "numeric"]),
   tolerance: z.number().min(0).max(1000).optional(),
   verifyWithVision: z.boolean().optional(),

@@ -204,7 +204,8 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
     if (matchedTemplate && matchedTemplate.fields.length > 0) {
       comparisonResult.fieldComparisons = filterComparisonsByTemplate(
         comparisonResult.fieldComparisons,
-        matchedTemplate.fields
+        matchedTemplate.fields,
+        pdfFields
       );
       comparisonResult.matchCount = comparisonResult.fieldComparisons.filter((c) => c.status === "MATCH").length;
       comparisonResult.mismatchCount = comparisonResult.fieldComparisons.filter((c) => c.status === "MISMATCH").length;
