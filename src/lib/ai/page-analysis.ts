@@ -34,8 +34,18 @@ export async function analyzePageStructure(
   request: PageAnalysisRequest
 ): Promise<PageAnalysisResponse> {
   const { provider } = request;
+  const startedAt = Date.now();
 
-  logger.info({ url: request.url, provider }, "[ai] Starting page structure analysis");
+  logger.info(
+    {
+      url: request.url,
+      provider,
+      model: request.model ?? "provider-default",
+      screenshotBytes: request.screenshot.length,
+      htmlBytes: request.htmlSnippet.length,
+    },
+    "[ai] Starting page structure analysis"
+  );
 
   let rawText: string;
 
@@ -65,16 +75,35 @@ export async function analyzePageStructure(
       throw new AppError(`Unsupported provider: ${provider}`, 400, "UNSUPPORTED_PROVIDER");
     }
   } catch (err) {
-    if (err instanceof AppError) throw err;
     const msg = err instanceof Error ? err.message : String(err);
     const status = (err as { status?: number }).status;
-    logger.error({ err, provider, url: request.url }, "[ai] Page analysis provider error");
+    logger.error(
+      {
+        err,
+        provider,
+        model: request.model ?? "provider-default",
+        url: request.url,
+        durationMs: Date.now() - startedAt,
+      },
+      "[ai] Page analysis provider error"
+    );
+    if (err instanceof AppError) throw err;
     throw new AppError(
       `AI page analysis failed: ${msg.slice(0, 200)}`,
       status && status >= 400 && status < 500 ? status : 502,
       "AI_PROVIDER_ERROR"
     );
   }
+
+  logger.info(
+    {
+      provider,
+      model: request.model ?? "provider-default",
+      durationMs: Date.now() - startedAt,
+      responseChars: rawText.length,
+    },
+    "[ai] Page analysis provider response received"
+  );
 
   const parsed = parsePageAnalysisResponse(rawText);
 
@@ -86,6 +115,9 @@ export async function analyzePageStructure(
       rowSelector: parsed.listSelectors.rowSelector ?? null,
       detailLinkSelector: parsed.listSelectors.detailLinkSelector ?? null,
       description: parsed.description,
+      provider,
+      model: request.model ?? "provider-default",
+      durationMs: Date.now() - startedAt,
     },
     "[ai] Page analysis completed"
   );

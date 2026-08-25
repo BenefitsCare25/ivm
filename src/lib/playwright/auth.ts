@@ -61,6 +61,11 @@ interface CredentialAuthOptions {
   usernameSelector?: string;
   passwordSelector?: string;
   submitSelector?: string;
+  onPageCreated?: (page: Page) => void;
+}
+
+interface ResolveAuthOptions {
+  onPageCreated?: (page: Page) => void;
 }
 
 /**
@@ -81,6 +86,7 @@ export async function authenticateWithCredentials(
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await createBrowserContext();
   const page = await context.newPage();
+  options.onPageCreated?.(page);
 
   let username: string;
   let password: string;
@@ -186,7 +192,7 @@ export async function resolveAuth(portal: {
   /** When set, cookies from an automatic credential re-login are persisted back
    *  onto this portal so the rest of the run uses fast cookie auth. */
   portalId?: string;
-}): Promise<{ context: BrowserContext; page: Page }> {
+}, options: ResolveAuthOptions = {}): Promise<{ context: BrowserContext; page: Page }> {
   const cred = portal.credential;
 
   // Try cookies first
@@ -198,6 +204,7 @@ export async function resolveAuth(portal: {
       logger.info("[playwright] Using cookie-based authentication");
       const context = await authenticateWithCookies({ cookies });
       const page = await context.newPage();
+      options.onPageCreated?.(page);
       const targetUrl = portal.listPageUrl ?? portal.baseUrl;
       await page.goto(targetUrl, { waitUntil: "networkidle", timeout: 30_000 });
 
@@ -224,6 +231,7 @@ export async function resolveAuth(portal: {
       loginUrl: portal.baseUrl,
       encryptedUsername: cred.encryptedUsername,
       encryptedPassword: cred.encryptedPassword,
+      onPageCreated: options.onPageCreated,
     });
     await persistFreshCookies(portal.portalId, result.context);
     return result;

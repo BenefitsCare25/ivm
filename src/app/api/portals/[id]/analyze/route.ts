@@ -5,6 +5,10 @@ import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { analyzePageStructure } from "@/lib/ai/page-analysis";
 import { resolveAuth } from "@/lib/playwright/auth";
 import { capturePageScreenshot, captureSimplifiedHtml } from "@/lib/playwright/screenshot";
+import {
+  attachPageDiagnostics,
+  type PageDiagnosticsCollector,
+} from "@/lib/playwright/page-diagnostics";
 import { errorResponse, UnauthorizedError, NotFoundError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 
@@ -28,6 +32,7 @@ export async function POST(
 
     // Attempt authenticated navigation; fall back to unauthenticated if no credentials yet
     let context, page;
+    let pageDiagnostics: PageDiagnosticsCollector | undefined;
     const hasCreds = portal.credential?.cookieData || portal.credential?.encryptedUsername;
 
     if (hasCreds) {
@@ -35,12 +40,17 @@ export async function POST(
         credential: portal.credential,
         baseUrl: portal.baseUrl,
         listPageUrl: portal.listPageUrl,
+      }, {
+        onPageCreated: (createdPage) => {
+          pageDiagnostics = attachPageDiagnostics(createdPage);
+        },
       }));
     } else {
       logger.info({ portalId: id }, "[analyze] No credentials — navigating unauthenticated");
       const { createBrowserContext } = await import("@/lib/playwright/browser");
       context = await createBrowserContext();
       page = await context.newPage();
+      pageDiagnostics = attachPageDiagnostics(page);
     }
 
     try {
@@ -75,10 +85,36 @@ export async function POST(
       logger.info({ portalId: id, targetUrl, actualUrl, pageTitle }, "[analyze] Page loaded");
 
       // Capture screenshot and HTML for AI analysis
-      const [screenshot, htmlSnippet] = await Promise.all([
+      // The collector is normally attached before the first navigation through
+      // resolveAuth. Keep a defensive fallback for future auth strategies.
+      pageDiagnostics ??= attachPageDiagnostics(page);
+
+      const [screenshot, htmlSnippet, browserDiagnostics, browserCookies] = await Promise.all([
         capturePageScreenshot(page),
         captureSimplifiedHtml(page),
+        pageDiagnostics.snapshot(),
+        context.cookies(),
       ]);
+
+      const nowSeconds = Date.now() / 1000;
+      const cookieDomains = [...new Set(browserCookies.map((cookie) => cookie.domain))].sort();
+
+      logger.info(
+        {
+          portalId: id,
+          authentication: {
+            strategy: hasCreds ? "configured" : "none",
+            cookieCount: browserCookies.length,
+            cookieDomains,
+            expiredCookieCount: browserCookies.filter(
+              (cookie) => cookie.expires > 0 && cookie.expires <= nowSeconds
+            ).length,
+            sessionCookieCount: browserCookies.filter((cookie) => cookie.expires <= 0).length,
+          },
+          ...browserDiagnostics,
+        },
+        "[analyze] Browser diagnostics captured"
+      );
 
       logger.info(
         { portalId: id, screenshotBytes: screenshot.length, htmlBytes: htmlSnippet.length },
@@ -86,7 +122,19 @@ export async function POST(
       );
 
       // Resolve AI provider
-      const { provider, apiKey, visionModel, baseURL } = await resolveProviderAndKey(session.user.id);
+      const { provider, apiKey, visionModel, baseURL, displayProvider } =
+        await resolveProviderAndKey(session.user.id);
+
+      logger.info(
+        {
+          portalId: id,
+          provider,
+          displayProvider,
+          model: visionModel,
+          customEndpointConfigured: Boolean(baseURL),
+        },
+        "[analyze] AI provider resolved"
+      );
 
       // AI page analysis
       const analysis = await analyzePageStructure({
@@ -122,6 +170,7 @@ export async function POST(
         detailSelectors: analysis.detailSelectors,
       });
     } finally {
+      pageDiagnostics?.detach();
       await context.close();
     }
   } catch (err) {
