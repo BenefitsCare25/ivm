@@ -8,6 +8,13 @@ export interface GroupedTemplateField {
   verifyWithVision?: boolean;
 }
 
+export interface ReconciliationDocumentContext {
+  /** Extracted field label to original file name. */
+  fieldSources?: Record<string, string>;
+  /** Files confidently recognised as invoices, bills, or receipts. */
+  billingFiles?: string[];
+}
+
 export interface CurrencyConversionEvidence {
   fieldLabel: string;
   origin: "document" | "portal";
@@ -161,19 +168,221 @@ function numericCandidates(value: string): number[] {
     .filter(Number.isFinite);
 }
 
+const EXPLICIT_CURRENCY_PATTERNS: Array<[string, RegExp]> = [
+  ["SGD", /(?:\bSGD\b|S\$)/i],
+  ["MYR", /(?:\bMYR\b|\bRM\b)/i],
+  ["USD", /(?:\bUSD\b|US\$)/i],
+  ["AUD", /(?:\bAUD\b|A\$)/i],
+  ["EUR", /(?:\bEUR\b|\u20AC)/i],
+  ["GBP", /(?:\bGBP\b|\u00A3)/i],
+  ["PHP", /\bPHP\b/i],
+  ["JPY", /(?:\bJPY\b|\u00A5)/i],
+  ["CNY", /\bCNY\b/i],
+  ["HKD", /(?:\bHKD\b|HK\$)/i],
+];
+
+function explicitCurrency(value: string): string | null {
+  return EXPLICIT_CURRENCY_PATTERNS.find(([, pattern]) => pattern.test(value))?.[0] ?? null;
+}
+
+/**
+ * A deterministic amount must contain one unambiguous number. Extraction fields
+ * that contain a subtotal, GST and total are intentionally left to the model or
+ * vision pass instead of letting the subset search choose a convenient number.
+ */
+function singleMonetaryAmount(value: string): number | null {
+  const candidates = numericCandidates(value);
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function currenciesCompatible(left: string | null, right: string | null): boolean {
+  return left == null || right == null || left === right;
+}
+
+type DocumentLineMatch = NonNullable<FieldComparison["documentLineMatches"]>[number];
+
+interface DeterministicMultiMatch {
+  pdfValue: string;
+  lineMatches: DocumentLineMatch[];
+  notes: string;
+}
+
+const IDENTIFIER_FIELD_RE = /\b(?:invoice|receipt|claim|case|bill|reference|ref|identifier|number|no)\b/i;
+const COMPOSITE_IDENTIFIER_SEPARATOR_RE = /\s*(?:\/|&|,|;|\band\b)\s*/i;
+
+function splitCompositeIdentifiers(value: string): string[] {
+  const parts = value
+    .split(COMPOSITE_IDENTIFIER_SEPARATOR_RE)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 2 || parts.some((part) => normalizeExactValue(part).length < 4)) return [];
+  return parts;
+}
+
+function findCompositeIdentifierMatch(
+  pageValue: string,
+  field: GroupedTemplateField,
+  pdfFields: Record<string, string>,
+  context: ReconciliationDocumentContext
+): DeterministicMultiMatch | null {
+  if (
+    field.mode !== "exact" ||
+    !IDENTIFIER_FIELD_RE.test([field.portalFieldName, ...field.documentFieldNames].join(" "))
+  ) {
+    return null;
+  }
+  const identifiers = splitCompositeIdentifiers(pageValue);
+  if (identifiers.length < 2) return null;
+
+  const entries = Object.entries(pdfFields);
+  const matches: DocumentLineMatch[] = [];
+  for (const identifier of identifiers) {
+    const target = normalizeExactValue(identifier);
+    const found = entries
+      .map(([label, value]) => ({
+        label,
+        value,
+        tokens: splitCompositeIdentifiers(value).length > 0
+          ? splitCompositeIdentifiers(value)
+          : [value.trim()],
+      }))
+      .find((entry) => entry.tokens.some((token) => normalizeExactValue(token) === target));
+    if (!found) return null;
+    const matchedToken = found.tokens.find((token) => normalizeExactValue(token) === target)!;
+    const sourceFile = context.fieldSources?.[found.label];
+    matches.push({ label: found.label, value: matchedToken, ...(sourceFile ? { sourceFile } : {}) });
+  }
+
+  return {
+    pdfValue: matches.map((match) => match.value).join(" / "),
+    lineMatches: matches,
+    notes: "All portal identifiers were found across the submitted billing documents.",
+  };
+}
+
+function baseDocumentLabel(label: string): string {
+  return label
+    .replace(/\s*\[Occurrence\s+\d+\]\s*$/i, "")
+    .replace(/\s*\[Document\s+\d+\]\s*$/i, "")
+    .trim();
+}
+
+function syntheticDocumentSource(label: string): string | null {
+  const match = label.match(/\[Document\s+(\d+)\]/i);
+  return match ? `document:${match[1]}` : null;
+}
+
+const AUTHORITATIVE_TOTAL_RE = /\b(?:grand\s+total|total\s+amount|net\s+amount|receipt\s+amount|amount\s+paid|total\s+hospital\s+charges?)\b/i;
+
+function amountLabelScore(label: string, field: GroupedTemplateField): number {
+  const normalized = normalizeName(baseDocumentLabel(label));
+  let score = AUTHORITATIVE_TOTAL_RE.test(normalized) ? 4 : 0;
+  for (const documentName of field.documentFieldNames) {
+    const mapped = normalizeName(documentName);
+    if (normalized === mapped) score = Math.max(score, 10);
+    else if (normalized.includes(mapped) || mapped.includes(normalized)) score = Math.max(score, 8);
+  }
+  return score;
+}
+
+interface AmountEvidence {
+  label: string;
+  value: string;
+  amount: number;
+  source: string;
+  sourceFile?: string;
+  score: number;
+  currency: string | null;
+}
+
+function findCombinedAmountMatch(
+  pageValue: string,
+  field: GroupedTemplateField,
+  pdfFields: Record<string, string>,
+  context: ReconciliationDocumentContext
+): DeterministicMultiMatch | null {
+  if (field.mode !== "numeric") return null;
+  const target = singleMonetaryAmount(pageValue);
+  if (target == null) return null;
+  const targetCurrency = explicitCurrency(pageValue);
+  const billingFiles = new Set(context.billingFiles ?? []);
+  const bySource = new Map<string, AmountEvidence[]>();
+
+  for (const [label, value] of Object.entries(pdfFields)) {
+    if (/converted\s+to\s+sgd/i.test(label)) continue;
+    const score = amountLabelScore(label, field);
+    if (score < 4) continue;
+    const sourceFile = context.fieldSources?.[label];
+    const source = sourceFile ?? syntheticDocumentSource(label);
+    if (!source || (billingFiles.size > 0 && !billingFiles.has(source))) continue;
+    const amount = singleMonetaryAmount(value);
+    if (amount == null) continue;
+    const currency = explicitCurrency(value);
+    if (!currenciesCompatible(targetCurrency, currency)) continue;
+    const rows = bySource.get(source) ?? [];
+    if (!rows.some((row) => Math.abs(row.amount - amount) < 0.0001)) {
+      rows.push({ label, value, amount, source, sourceFile, score, currency });
+      bySource.set(source, rows);
+    }
+  }
+
+  const groups = [...bySource.values()]
+    .filter((rows) => rows.length > 0)
+    .map((rows) => rows.sort((a, b) => b.score - a.score).slice(0, 8));
+  if (groups.length < 2) return null;
+
+  const tolerance = field.tolerance ?? 0;
+  let attempts = 0;
+  let matched: AmountEvidence[] | null = null;
+  const search = (groupIndex: number, selected: AmountEvidence[], sum: number): void => {
+    if (matched || attempts >= 2048) return;
+    if (groupIndex === groups.length) {
+      attempts += 1;
+      const knownCurrencies = new Set(selected.map((row) => row.currency).filter(Boolean));
+      if (knownCurrencies.size <= 1 && Math.abs(sum - target) <= tolerance) matched = [...selected];
+      return;
+    }
+    for (const candidate of groups[groupIndex]) {
+      selected.push(candidate);
+      search(groupIndex + 1, selected, sum + candidate.amount);
+      selected.pop();
+      if (matched) return;
+    }
+  };
+  search(0, [], 0);
+  if (!matched) return null;
+
+  const evidence = matched as AmountEvidence[];
+  return {
+    pdfValue: evidence.map((row) => row.value).join(" + "),
+    lineMatches: evidence.map((row) => ({
+      label: row.label,
+      value: row.value,
+      ...(row.sourceFile ? { sourceFile: row.sourceFile } : {}),
+    })),
+    notes: `Summed ${evidence.length} billing-document amounts to ${target.toFixed(2)}.`,
+  };
+}
+
 function findDeterministicDocumentMatch(
   pageValue: string,
   field: GroupedTemplateField,
   pdfFields: Record<string, string>
 ): { label: string; value: string } | null {
   if (field.mode === "numeric") {
-    const target = numericCandidates(pageValue)[0];
+    const target = singleMonetaryAmount(pageValue);
     if (target == null) return null;
+    const targetCurrency = explicitCurrency(pageValue);
     const tolerance = field.tolerance ?? 0;
 
     for (const [label, value] of Object.entries(pdfFields)) {
       if (!AMOUNT_LABEL_RE.test(label)) continue;
-      if (numericCandidates(value).some((candidate) => Math.abs(candidate - target) <= tolerance)) {
+      const candidate = singleMonetaryAmount(value);
+      if (
+        candidate != null &&
+        currenciesCompatible(targetCurrency, explicitCurrency(value)) &&
+        Math.abs(candidate - target) <= tolerance
+      ) {
         return { label, value };
       }
     }
@@ -212,7 +421,8 @@ function mergeLineMatches(rows: FieldComparison[]): NonNullable<FieldComparison[
 export function reconcileFieldComparisons(
   comparisons: FieldComparison[],
   templateFields: TemplateField[],
-  pdfFields: Record<string, string> = {}
+  pdfFields: Record<string, string> = {},
+  documentContext: ReconciliationDocumentContext = {}
 ): FieldComparison[] {
   const groupedFields = groupTemplateFields(templateFields);
   const rowsByPortalField = new Map<string, FieldComparison[]>();
@@ -254,6 +464,20 @@ export function reconcileFieldComparisons(
         selected.notes,
         "Model returned MATCH without a document value or supporting line evidence.",
       ].filter(Boolean).join(" ");
+    }
+
+    const multiDocumentMatch = selected.pageValue
+      ? findCompositeIdentifierMatch(selected.pageValue, field, pdfFields, documentContext) ??
+        (selected.status !== "MATCH"
+          ? findCombinedAmountMatch(selected.pageValue, field, pdfFields, documentContext)
+          : null)
+      : null;
+    if (multiDocumentMatch) {
+      selected.status = "MATCH";
+      selected.pdfValue = multiDocumentMatch.pdfValue;
+      selected.confidence = Math.max(selected.confidence, 0.99);
+      selected.documentLineMatches = multiDocumentMatch.lineMatches;
+      selected.notes = [selected.notes, multiDocumentMatch.notes].filter(Boolean).join(" ");
     }
 
     if (

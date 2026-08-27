@@ -297,6 +297,7 @@ async function processItemDetailCore(
       // ── Intelligence pipeline ───────────────────────────────
       const acceptableTypeIds = item.scrapeSession.acceptableDocumentTypeIds;
       let foreignCurrencyDetected = false;
+      let intelligenceFlag = false;
       if (!preservePrior) {
         const intelligence = await runIntelligencePipeline({
           trackedItemId,
@@ -312,6 +313,7 @@ async function processItemDetailCore(
           cachedDocTypes,
         });
         foreignCurrencyDetected = intelligence.foreignCurrencyDetected;
+        intelligenceFlag = intelligence.intelligenceFlag;
       }
 
       // ── Template lookup + AI comparison ─────────────────────
@@ -342,6 +344,7 @@ async function processItemDetailCore(
         flexClaim: isFlexClaim(portal.name, portal.baseUrl),
         groupingFields: (portal.groupingFields as string[]) ?? [],
         foreignCurrency: foreignCurrencyDetected,
+        intelligenceFlag,
       });
 
       // ── Final status ────────────────────────────────────────

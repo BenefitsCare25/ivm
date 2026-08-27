@@ -2,14 +2,21 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { extractFieldsFromDocument } from "@/lib/ai";
-import { classifyDocumentType, fetchDocTypes, validateRequiredFields, checkDocTypeMatch, checkTampering } from "@/lib/intelligence";
+import {
+  aggregateRequiredFieldChecks,
+  checkAnyDocTypeMatch,
+  checkTampering,
+  classifyDocumentType,
+  persistValidationChecks,
+  validateRequiredFieldsSync,
+} from "@/lib/intelligence";
 import type { DocTypeRecord } from "@/lib/intelligence";
 import { emitItemEvent, emitFailureEvent } from "@/lib/portal-events";
 import { checkForeignCurrency } from "@/lib/validations/currency";
 import type { AIProvider } from "@/lib/ai/types";
 import type { DownloadedFile } from "@/lib/playwright/scraper";
-import { toInputJson } from "@/lib/utils";
 import { createHash } from "crypto";
+import { mergeDocumentFields } from "@/lib/document-fields";
 
 export interface ExtractionResult {
   pdfFields: Record<string, string>;
@@ -183,9 +190,6 @@ export async function runExtraction({
   );
 
   // Merge in input order — deterministic, and avoids races on the shared maps.
-  const pdfFields: Record<string, string> = {};
-  const pdfRawFields: Record<string, string> = {};
-  const pdfFieldSources: Record<string, string> = {};
   const fileExtractions: ExtractionResult["fileExtractions"] = [];
   const tamperingTargets: ExtractionResult["tamperingTargets"] = [];
   const fileBuffers = new Map<string, Buffer>();
@@ -203,11 +207,6 @@ export async function runExtraction({
       continue;
     }
     fileBuffers.set(r.storagePath, r.buffer);
-    for (const field of r.fields) {
-      pdfFields[field.label] = field.value;
-      pdfRawFields[field.label] = field.rawText ?? field.value;
-      pdfFieldSources[field.label] = r.fileName;
-    }
     fileExtractions.push({
       fileName: r.fileName,
       documentType: r.documentType,
@@ -215,7 +214,22 @@ export async function runExtraction({
     });
   }
 
-  return { pdfFields, pdfRawFields, pdfFieldSources, fileExtractions, tamperingTargets, fileBuffers, failedFiles, cachedDocTypes };
+  const mergedFields = mergeDocumentFields(
+    perFile
+      .filter((result): result is Extract<PerFileResult, { ok: true }> => result.ok)
+      .map((result) => ({ fileName: result.fileName, fields: result.fields }))
+  );
+
+  return {
+    pdfFields: mergedFields.fields,
+    pdfRawFields: mergedFields.rawFields,
+    pdfFieldSources: mergedFields.sources,
+    fileExtractions,
+    tamperingTargets,
+    fileBuffers,
+    failedFiles,
+    cachedDocTypes,
+  };
 }
 
 export async function runIntelligencePipeline({
@@ -246,6 +260,7 @@ export async function runIntelligencePipeline({
   classifiedDocs: { documentTypeId: string | null; documentTypeName: string | null; fileName: string }[];
   /** Rule 5: a foreign-currency amount was detected → the caller flags the claim. */
   foreignCurrencyDetected: boolean;
+  intelligenceFlag: boolean;
 }> {
   let docTypeById: Map<string, DocTypeRecord> | undefined;
   if (cachedDocTypes) {
@@ -267,8 +282,12 @@ export async function runIntelligencePipeline({
   for (const r of tamperingResults) {
     if (r.status === "rejected") logger.warn({ err: r.reason, trackedItemId }, "[worker] Tampering check failed (non-fatal)");
   }
+  const tamperingFlag = tamperingResults.some(
+    (result) => result.status === "fulfilled" && result.value.isTampered
+  );
 
   const classifiedDocs: { documentTypeId: string | null; documentTypeName: string | null; fileName: string }[] = [];
+  const requiredFieldChecks: ReturnType<typeof validateRequiredFieldsSync> = [];
 
   for (const ext of fileExtractions) {
     try {
@@ -282,33 +301,36 @@ export async function runIntelligencePipeline({
       if (classification.documentTypeId) {
         const matchedDocType = docTypeById?.get(classification.documentTypeId);
         // Completeness check only — document duplicate detection was removed.
-        try {
-          await validateRequiredFields(
-            { name: matchedDocType?.name ?? ext.documentType, requiredFields: matchedDocType?.requiredFields },
-            ext.fields,
-            { trackedItemId }
-          );
-        } catch (err) {
-          logger.warn({ err, trackedItemId }, "[worker] Completeness check failed (non-fatal)");
-        }
+        requiredFieldChecks.push(...validateRequiredFieldsSync(
+          { name: matchedDocType?.name ?? ext.documentType, requiredFields: matchedDocType?.requiredFields },
+          ext.fields,
+          ext.fileName
+        ));
       }
     } catch (intErr) {
+      classifiedDocs.push({ documentTypeId: null, documentTypeName: null, fileName: ext.fileName });
       logger.warn({ err: intErr, fileName: ext.fileName }, "[worker] Intelligence pipeline error (non-fatal)");
     }
   }
 
+  try {
+    await persistValidationChecks(aggregateRequiredFieldChecks(requiredFieldChecks), { trackedItemId });
+  } catch (err) {
+    logger.warn({ err, trackedItemId }, "[worker] Completeness check persistence failed (non-fatal)");
+  }
+
+  let docTypeFlag = false;
   if (acceptableDocumentTypeIds.length > 0) {
     const acceptableTypeNames = acceptableDocumentTypeIds
       .map((tid) => docTypeById?.get(tid)?.name ?? "Unknown");
-    const primary = classifiedDocs[0];
     try {
-      await checkDocTypeMatch(
-        primary?.documentTypeId ?? null,
-        primary?.documentTypeName ?? null,
+      const result = await checkAnyDocTypeMatch(
+        classifiedDocs,
         acceptableDocumentTypeIds,
         acceptableTypeNames,
         { trackedItemId }
       );
+      docTypeFlag = result.flagged;
     } catch (intErr) {
       logger.warn({ err: intErr }, "[worker] Doc type match check error (non-fatal)");
     }
@@ -326,5 +348,9 @@ export async function runIntelligencePipeline({
     }
   }
 
-  return { classifiedDocs, foreignCurrencyDetected };
+  return {
+    classifiedDocs,
+    foreignCurrencyDetected,
+    intelligenceFlag: tamperingFlag || docTypeFlag,
+  };
 }

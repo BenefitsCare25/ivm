@@ -21,13 +21,15 @@ import {
   buildDocumentGroups,
   buildRequiredDocValidations,
   buildBillStatusValidation,
+  hasUnsatisfiedRequiredDocuments,
+  isBillingDocument,
 } from "@/lib/intelligence";
 import type { ValidationRowData } from "@/lib/intelligence/validation-builders";
 import { buildClaimPolicyValidations, buildHospitalSearchText } from "@/lib/validations/claim-policy";
 import type { AIProvider } from "@/lib/ai/types";
 import type { DocTypeRecord } from "@/lib/intelligence";
 import type { MatchedTemplate } from "@/lib/comparison-templates";
-import type { TemplateField, RequiredDocumentCheck, BillStatusSignal, TrackedItemStatus } from "@/types/portal";
+import type { TemplateField, BillStatusSignal, TrackedItemStatus } from "@/types/portal";
 
 interface ComparisonInput {
   trackedItemId: string;
@@ -61,6 +63,8 @@ interface ComparisonInput {
   groupingFields?: string[];
   /** Rule 5: a foreign-currency amount was detected during extraction → flag the claim. */
   foreignCurrency?: boolean;
+  /** Tampering or unacceptable document-type evidence detected before comparison. */
+  intelligenceFlag?: boolean;
 }
 
 interface ComparisonOutput {
@@ -223,7 +227,11 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
       comparisonResult.fieldComparisons = filterComparisonsByTemplate(
         comparisonResult.fieldComparisons,
         matchedTemplate.fields,
-        comparisonPdfFields
+        comparisonPdfFields,
+        {
+          fieldSources: pdfFieldSources,
+          billingFiles: recognizedDocs.filter(isBillingDocument).map((doc) => doc.fileName),
+        }
       );
       comparisonResult.matchCount = comparisonResult.fieldComparisons.filter((c) => c.status === "MATCH").length;
       comparisonResult.mismatchCount = comparisonResult.fieldComparisons.filter((c) => c.status === "MISMATCH").length;
@@ -306,7 +314,7 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
     if (!preservedPrior) {
       ruleFlag = await saveComparisonResult(
         trackedItemId, comparisonResult, displayProvider, templateId, matchedTemplate,
-        billStatusSignal, documentTypesByFile,
+        billStatusSignal, documentTypesByFile, fileExtractions,
         partialFailure ? { partialFailure: true, unreadableFiles: failedFiles } : undefined
       );
     }
@@ -369,9 +377,12 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
   // synonym/alias matching has already flipped false positives to found, so what
   // remains is either genuinely missing (FAIL) or low-confidence (WARNING —
   // "manual review recommended"); both warrant a human look.
-  const hasMissingDoc = comparisonResult?.requiredDocumentsCheck?.some(
-    (d: RequiredDocumentCheck) => !d.found
-  ) ?? false;
+  const hasMissingDoc = matchedTemplate
+    ? hasUnsatisfiedRequiredDocuments(
+        comparisonResult?.requiredDocumentsCheck,
+        matchedTemplate.requiredDocuments
+      )
+    : false;
 
   // A partial failure always surfaces the item — the comparison ran on incomplete
   // data, so a clean "COMPARED" would be misleading. A missing claimant (rule 1)
@@ -385,7 +396,8 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
         : claimantMissing
           ? "REQUIRE_DOC"
           : (preservedPrior || partialFailure || hasMismatch || ruleFlag || hasMissingDoc ||
-             wrongClaimType || policyFlag || (input.foreignCurrency ?? false))
+             wrongClaimType || policyFlag || (input.foreignCurrency ?? false) ||
+             (input.intelligenceFlag ?? false))
             ? "FLAGGED"
             : "COMPARED";
 
@@ -449,6 +461,7 @@ async function saveComparisonResult(
   matchedTemplate: MatchedTemplate | null,
   billStatusSignal: BillStatusSignal | null,
   documentTypesByFile: Record<string, string>,
+  documentExtractions: ComparisonInput["fileExtractions"],
   failureContext?: { partialFailure: boolean; unreadableFiles: string[] },
 ): Promise<boolean> {
   const comparisonsJson = toInputJson(comparisonResult.fieldComparisons);
@@ -465,6 +478,7 @@ async function saveComparisonResult(
     summary: comparisonResult.summary,
     diagnosisAssessment: diagnosisJson,
     documentTypesByFile: toInputJson(documentTypesByFile),
+    documentExtractions: toInputJson(documentExtractions),
     completedAt: new Date(),
   };
   await db.comparisonResult.upsert({

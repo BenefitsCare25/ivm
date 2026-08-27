@@ -159,11 +159,66 @@ export interface RecognizedDoc {
   billStatus: BillStatus;
   billEvidence: string;
   outstandingBalance?: { label: string; value: string };
+  /** Strong structured evidence that a provider-issued form serves as a receipt. */
+  receiptEvidence?: { confidence: number; notes: string };
+}
+
+export function isBillingDocument(doc: RecognizedDoc): boolean {
+  return doc.families.some(
+    (family) => family === "Hospital Bill / Tax Invoice" || family === "Receipt"
+  );
 }
 
 function buildDocText(rawType: string, fields: { label: string; value: string }[]): string {
   const parts = [rawType, ...fields.flatMap((f) => [f.label, f.value])];
   return parts.filter(Boolean).join(" \n ");
+}
+
+const CLAIM_FORM_RE = /\b(?:claim|treatment|patient|outpatient|medical|clinic)(?:[\s/-]+\w+){0,4}[\s/-]+form\b|\bclaim\s*form\b/i;
+const RECEIPT_AMOUNT_RE = /\b(?:grand\s+total|total\s+amount|amount\s+(?:paid|charged)|receipt\s+amount|medicine\s+(?:amount|charge|cost)|medication\s+(?:amount|charge|cost)|consultation\s+(?:fee|charge)|total\s+charges?)\b/i;
+const ESTIMATE_RE = /\b(?:estimate|estimated|quotation|quote|limit|maximum|projected)\b/i;
+const PAYMENT_PROOF_RE = /\b(?:paid|payment\s+(?:method|mode|reference)|cash|nets|credit\s*card|official\s+receipt|receipt\s*(?:no|number))\b/i;
+const PROVIDER_EVIDENCE_RE = /\b(?:provider|clinic|hospital|facility|practitioner|doctor|physician)\b/i;
+const PATIENT_EVIDENCE_RE = /\b(?:patient|claimant|employee|member)\b/i;
+const DATE_EVIDENCE_RE = /\b(?:treatment|visit|service|invoice|receipt|transaction)\s*date\b/i;
+const REFERENCE_EVIDENCE_RE = /\b(?:claim|form|invoice|receipt|transaction|reference)\s*(?:no|number|ref)?\b/i;
+
+/**
+ * Recognise receipt evidence when the issuer's document title is a treatment
+ * claim form rather than "Receipt". Amount evidence is mandatory and must be
+ * supported by provider/patient/date/reference structure; estimates never count.
+ */
+function inferReceiptEvidence(
+  rawType: string,
+  fields: { label: string; value: string }[]
+): { confidence: number; notes: string } | null {
+  const pairs = fields.map((field) => `${field.label} ${field.value}`);
+  const hasAmount = fields.some(
+    (field) =>
+      RECEIPT_AMOUNT_RE.test(field.label) &&
+      !ESTIMATE_RE.test(`${field.label} ${field.value}`) &&
+      /\d/.test(field.value)
+  );
+  if (!hasAmount) return null;
+
+  const text = pairs.join(" \n ");
+  const hasProvider = PROVIDER_EVIDENCE_RE.test(text);
+  const supportingAnchors = [
+    PATIENT_EVIDENCE_RE.test(text),
+    DATE_EVIDENCE_RE.test(text),
+    REFERENCE_EVIDENCE_RE.test(text),
+  ].filter(Boolean).length;
+  const claimForm = CLAIM_FORM_RE.test(rawType);
+  const paymentProof = PAYMENT_PROOF_RE.test(text);
+
+  if (hasProvider && ((claimForm && supportingAnchors >= 2) || (paymentProof && supportingAnchors >= 1))) {
+    return {
+      confidence: paymentProof ? 0.9 : 0.84,
+      notes:
+        "Provider-issued treatment form contains a billed total plus patient, provider, date, and reference evidence.",
+    };
+  }
+  return null;
 }
 
 /** Recognise every submitted file (type classification + family + bill status). */
@@ -176,15 +231,19 @@ export function recognizeDocuments(
     const classification = classifyDocumentTypeFromCache(e.documentType, docTypes);
     const { status, evidence } = detectBillStatus(text);
     const balance = extractOutstandingBalance(e.fields);
-    // Families are derived from the document's type label OR its canonical
-    // library name — NOT from field text, which would misclassify (e.g. a
-    // receipt with an "Invoice No." field is not an invoice).
-    const families = Array.from(
+    // Primary families come from the type label / canonical library name. A
+    // separate guarded fallback may add Receipt only when structured billing
+    // evidence passes inferReceiptEvidence; a lone "Invoice No." never suffices.
+    const labelFamilies = Array.from(
       new Set([
         ...matchDocFamilies(e.documentType),
         ...matchDocFamilies(classification.documentTypeName ?? ""),
       ])
     );
+    const receiptEvidence = inferReceiptEvidence(e.documentType, e.fields);
+    const families = receiptEvidence && !labelFamilies.includes("Receipt")
+      ? [...labelFamilies, "Receipt"]
+      : labelFamilies;
     return {
       fileName: e.fileName,
       rawType: e.documentType,
@@ -195,6 +254,7 @@ export function recognizeDocuments(
       text,
       billStatus: status,
       billEvidence: evidence,
+      ...(receiptEvidence ? { receiptEvidence } : {}),
       ...(balance ? { outstandingBalance: balance } : {}),
     };
   });
@@ -227,7 +287,7 @@ export function buildDocumentTypesFound(docs: RecognizedDoc[]): string[] {
         const labels: string[] = [];
         if (d.rawType.trim()) labels.push(d.rawType);
         if (d.canonicalName) labels.push(d.canonicalName);
-        if (d.family) labels.push(d.family);
+        labels.push(...d.families);
         if (d.billStatus !== "unknown") labels.push(`${d.billStatus} bill`);
         return labels;
       })
@@ -311,12 +371,19 @@ export function resolveRequiredDocument(
     //    compound requirement ("Invoice/Receipt") is satisfied when the
     //    document shares ANY of its families (a receipt satisfies it).
     if (reqFamilies.length > 0 && d.families.some((f) => reqFamilies.includes(f))) {
+      const evidenceMatch =
+        reqFamilies.includes("Receipt") &&
+        d.families.includes("Receipt") &&
+        d.receiptEvidence != null &&
+        !matchDocFamilies(d.rawType).includes("Receipt") &&
+        !matchDocFamilies(d.canonicalName ?? "").includes("Receipt");
       const cand: RequiredDocumentCheck = {
         documentTypeName: req.documentTypeName,
         found: true,
-        confidence: 0.85,
-        matchedVia: "synonym",
+        confidence: evidenceMatch ? d.receiptEvidence!.confidence : 0.85,
+        matchedVia: evidenceMatch ? "evidence" : "synonym",
         matchedFile: d.fileName,
+        ...(evidenceMatch ? { notes: d.receiptEvidence!.notes } : {}),
         ...(d.billStatus !== "unknown" ? { billStatus: d.billStatus } : {}),
       };
       if (!found || (cand.confidence ?? 0) > (found.confidence ?? 0)) found = cand;

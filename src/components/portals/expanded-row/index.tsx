@@ -250,6 +250,7 @@ export function ExpandedPanel({ item, portalId, sessionId, columnCount }: Expand
               <ComparisonColumn
                 comparisonResult={item.comparisonResult}
                 fwaAlerts={item.fwaAlerts}
+                itemStatus={item.status}
               />
               <div className="md:col-span-2 lg:col-span-1">
                 <DocumentViewerColumn

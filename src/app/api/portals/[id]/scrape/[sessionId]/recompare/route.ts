@@ -15,6 +15,7 @@ import {
   withCurrencyConversionFields,
 } from "@/lib/comparison-reconciliation";
 import { annotateSourceFiles } from "@/workers/item-detail-comparison";
+import { mergeDocumentFields, resolveDocumentExtractions } from "@/lib/document-fields";
 import { toInputJson } from "@/lib/utils";
 import { logger } from "@/lib/logger";
 import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
@@ -27,9 +28,11 @@ import {
   buildDocumentGroups,
   buildRequiredDocValidations,
   buildBillStatusValidation,
+  hasUnsatisfiedRequiredDocuments,
+  isBillingDocument,
 } from "@/lib/intelligence";
 import { buildClaimPolicyValidations, buildHospitalSearchText, isFlexClaim } from "@/lib/validations/claim-policy";
-import type { TemplateField, RequiredDocument, BusinessRule, RequiredDocumentCheck, TrackedItemStatus } from "@/types/portal";
+import type { TemplateField, RequiredDocument, BusinessRule, TrackedItemStatus } from "@/types/portal";
 
 export async function POST(
   req: NextRequest,
@@ -114,7 +117,13 @@ export async function POST(
     // them rather than re-derive from the narrower reconstructed field set (which
     // would silently drop a flag). One batched query maps which items carry any such
     // preserved flag, avoiding a per-item lookup inside the concurrency loop.
-    const PRESERVED_DOC_RULE_TYPES = ["CURRENCY_CONVERSION", "SUBSIDY_DEDUCTION", "NON_CLAIMABLE_PAYMENT"];
+    const PRESERVED_DOC_RULE_TYPES = [
+      "CURRENCY_CONVERSION",
+      "SUBSIDY_DEDUCTION",
+      "NON_CLAIMABLE_PAYMENT",
+      "TAMPERING",
+      "DOC_TYPE_MATCH",
+    ];
     const preservedRows = await db.validationResult.findMany({
       where: {
         trackedItemId: { in: matchingItems.map((i) => i.id) },
@@ -128,42 +137,28 @@ export async function POST(
       const detailData = (item.detailData as Record<string, string>) ?? {};
       if (Object.keys(detailData).length === 0) return false;
 
-      // Reconstruct pdf fields and source file map from existing comparison result
+      // Prefer the lossless per-file extraction snapshot. Legacy comparisons are
+      // reconstructed conservatively while retaining every stored file/type.
       const existingComparisons = (item.comparisonResult?.fieldComparisons ?? []) as Array<{
         fieldName: string;
         pdfValue: string | null;
         sourceFile?: string;
       }>;
-      const pdfFields: Record<string, string> = {};
-      const pdfFieldSources: Record<string, string> = {};
-      for (const c of existingComparisons) {
-        if (c.pdfValue != null) pdfFields[c.fieldName] = c.pdfValue;
-        if (c.sourceFile) pdfFieldSources[c.fieldName] = c.sourceFile;
-      }
+      const docTypesByFile = (item.comparisonResult?.documentTypesByFile as Record<string, string> | null) ?? {};
+      const reconstructedExtractions = resolveDocumentExtractions(
+        item.comparisonResult?.documentExtractions,
+        docTypesByFile,
+        existingComparisons
+      );
+      const mergedDocumentFields = mergeDocumentFields(reconstructedExtractions);
+      const pdfFields = mergedDocumentFields.fields;
+      const pdfFieldSources = mergedDocumentFields.sources;
       const currencyConversions = preservedRows
         .filter((row) => row.trackedItemId === item.id && row.ruleType === "CURRENCY_CONVERSION")
         .map((row) => parseCurrencyConversionEvidence(row.metadata))
         .filter((conversion) => conversion !== null);
       const comparisonPdfFields = withCurrencyConversionFields(pdfFields, currencyConversions);
 
-      // Rebuild per-file document evidence from the stored comparison so the
-      // deterministic recogniser (alias library, billing family, bill status)
-      // runs identically to the worker. The original document-type labels are
-      // restored from the persisted `documentTypesByFile` snapshot (files are
-      // not re-extracted on recompare); falls back to "" only for legacy results
-      // written before that column existed.
-      const docTypesByFile = (item.comparisonResult?.documentTypesByFile as Record<string, string> | null) ?? {};
-      const fieldsByFile = new Map<string, { label: string; value: string }[]>();
-      for (const c of existingComparisons) {
-        if (c.pdfValue == null) continue;
-        const file = c.sourceFile ?? "document";
-        const arr = fieldsByFile.get(file) ?? [];
-        arr.push({ label: c.fieldName, value: c.pdfValue });
-        fieldsByFile.set(file, arr);
-      }
-      const reconstructedExtractions = Array.from(fieldsByFile.entries()).map(
-        ([fileName, fields]) => ({ fileName, documentType: docTypesByFile[fileName] ?? "", fields })
-      );
       const recognizedDocs = recognizeDocuments(reconstructedExtractions, cachedDocTypes);
       const billStatusSignal = buildBillStatusSignal(recognizedDocs);
       const documentTypesFound = buildDocumentTypesFound(recognizedDocs);
@@ -212,7 +207,11 @@ export async function POST(
         result.fieldComparisons = filterComparisonsByTemplate(
           result.fieldComparisons,
           templateFields,
-          filteredPdfFields
+          filteredPdfFields,
+          {
+            fieldSources: pdfFieldSources,
+            billingFiles: recognizedDocs.filter(isBillingDocument).map((doc) => doc.fileName),
+          }
         );
         result.matchCount = result.fieldComparisons.filter((c) => c.status === "MATCH").length;
         result.mismatchCount = result.fieldComparisons.filter((c) => c.status === "MISMATCH").length;
@@ -289,6 +288,7 @@ export async function POST(
         summary: result.summary,
         diagnosisAssessment: result.diagnosisAssessment ? toInputJson(result.diagnosisAssessment) : null,
         documentTypesByFile: toInputJson(docTypesByFile),
+        documentExtractions: toInputJson(reconstructedExtractions),
         completedAt: new Date(),
       };
       await db.comparisonResult.upsert({
@@ -355,7 +355,10 @@ export async function POST(
       if (validationInserts.length > 0) await Promise.all(validationInserts);
 
       const hasMismatch = result.mismatchCount > 0;
-      const hasMissingDoc = result.requiredDocumentsCheck?.some((d: RequiredDocumentCheck) => !d.found) ?? false;
+      const hasMissingDoc = hasUnsatisfiedRequiredDocuments(
+        result.requiredDocumentsCheck,
+        templateRequiredDocuments
+      );
       // Missing claimant → "pending document" (REQUIRE_DOC), precedence over FLAGGED.
       const status: TrackedItemStatus = policy.claimantMissing
         ? "REQUIRE_DOC"

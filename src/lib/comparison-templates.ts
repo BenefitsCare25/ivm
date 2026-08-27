@@ -3,6 +3,7 @@ import type { TemplateField, RequiredDocument, BusinessRule, FieldComparison } f
 import {
   fieldNameMatchesPortal,
   reconcileFieldComparisons,
+  type ReconciliationDocumentContext,
 } from "@/lib/comparison-reconciliation";
 
 export { fieldNameMatchesPortal } from "@/lib/comparison-reconciliation";
@@ -233,12 +234,13 @@ export function filterFieldsByTemplate(
 export function filterComparisonsByTemplate(
   fieldComparisons: FieldComparison[],
   templateFields: TemplateField[],
-  pdfFields: Record<string, string> = {}
+  pdfFields: Record<string, string> = {},
+  documentContext: ReconciliationDocumentContext = {}
 ): FieldComparison[] {
   if (templateFields.length === 0) return fieldComparisons;
 
   const filtered = fieldComparisons.filter((fc) =>
     templateFields.some((tf) => fieldNameMatchesPortal(fc.fieldName, tf.portalFieldName))
   );
-  return reconcileFieldComparisons(filtered, templateFields, pdfFields);
+  return reconcileFieldComparisons(filtered, templateFields, pdfFields, documentContext);
 }

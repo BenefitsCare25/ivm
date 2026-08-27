@@ -205,3 +205,167 @@ test("selects a billing image for amount vision instead of the first attachment"
 
   assert.equal(selected.originalName, "bill.jpg");
 });
+
+test("recovers a composite invoice number from separate billing documents", () => {
+  const comparisons: FieldComparison[] = [{
+    fieldName: "Invoice Number",
+    pageValue: "FQM2600020118B / FQM2600024382E",
+    pdfValue: "FQM2600024382E",
+    status: "MISMATCH",
+    confidence: 0.99,
+  }];
+  const pdfFields = {
+    "Bill Reference Number [Document 1]": "FQM2600020118B",
+    "Bill Reference Number [Document 2]": "FQM2600024382E",
+  };
+  const fieldSources = {
+    "Bill Reference Number [Document 1]": "invoice-61.pdf",
+    "Bill Reference Number [Document 2]": "invoice-18.50.pdf",
+  };
+
+  const reconciled = reconcileFieldComparisons(comparisons, fields, pdfFields, {
+    fieldSources,
+    billingFiles: ["invoice-61.pdf", "invoice-18.50.pdf"],
+  });
+
+  assert.equal(reconciled[0].status, "MATCH");
+  assert.equal(reconciled[0].pdfValue, "FQM2600020118B / FQM2600024382E");
+  assert.equal(reconciled[0].documentLineMatches?.length, 2);
+});
+
+test("recovers a combined receipt amount by summing separate billing documents", () => {
+  const comparisons: FieldComparison[] = [{
+    fieldName: "Receipt Amount",
+    pageValue: "S$ 79.50",
+    pdfValue: "$18.50",
+    status: "MISMATCH",
+    confidence: 0.99,
+  }];
+  const pdfFields = {
+    "Total Amount (After Govt Subsidy) [Document 1]": "$61.00",
+    "Total Amount (After Govt Subsidy) [Document 2]": "$18.50",
+    "Final Amount Payable [Document 1]": "$0.00",
+    "Final Amount Payable [Document 2]": "$0.00",
+  };
+  const fieldSources = Object.fromEntries([
+    ...Object.keys(pdfFields).slice(0, 1).map((label) => [label, "invoice-61.pdf"]),
+    ...Object.keys(pdfFields).slice(1, 2).map((label) => [label, "invoice-18.50.pdf"]),
+    ...Object.keys(pdfFields).slice(2, 3).map((label) => [label, "invoice-61.pdf"]),
+    ...Object.keys(pdfFields).slice(3, 4).map((label) => [label, "invoice-18.50.pdf"]),
+  ]);
+
+  const reconciled = reconcileFieldComparisons(comparisons, fields, pdfFields, {
+    fieldSources,
+    billingFiles: ["invoice-61.pdf", "invoice-18.50.pdf"],
+  });
+
+  assert.equal(reconciled[0].status, "MATCH");
+  assert.match(reconciled[0].pdfValue ?? "", /61\.00.*18\.50/);
+  assert.equal(reconciled[0].documentLineMatches?.length, 2);
+});
+
+test("does not sum multiple amount fields from a single invoice", () => {
+  const comparisons: FieldComparison[] = [{
+    fieldName: "Receipt Amount",
+    pageValue: "S$ 79.50",
+    pdfValue: "$18.50",
+    status: "MISMATCH",
+    confidence: 0.99,
+  }];
+  const pdfFields = {
+    "Total Amount [Document 1]": "$61.00",
+    "Other Total Amount [Document 1]": "$18.50",
+  };
+  const fieldSources = Object.fromEntries(
+    Object.keys(pdfFields).map((label) => [label, "invoice.pdf"])
+  );
+
+  const reconciled = reconcileFieldComparisons(comparisons, fields, pdfFields, {
+    fieldSources,
+    billingFiles: ["invoice.pdf"],
+  });
+
+  assert.equal(reconciled[0].status, "MISMATCH");
+});
+
+test("does not match a composite identifier by substring", () => {
+  const comparisons: FieldComparison[] = [{
+    fieldName: "Invoice Number",
+    pageValue: "ABC12345 / XYZ67890",
+    pdfValue: "ABC123456",
+    status: "MISMATCH",
+    confidence: 0.99,
+  }];
+
+  const reconciled = reconcileFieldComparisons(comparisons, fields, {
+    "Invoice Number [Document 1]": "ABC123456",
+    "Invoice Number [Document 2]": "XYZ67890",
+  });
+
+  assert.equal(reconciled[0].status, "MISMATCH");
+});
+
+test("matches exact identifiers inside a multi-value document field", () => {
+  const comparisons: FieldComparison[] = [{
+    fieldName: "Invoice Number",
+    pageValue: "ABC12345 / XYZ67890",
+    pdfValue: "ABC12345 / XYZ67890",
+    status: "MISMATCH",
+    confidence: 0.9,
+  }];
+
+  const reconciled = reconcileFieldComparisons(comparisons, fields, {
+    "Invoice References": "ABC12345, XYZ67890",
+  });
+
+  assert.equal(reconciled[0].status, "MATCH");
+  assert.equal(reconciled[0].documentLineMatches?.length, 2);
+});
+
+test("does not sum explicitly foreign amounts into an SGD portal amount", () => {
+  const comparisons: FieldComparison[] = [{
+    fieldName: "Receipt Amount",
+    pageValue: "S$ 79.50",
+    pdfValue: "MYR 18.50",
+    status: "MISMATCH",
+    confidence: 0.99,
+  }];
+  const pdfFields = {
+    "Total Amount [Document 1]": "MYR 61.00",
+    "Total Amount [Document 2]": "RM 18.50",
+  };
+
+  const reconciled = reconcileFieldComparisons(comparisons, fields, pdfFields, {
+    fieldSources: {
+      "Total Amount [Document 1]": "invoice-61.pdf",
+      "Total Amount [Document 2]": "invoice-18.50.pdf",
+    },
+    billingFiles: ["invoice-61.pdf", "invoice-18.50.pdf"],
+  });
+
+  assert.equal(reconciled[0].status, "MISMATCH");
+});
+
+test("ignores an ambiguous amount field containing several totals", () => {
+  const comparisons: FieldComparison[] = [{
+    fieldName: "Receipt Amount",
+    pageValue: "S$ 79.50",
+    pdfValue: "$18.50",
+    status: "MISMATCH",
+    confidence: 0.99,
+  }];
+  const pdfFields = {
+    "Total Amount [Document 1]": "Subtotal $55.51 GST $5.49 Total $61.00",
+    "Total Amount [Document 2]": "$18.50",
+  };
+
+  const reconciled = reconcileFieldComparisons(comparisons, fields, pdfFields, {
+    fieldSources: {
+      "Total Amount [Document 1]": "invoice-61.pdf",
+      "Total Amount [Document 2]": "invoice-18.50.pdf",
+    },
+    billingFiles: ["invoice-61.pdf", "invoice-18.50.pdf"],
+  });
+
+  assert.equal(reconciled[0].status, "MISMATCH");
+});

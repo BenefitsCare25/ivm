@@ -493,6 +493,8 @@ model ComparisonResult {
   /** Per-file document-type labels from extraction, so recompare can run the
       same alias/family document recognition without re-extracting files. */
   documentTypesByFile   Json?
+  /** Lossless per-file extraction snapshot used by recompare. */
+  documentExtractions   Json?
   completedAt           DateTime?
   errorMessage          String?
 

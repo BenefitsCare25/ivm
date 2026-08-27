@@ -3,12 +3,18 @@
 import { Fragment } from "react";
 import { CheckCircle2, XCircle, ShieldAlert, TrendingUp, Stethoscope, CornerDownRight } from "lucide-react";
 import { ComparisonStatusBadge } from "../portal-status-badge";
-import type { FieldComparison, ValidationAlert, ComparisonSummary } from "@/types/portal";
+import type {
+  FieldComparison,
+  ValidationAlert,
+  ComparisonSummary,
+  TrackedItemStatus,
+} from "@/types/portal";
 import { FWA_LABELS } from "@/types/portal";
 
 interface ComparisonColumnProps {
   comparisonResult: ComparisonSummary | null;
   fwaAlerts: ValidationAlert[];
+  itemStatus: TrackedItemStatus;
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -23,7 +29,7 @@ const SOURCE_COLORS: Record<string, string> = {
   inferred: "bg-purple-500/20 text-purple-400",
 };
 
-export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColumnProps) {
+export function ComparisonColumn({ comparisonResult, fwaAlerts, itemStatus }: ComparisonColumnProps) {
   const diagnosis = comparisonResult?.diagnosisAssessment ?? null;
 
   const currencyAlerts = fwaAlerts.filter((a) => a.ruleType === "CURRENCY_CONVERSION");
@@ -68,6 +74,24 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
             )}
           </div>
 
+          {comparisonResult.mismatchCount === 0 && itemStatus === "FLAGGED" && (
+            <div className="flex items-start gap-1.5 rounded-md border border-status-warning/30 bg-status-warning/10 px-2.5 py-2 text-xs text-foreground/80">
+              <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-warning" />
+              <p className="min-w-0 leading-relaxed">
+                Field comparison passed. This claim remains flagged by policy or document alerts below.
+              </p>
+            </div>
+          )}
+
+          {comparisonResult.mismatchCount === 0 && itemStatus === "REQUIRE_DOC" && (
+            <div className="flex items-start gap-1.5 rounded-md border border-status-warning/30 bg-status-warning/10 px-2.5 py-2 text-xs text-foreground/80">
+              <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-warning" />
+              <p className="min-w-0 leading-relaxed">
+                Field comparison passed, but additional document evidence is required.
+              </p>
+            </div>
+          )}
+
           {/* AI summary */}
           {comparisonResult.summary && (
             <p className="text-xs text-muted-foreground italic leading-relaxed">
@@ -91,7 +115,11 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                   {comparisonResult.fieldComparisons.map((field, i) => {
                     const isMismatch = field.status === "MISMATCH";
                     const lineMatches = field.documentLineMatches ?? [];
-                    const hasLineMatches = isMismatch && lineMatches.length > 0;
+                    const hasLineMatches = lineMatches.length > 1 || (isMismatch && lineMatches.length > 0);
+                    const evidenceTone = isMismatch
+                      ? "border-amber-500/30 bg-amber-500/10"
+                      : "border-status-success/30 bg-status-success/10";
+                    const evidenceTextTone = isMismatch ? "text-amber-500" : "text-status-success";
                     const displayedPdfValue = field.pdfValue?.trim() || lineMatches[0]?.value || null;
                     return (
                       <Fragment key={i}>
@@ -120,29 +148,30 @@ export function ComparisonColumn({ comparisonResult, fwaAlerts }: ComparisonColu
                           </td>
                         </tr>
                         {hasLineMatches && (
-                          <tr className="bg-status-error/5">
+                          <tr className={isMismatch ? "bg-status-error/5" : "bg-status-success/5"}>
                             <td colSpan={4} className="px-2 pb-1.5 pt-0">
-                              <div className="flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5">
-                                <CornerDownRight className="h-3 w-3 shrink-0 mt-0.5 text-amber-500" />
+                              <div className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 ${evidenceTone}`}>
+                                <CornerDownRight className={`h-3 w-3 shrink-0 mt-0.5 ${evidenceTextTone}`} />
                                 <div className="flex-1 min-w-0 space-y-0.5">
-                                  <p className="text-[11px] font-medium text-amber-300/90">
-                                    Submitted value <span className="font-mono">{field.pageValue || "—"}</span>{" "}
-                                    found in document as:
+                                  <p className={`text-[11px] font-medium ${evidenceTextTone}`}>
+                                    {isMismatch
+                                      ? `Submitted value ${field.pageValue || "—"} found in document as:`
+                                      : "Matched using evidence from submitted documents:"}
                                   </p>
                                   <ul className="space-y-0.5">
                                     {lineMatches.map((match, j) => (
                                       <li
-                                        key={j}
-                                        className="flex items-baseline gap-1.5 text-[11px] text-foreground/80"
+                                        key={`${match.label}-${match.value}-${match.sourceFile ?? j}`}
+                                        className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-[11px] text-foreground/80"
                                       >
                                         <span className="text-muted-foreground">›</span>
-                                        <span className="font-medium truncate" title={match.label}>{match.label}</span>
-                                        <span className="font-mono text-muted-foreground shrink-0">
+                                        <span className="min-w-0 break-words font-medium" title={match.label}>{match.label}</span>
+                                        <span className="font-mono text-muted-foreground">
                                           {match.value}
                                         </span>
                                         {match.sourceFile && (
                                           <span
-                                            className="text-[10px] text-muted-foreground/60 truncate"
+                                            className="max-w-full break-all text-[10px] text-muted-foreground/60"
                                             title={match.sourceFile}
                                           >
                                             ({match.sourceFile})

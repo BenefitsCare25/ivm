@@ -337,7 +337,7 @@ export interface RequiredDocumentCheck {
    */
   uncertain?: boolean;
   /** How the document was resolved against the submitted set. */
-  matchedVia?: "canonical" | "alias" | "synonym" | "keyword" | "llm" | "none";
+  matchedVia?: "canonical" | "alias" | "synonym" | "evidence" | "keyword" | "llm" | "none";
   /** Detected billing-document status, when the requirement is a hospital bill. */
   billStatus?: BillStatus;
   /** File the document was matched to (when found deterministically). */
