@@ -4,8 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrapeStatusBadge, ITEM_STATUS_COLORS } from "./portal-status-badge";
 import { formatDate } from "@/lib/utils";
-import type { ScrapeSessionStatus } from "@/types/portal";
-import { TERMINAL_ITEM_STATUSES } from "@/types/portal";
+import { summarizePortalSession } from "@/lib/portal-session-summary";
+import {
+  TRACKED_ITEM_STATUS_LABELS,
+  type ScrapeSessionStatus,
+  type TrackedItemStatus,
+} from "@/types/portal";
 
 interface SessionData {
   id: string;
@@ -25,7 +29,17 @@ interface PortalSessionListProps {
   sessions: SessionData[];
 }
 
-const STATUS_ORDER = ["COMPARED", "FLAGGED", "SKIPPED", "ERROR", "PROCESSING", "DISCOVERED"];
+const STATUS_ORDER: TrackedItemStatus[] = [
+  "COMPARED",
+  "VERIFIED",
+  "FLAGGED",
+  "REQUIRE_DOC",
+  "SKIPPED",
+  "FILTERED",
+  "ERROR",
+  "PROCESSING",
+  "DISCOVERED",
+];
 
 export function PortalSessionList({ portalId, sessions }: PortalSessionListProps) {
   return (
@@ -48,13 +62,18 @@ export function PortalSessionList({ portalId, sessions }: PortalSessionListProps
                     )
                   : null;
 
-              const total = s.itemsFound || 0;
-              const processed = TERMINAL_ITEM_STATUSES.reduce(
-                (sum, st) => sum + (s.itemStatusCounts[st] ?? 0),
-                0
-              );
+              const summary = summarizePortalSession(s.itemStatusCounts);
+              const total = summary.total || s.itemsFound || 0;
+              const processed = summary.finished;
               const progressPct = total > 0 ? Math.round((processed / total) * 100) : 0;
-              const isRunning = s.status === "RUNNING" || s.status === "PENDING";
+              let displayStatus = s.status;
+              if (summary.total > 0 && s.status !== "CANCELLED") {
+                if ((s.itemStatusCounts.PROCESSING ?? 0) > 0) displayStatus = "RUNNING";
+                else if ((s.itemStatusCounts.DISCOVERED ?? 0) > 0) displayStatus = "PENDING";
+                else if (summary.failed > 0) displayStatus = "FAILED";
+                else displayStatus = "COMPLETED";
+              }
+              const isRunning = displayStatus === "RUNNING" || displayStatus === "PENDING";
 
               const statusEntries = STATUS_ORDER.filter(
                 (st) => (s.itemStatusCounts[st] ?? 0) > 0
@@ -64,7 +83,7 @@ export function PortalSessionList({ portalId, sessions }: PortalSessionListProps
                 <Card key={s.id} className="p-4 space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <ScrapeStatusBadge status={s.status} />
+                      <ScrapeStatusBadge status={displayStatus} />
                       <span className="text-xs text-muted-foreground">{s.triggeredBy}</span>
                       {s.startedAt && (
                         <span className="text-xs text-muted-foreground" suppressHydrationWarning>
@@ -84,13 +103,13 @@ export function PortalSessionList({ portalId, sessions }: PortalSessionListProps
                     <div className="space-y-1">
                       <div className="flex justify-between text-xs text-muted-foreground">
                         <span>
-                          Processing {processed} of {total} items
+                          Processing {processed} of {total} claims
                         </span>
                         <span>{progressPct}%</span>
                       </div>
                       <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
                         <div
-                          className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                          className="h-full rounded-full bg-status-info transition-[width] duration-500"
                           style={{ width: `${progressPct}%` }}
                         />
                       </div>
@@ -98,7 +117,7 @@ export function PortalSessionList({ portalId, sessions }: PortalSessionListProps
                   ) : isRunning ? (
                     <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                       <Loader2 className="h-3 w-3 animate-spin" />
-                      Scraping list page…
+                      Scraping claim list…
                     </p>
                   ) : statusEntries.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
@@ -109,17 +128,17 @@ export function PortalSessionList({ portalId, sessions }: PortalSessionListProps
                             ITEM_STATUS_COLORS[status] ?? "bg-muted text-muted-foreground"
                           }`}
                         >
-                          {count} {status.toLowerCase()}
+                          {count} {TRACKED_ITEM_STATUS_LABELS[status].toLowerCase()}
                         </span>
                       ))}
                       {total > 0 && (
                         <span className="text-xs text-muted-foreground self-center">
-                          ({processed}/{total} processed)
+                          ({processed}/{total} finished)
                         </span>
                       )}
                     </div>
                   ) : total > 0 ? (
-                    <p className="text-xs text-muted-foreground">{total} items found</p>
+                    <p className="text-xs text-muted-foreground">{total} claims found</p>
                   ) : null}
 
                   {s.errorMessage && (

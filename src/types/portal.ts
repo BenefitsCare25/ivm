@@ -32,7 +32,7 @@ export const TRACKED_ITEM_STATUSES = [
 export type TrackedItemStatus = (typeof TRACKED_ITEM_STATUSES)[number];
 
 export const TERMINAL_ITEM_STATUSES = [
-  "COMPARED", "FLAGGED", "VERIFIED", "ERROR", "SKIPPED", "FILTERED",
+  "COMPARED", "FLAGGED", "VERIFIED", "ERROR", "SKIPPED", "REQUIRE_DOC", "FILTERED",
 ] as const satisfies ReadonlyArray<TrackedItemStatus>;
 
 export const COMPARISON_FIELD_STATUSES = [
@@ -97,6 +97,7 @@ export interface ListSelectors {
 
 export interface DetailSelectors {
   fieldSelectors?: Record<string, string>;
+  readySelector?: string;
   downloadLinkSelector?: string;
   fileNameSelector?: string;
 }

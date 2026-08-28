@@ -370,6 +370,15 @@ export function PortalSetupWizard() {
               <div className="space-y-3">
                 <h4 className="text-sm font-medium text-foreground">Detail Selectors</h4>
                 <div className="space-y-2">
+                  <label className="text-xs text-muted-foreground">Ready Selector</label>
+                  <Input
+                    value={detailSelectors.readySelector ?? ""}
+                    onChange={(e) => setDetailSelectors({ ...detailSelectors, readySelector: e.target.value })}
+                    className="font-mono text-xs"
+                    placeholder="Element unique to a loaded claim"
+                  />
+                </div>
+                <div className="space-y-2">
                   <label className="text-xs text-muted-foreground">Download Link Selector</label>
                   <Input
                     value={detailSelectors.downloadLinkSelector ?? ""}

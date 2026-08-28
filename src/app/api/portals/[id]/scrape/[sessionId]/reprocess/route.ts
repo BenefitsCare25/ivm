@@ -2,17 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enqueueItemDetailBatch } from "@/lib/queue/item-detail-queue";
-import { errorResponse, UnauthorizedError, NotFoundError } from "@/lib/errors";
+import { errorResponse, UnauthorizedError, NotFoundError, ValidationError } from "@/lib/errors";
 import { assertAuthValid } from "@/lib/portal-auth";
 import type { TrackedItemStatus } from "@/types/portal";
+import { syncScrapeSessionProgress } from "@/lib/portal-session-lifecycle";
 
 /**
  * POST /api/portals/[id]/scrape/[sessionId]/reprocess
- * Body: { type: "failed" | "unprocessed" | "all" }
+ * Body: { type: "failed" | "unprocessed" | "documents" | "all" }
  *
  * Re-queues items so the detail worker picks them up again:
  *   failed      — ERROR items only
  *   unprocessed — DISCOVERED items only
+ *   documents   — REQUIRE_DOC items only
  *   all         — ERROR + DISCOVERED
  */
 export async function POST(
@@ -24,7 +26,14 @@ export async function POST(
     if (!session?.user?.id) throw new UnauthorizedError();
 
     const { id, sessionId } = await params;
-    const { type = "all" } = await req.json().catch(() => ({}));
+    const payload: unknown = await req.json().catch(() => ({}));
+    const requestedType = payload && typeof payload === "object" && "type" in payload
+      ? (payload as { type?: unknown }).type
+      : undefined;
+    const type = requestedType ?? "all";
+    if (typeof type !== "string" || !["failed", "unprocessed", "documents", "all", "skip"].includes(type)) {
+      throw new ValidationError("Invalid reprocess type.");
+    }
 
     const portal = await db.portal.findFirst({
       where: { id, userId: session.user.id },
@@ -49,19 +58,15 @@ export async function POST(
         where: { scrapeSessionId: sessionId, status: "ERROR" },
         data: { status: "SKIPPED", errorMessage: null },
       });
+      await syncScrapeSessionProgress(sessionId, "failed-items-skipped");
       return NextResponse.json({ skipped: count });
     }
 
     const statusFilter: TrackedItemStatus[] =
       type === "failed"      ? ["ERROR"] :
       type === "unprocessed" ? ["DISCOVERED"] :
+      type === "documents"   ? ["REQUIRE_DOC"] :
                                ["ERROR", "DISCOVERED"];
-
-    // Count ERROR items being reset — they were already counted in itemsProcessed when they failed,
-    // so we must decrement to avoid double-counting when the retry completes.
-    const errorItemCount = statusFilter.includes("ERROR")
-      ? await db.trackedItem.count({ where: { scrapeSessionId: sessionId, status: "ERROR" } })
-      : 0;
 
     // Reset to DISCOVERED so the worker treats them as fresh
     await db.trackedItem.updateMany({
@@ -93,22 +98,18 @@ export async function POST(
       { reprocess: true }
     );
 
-    // Clear completedAt so the session page's isActive check enables auto-refresh.
-    // Decrement itemsProcessed for ERROR items that were already counted on first failure.
     await db.scrapeSession.update({
       where: { id: sessionId },
       data: {
-        completedAt: null,
         authExpiredAt: null,
-        ...(errorItemCount > 0 ? { itemsProcessed: { decrement: errorItemCount } } : {}),
       },
     });
 
-    // Restore CANCELLED sessions to COMPLETED so the UI shows the list scrape is done.
     await db.scrapeSession.updateMany({
       where: { id: sessionId, status: "CANCELLED" },
-      data: { status: "COMPLETED" },
+      data: { status: "RUNNING", completedAt: null },
     });
+    await syncScrapeSessionProgress(sessionId, "items-requeued");
 
     return NextResponse.json({ requeued: count });
   } catch (err) {

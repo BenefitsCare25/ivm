@@ -57,6 +57,7 @@ export const updateSelectorsSchema = z.object({
   }).optional(),
   detailSelectors: z.object({
     fieldSelectors: z.record(z.string().max(200), z.string().max(500)).optional().nullable(),
+    readySelector: selectorField,
     downloadLinkSelector: selectorField,
     fileNameSelector: selectorField,
   }).optional(),

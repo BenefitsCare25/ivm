@@ -12,6 +12,8 @@ import {
 import { enqueueItemDetailBatch } from "@/lib/queue/item-detail-queue";
 import type { ListSelectors, ScrapeFilters } from "@/types/portal";
 import { filterBySubmittedDate } from "@/lib/portal-submitted-filter";
+import { syncScrapeSessionProgress } from "@/lib/portal-session-lifecycle";
+import { createScrapeSessionIfIdle } from "@/lib/portal-scrape-start";
 
 async function processPortalScrape(
   job: Job<PortalScrapeJobData>
@@ -21,16 +23,28 @@ async function processPortalScrape(
   // For scheduled jobs, create a ScrapeSession if not provided
   let sessionId = scrapeSessionId;
   if (!sessionId) {
-    const session = await db.scrapeSession.create({
-      data: { portalId, triggeredBy: "SCHEDULED" },
+    const startResult = await createScrapeSessionIfIdle({
+      portalId,
+      triggeredBy: "SCHEDULED",
     });
-    sessionId = session.id;
+    if (!startResult.created) {
+      logger.info(
+        { portalId, activeSessionId: startResult.activeSessionId },
+        "[worker] Scheduled scrape skipped because this portal already has an active session",
+      );
+      return { status: "COMPLETED", itemsFound: 0 };
+    }
+    sessionId = startResult.sessionId;
   }
 
-  await db.scrapeSession.update({
-    where: { id: sessionId },
+  const started = await db.scrapeSession.updateMany({
+    where: { id: sessionId, status: "PENDING" },
     data: { status: "RUNNING", startedAt: new Date() },
   });
+  if (started.count === 0) {
+    logger.warn({ portalId, sessionId }, "[worker] Portal scrape skipped because its session is no longer pending");
+    return { status: "FAILED", itemsFound: 0, errorMessage: "Scrape session is no longer pending" };
+  }
 
   try {
     const portal = await db.portal.findUniqueOrThrow({
@@ -169,14 +183,24 @@ async function processPortalScrape(
           userId,
         }));
 
+      const missingDetailIds = trackedItems
+        .filter((item) => !item.detailPageUrl)
+        .map((item) => item.id);
+      if (missingDetailIds.length > 0) {
+        await db.trackedItem.updateMany({
+          where: { id: { in: missingDetailIds } },
+          data: {
+            status: "ERROR",
+            errorMessage: "The portal list did not provide a claim detail link. This claim was not classified as requiring documents.",
+          },
+        });
+      }
+
       if (itemsWithDetail.length > 0) {
         await enqueueItemDetailBatch(itemsWithDetail);
       }
 
-      await db.scrapeSession.update({
-        where: { id: sessionId },
-        data: { status: "COMPLETED", completedAt: new Date() },
-      });
+      await syncScrapeSessionProgress(sessionId, "detail-jobs-enqueued");
 
       return { status: "COMPLETED", itemsFound: limitedRows.length };
     } finally {

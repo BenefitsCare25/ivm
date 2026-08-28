@@ -17,7 +17,7 @@ import { scheduleStorageCleanup, startCleanupWorker } from "@/lib/queue/cleanup-
 import { scheduleKeepAlive, startKeepAliveWorker } from "@/lib/queue/keepalive-queue";
 import { runPortalKeepAlive } from "@/lib/playwright/keepalive";
 import { runFullCleanup } from "@/lib/storage/cleanup";
-import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
+import { syncScrapeSessionProgress } from "@/lib/portal-session-lifecycle";
 import { toInputJson } from "@/lib/utils";
 import { runExtraction } from "./item-detail-extraction";
 import { runIntelligencePipeline } from "./item-detail-extraction";
@@ -39,16 +39,6 @@ const AUTH_ERROR_SIGNATURES = [
 
 function isAuthError(message: string): boolean {
   return AUTH_ERROR_SIGNATURES.some((sig) => message.includes(sig));
-}
-
-async function finalizeIfComplete(
-  session: { id: string; itemsProcessed: number; itemsFound: number; portalId: string; createdAt: Date },
-  trigger: string,
-): Promise<void> {
-  if (session.itemsProcessed === session.itemsFound && session.itemsFound > 0) {
-    await db.scrapeSession.update({ where: { id: session.id }, data: { completedAt: new Date() } });
-    snapshotPortalDayAsync(session.portalId, session.createdAt, trigger);
-  }
 }
 
 function withTimeout<T>(
@@ -94,7 +84,6 @@ async function processItemDetailCore(
     data: { status: "PROCESSING", processingStartedAt: new Date() },
   });
 
-  let successIncremented = false;
   let context: BrowserContext | undefined;
   let page: Page | undefined;
   let scrapeSessionId: string | undefined;
@@ -218,12 +207,7 @@ async function processItemDetailCore(
             reason: "submitted_by_filter",
             submittedBy: submitterVal,
           });
-          const updatedSession = await db.scrapeSession.update({
-            where: { id: item.scrapeSessionId },
-            data: { itemsProcessed: { increment: 1 } },
-          });
-          successIncremented = true;
-          await finalizeIfComplete(updatedSession, "filter-skip");
+          await syncScrapeSessionProgress(item.scrapeSessionId, "filter-skip");
           return { status: "COMPLETED", mismatchCount: 0 };
         }
       }
@@ -363,12 +347,7 @@ async function processItemDetailCore(
         fieldCount: Object.keys(effectiveDetailData).length,
       });
 
-      const completedSession = await db.scrapeSession.update({
-        where: { id: item.scrapeSessionId },
-        data: { itemsProcessed: { increment: 1 } },
-      });
-      successIncremented = true;
-      await finalizeIfComplete(completedSession, "item-complete");
+      await syncScrapeSessionProgress(item.scrapeSessionId, "item-complete");
 
       return { status: "COMPLETED", mismatchCount: comparison.mismatchCount };
     } finally {
@@ -386,7 +365,12 @@ async function processItemDetailCore(
     // and the user gets an actionable "session expired" banner. Scoped to navigation
     // errors so ordinary AI/timeout failures don't pay for the extra navigation.
     let reclassified = false;
-    if (page && !page.isClosed() && authCheckUrl && /ERR_ABORTED|net::ERR|page\.goto/i.test(errorMessage)) {
+    if (
+      page &&
+      !page.isClosed() &&
+      authCheckUrl &&
+      /ERR_ABORTED|net::ERR|page\.goto|Claim detail page did not load correctly/i.test(errorMessage)
+    ) {
       try {
         await page.goto(authCheckUrl, { waitUntil: "domcontentloaded", timeout: 15_000 });
         if (await isLoginPage(page)) {
@@ -411,8 +395,8 @@ async function processItemDetailCore(
     // error when we deliberately rewrote the message (auth reclassification).
     await emitFailureEvent(trackedItemId, "ITEM_ERROR", reclassified ? new Error(errorMessage) : err, screenshot);
 
-    // Check current status before updating — on timeout, handleFinalFailure
-    // already set ERROR and incremented itemsProcessed.
+    // Check current status before updating — timeout recovery may already have
+    // set the item to ERROR.
     const currentItem = await db.trackedItem.findUnique({
       where: { id: trackedItemId },
       select: { status: true },
@@ -422,8 +406,7 @@ async function processItemDetailCore(
     // Never overwrite a good comparison with ERROR (the contradictory
     // "Error + full comparison" state). Two cases:
     //  1. currentIsSuccess — the success path already set a terminal status THIS run,
-    //     then a later step threw. Leave the status; the final-attempt block below
-    //     still handles the itemsProcessed count via `successIncremented`.
+    //     then a later step threw. Leave the successful status intact.
     //  2. restoredPrior — a failed RE-RUN of an item a prior run had completed
     //     (currentItem is PROCESSING now, but priorStatus + a saved ComparisonResult
     //     prove a good result exists). Restore it; it was already counted.
@@ -444,7 +427,6 @@ async function processItemDetailCore(
           },
         });
         restoredPrior = true;
-        successIncremented = true; // already counted on the prior completion — don't double-count
       }
     }
 
@@ -463,28 +445,15 @@ async function processItemDetailCore(
       });
       if (cancelled > 0) {
         logger.warn({ sessionId: scrapeSessionId, cancelled }, "[worker] Auth failure circuit breaker — cancelled remaining DISCOVERED items");
-        await db.scrapeSession.update({
-          where: { id: scrapeSessionId },
-          data: {
-            itemsProcessed: { increment: cancelled },
-            authExpiredAt: new Date(),
-          },
-        });
-      } else {
-        await db.scrapeSession.update({
-          where: { id: scrapeSessionId },
-          data: { authExpiredAt: new Date() },
-        });
       }
+      await db.scrapeSession.update({
+        where: { id: scrapeSessionId },
+        data: { authExpiredAt: new Date() },
+      });
     }
 
-    const isFinalAttempt = job.attemptsMade >= (job.opts.attempts ?? 1);
-    if (!alreadyHandled && !successIncremented && isFinalAttempt && scrapeSessionId) {
-      const updated = await db.scrapeSession.update({
-        where: { id: scrapeSessionId },
-        data: { itemsProcessed: { increment: 1 } },
-      });
-      await finalizeIfComplete(updated, "error-path");
+    if (scrapeSessionId) {
+      await syncScrapeSessionProgress(scrapeSessionId, "error-path");
     }
 
     return { status: "FAILED", mismatchCount: 0, errorMessage };

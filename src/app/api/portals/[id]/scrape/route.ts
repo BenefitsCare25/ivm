@@ -7,6 +7,7 @@ import { logger } from "@/lib/logger";
 import { startScrapeSchema } from "@/lib/validations/portal";
 import { assertAuthValid } from "@/lib/portal-auth";
 import { findSubmittedKey } from "@/lib/portal-submitted-filter";
+import { createScrapeSessionIfIdle } from "@/lib/portal-scrape-start";
 import type { ListSelectors } from "@/types/portal";
 
 export async function POST(
@@ -47,39 +48,66 @@ export async function POST(
       }
     }
 
-    // Create scrape session
-    const scrapeSession = await db.scrapeSession.create({
-      data: {
-        portalId: id,
-        triggeredBy: "MANUAL",
-        acceptableDocumentTypeIds,
-        submittedFrom: body.submittedFrom ? new Date(body.submittedFrom) : null,
-        submittedTo: body.submittedTo ? new Date(body.submittedTo) : null,
-      },
-    });
-
-    // Enqueue the scrape job
-    const jobId = await enqueuePortalScrape({
+    const startResult = await createScrapeSessionIfIdle({
       portalId: id,
-      scrapeSessionId: scrapeSession.id,
-      userId: session.user.id,
-      submittedFrom: body.submittedFrom,
-      submittedTo: body.submittedTo,
+      triggeredBy: "MANUAL",
+      acceptableDocumentTypeIds,
+      submittedFrom: body.submittedFrom ? new Date(body.submittedFrom) : null,
+      submittedTo: body.submittedTo ? new Date(body.submittedTo) : null,
     });
-
-    if (!jobId) {
-      throw new AppError("Background job queue not available. Ensure Redis is running.", 503, "QUEUE_UNAVAILABLE");
+    if (!startResult.created) {
+      throw new AppError(
+        "A scrape session is already running for this portal. Wait for it to finish or stop it before starting another.",
+        409,
+        "SCRAPE_ALREADY_RUNNING",
+      );
     }
 
-    logger.info({ portalId: id, scrapeSessionId: scrapeSession.id }, "Scrape triggered");
+    let jobId: string | null = null;
+    try {
+      jobId = await enqueuePortalScrape({
+        portalId: id,
+        scrapeSessionId: startResult.sessionId,
+        userId: session.user.id,
+        submittedFrom: body.submittedFrom,
+        submittedTo: body.submittedTo,
+      });
+    } catch (err) {
+      await markEnqueueFailure(startResult.sessionId, err);
+      throw err;
+    }
+
+    if (!jobId) {
+      const queueError = new AppError(
+        "Background job queue not available. Ensure Redis is running.",
+        503,
+        "QUEUE_UNAVAILABLE",
+      );
+      await markEnqueueFailure(startResult.sessionId, queueError);
+      throw queueError;
+    }
+
+    logger.info({ portalId: id, scrapeSessionId: startResult.sessionId }, "Scrape triggered");
 
     return NextResponse.json(
-      { scrapeSessionId: scrapeSession.id, jobId },
+      { scrapeSessionId: startResult.sessionId, jobId },
       { status: 201 }
     );
   } catch (err) {
     return errorResponse(err);
   }
+}
+
+async function markEnqueueFailure(sessionId: string, err: unknown): Promise<void> {
+  const message = err instanceof Error ? err.message : "Background job queue unavailable";
+  await db.scrapeSession.updateMany({
+    where: { id: sessionId, status: "PENDING" },
+    data: {
+      status: "FAILED",
+      completedAt: new Date(),
+      errorMessage: message,
+    },
+  });
 }
 
 export async function GET(

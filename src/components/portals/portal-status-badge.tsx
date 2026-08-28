@@ -51,8 +51,9 @@ export function ComparisonStatusBadge({ status }: { status: ComparisonFieldStatu
 export const ITEM_STATUS_COLORS: Record<string, string> = {
   COMPARED:     "bg-status-success/15 text-status-success",
   FLAGGED:      "bg-status-warning/15 text-status-warning",
+  VERIFIED:     "bg-status-success/15 text-status-success",
   ERROR:        "bg-status-error/15 text-status-error",
-  PROCESSING:   "bg-blue-500/15 text-blue-500",
+  PROCESSING:   "bg-status-info/15 text-status-info",
   DISCOVERED:   "bg-muted text-muted-foreground",
   SKIPPED:      "bg-muted/60 text-muted-foreground/60",
   REQUIRE_DOC:  "bg-status-warning/15 text-status-warning",

@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "project": {
+    "name": "ivm",
+    "productType": "claims operations portal",
+    "stack": [
+      "nextjs",
+      "react",
+      "tailwind-v4"
+    ]
+  },
+  "sources": {
+    "tokens": [
+      "src/styles/tokens.css"
+    ],
+    "components": [
+      "src/components/ui"
+    ],
+    "assets": [],
+    "instructions": []
+  },
+  "design": {
+    "colorMode": "light-dark",
+    "colors": {},
+    "typography": {},
+    "spacing": {},
+    "radius": {},
+    "shadows": {},
+    "motion": {},
+    "density": "compact"
+  },
+  "components": {
+    "installed": [
+      "badge",
+      "button",
+      "card",
+      "dialog",
+      "dropdown-menu",
+      "empty-state",
+      "form-error",
+      "input",
+      "stepper",
+      "tag-input",
+      "textarea",
+      "tooltip"
+    ],
+    "preferredPrimitives": [
+      "radix-ui"
+    ],
+    "patterns": []
+  },
+  "constraints": {
+    "must": [
+      "Use semantic color tokens from src/styles/tokens.css",
+      "Distinguish processing failures from legitimate missing-document outcomes",
+      "Keep operator actions explicit and provide actionable request errors"
+    ],
+    "avoid": [
+      "Hardcoded theme colors",
+      "Directional decorative borders",
+      "Automatically retrying failed claims without operator action"
+    ]
+  },
+  "decisions": [
+    {
+      "decision": "Completed sessions with claim read failures use a warning treatment and FAILED status badge.",
+      "reason": "Operators must not mistake partial technical failure for successful claim processing."
+    },
+    {
+      "decision": "REQUIRE_DOC is reserved for claims whose detail page loaded successfully but had no downloadable files.",
+      "reason": "A portal navigation or rendering failure is not evidence that documents are missing."
+    }
+  ],
+  "evidence": [
+    {
+      "fact": "components.installed",
+      "source": "src/components/ui"
+    },
+    {
+      "fact": "project.stack:nextjs",
+      "source": "package.json"
+    },
+    {
+      "fact": "project.stack:react",
+      "source": "package.json"
+    },
+    {
+      "fact": "project.stack:tailwind-v4",
+      "source": "package.json"
+    },
+    {
+      "fact": "sources.tokens",
+      "source": "src/styles/tokens.css"
+    }
+  ],
+  "generatedAt": "2026-08-28T08:04:33.929Z"
+}

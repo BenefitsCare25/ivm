@@ -6,7 +6,7 @@ import {
   getItemDetailQueue,
   type ItemDetailJobData,
 } from "@/lib/queue/item-detail-queue";
-import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
+import { syncScrapeSessionProgress } from "@/lib/portal-session-lifecycle";
 
 export async function recoverStuckItems(): Promise<void> {
   const stuck = await db.trackedItem.findMany({
@@ -129,17 +129,7 @@ export async function handleFinalFailure(
     });
     if (!item) return;
 
-    const updated = await db.scrapeSession.update({
-      where: { id: item.scrapeSessionId },
-      data: { itemsProcessed: { increment: 1 } },
-    });
-    if (updated.itemsProcessed === updated.itemsFound && updated.itemsFound > 0) {
-      await db.scrapeSession.update({
-        where: { id: item.scrapeSessionId },
-        data: { completedAt: new Date() },
-      });
-      snapshotPortalDayAsync(updated.portalId, updated.createdAt, "final-failure");
-    }
+    await syncScrapeSessionProgress(item.scrapeSessionId, "final-failure");
   } catch (dbErr) {
     logger.error({ dbErr, trackedItemId }, "[worker] Failed to update ERROR status on final failure");
   }

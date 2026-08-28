@@ -3,26 +3,19 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { RefreshCw, RotateCcw, Play, CheckCircle2, Square, Trash2, Loader2, SkipForward, FileSliders, AlertCircle } from "lucide-react";
+import { RefreshCw, RotateCcw, Play, Square, Trash2, Loader2, SkipForward, FileSliders, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ComparisonTemplateModal } from "./comparison-template-modal";
+import { SessionProcessingSummary } from "./session-processing-summary";
+import { summarizePortalSession } from "@/lib/portal-session-summary";
+import type { PortalSessionCounts } from "@/lib/portal-session-summary";
 import type { ProviderGroupSummary, AuthStatus, ScrapeSessionStatus } from "@/types/portal";
 
 interface SessionActionsProps {
   portalId: string;
   sessionId: string;
-  counts: {
-    COMPARED: number;
-    FLAGGED: number;
-    ERROR: number;
-    PROCESSING: number;
-    DISCOVERED: number;
-    SKIPPED?: number;
-    VERIFIED?: number;
-    REQUIRE_DOC?: number;
-    FILTERED?: number;
-  };
+  counts: PortalSessionCounts;
   sessionStatus: ScrapeSessionStatus;
   authStatus?: AuthStatus;
 }
@@ -35,9 +28,8 @@ export function SessionActions({
   authStatus = "ok",
 }: SessionActionsProps) {
   const router = useRouter();
-  const [loading, setLoading] = useState<"failed" | "unprocessed" | "skip" | "stop" | "delete" | null>(null);
+  const [loading, setLoading] = useState<"failed" | "unprocessed" | "documents" | "skip" | "stop" | "delete" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const autoRetriedRef = useRef(false);
   const [unconfiguredTypes, setUnconfiguredTypes] = useState<Array<{
     groupingKey: Record<string, string>;
     itemId: string;
@@ -59,43 +51,29 @@ export function SessionActions({
   // gating it on `authBad` deadlocks the session (the only clearer is unreachable).
   const credentialBad = authStatus === "expired" || authStatus === "missing";
 
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  const done = (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) + (counts.ERROR ?? 0) + (counts.SKIPPED ?? 0) + (counts.VERIFIED ?? 0) + (counts.REQUIRE_DOC ?? 0) + (counts.FILTERED ?? 0);
-  const inFlight = (counts.PROCESSING ?? 0) + (counts.DISCOVERED ?? 0);
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const isComplete = total > 0 && inFlight === 0;
+  const summary = summarizePortalSession(counts);
+  const isComplete = summary.isComplete;
 
-  // Auto-retry failed items once when nothing else is running.
-  // Uses sessionStorage to prevent re-triggering across re-renders and page refreshes.
-  // Skipped when auth is expired/missing — retrying without valid auth is wasteful.
-  useEffect(() => {
-    const errorCount = counts.ERROR ?? 0;
-    if (errorCount === 0 || inFlight > 0 || autoRetriedRef.current || authBad) return;
+  async function fetchUnconfiguredTypes() {
+    try {
+      const [configResponse, groupsResponse] = await Promise.all([
+        fetch(`/api/portals/${portalId}/scrape/${sessionId}/unconfigured-types`),
+        fetch(`/api/portals/${portalId}/provider-groups`),
+      ]);
+      if (!configResponse.ok) throw new Error("Template configuration request failed");
 
-    const storageKey = `auto_retried_${sessionId}`;
-    if (sessionStorage.getItem(storageKey)) return;
-
-    autoRetriedRef.current = true;
-    sessionStorage.setItem(storageKey, "1");
-    reprocess("failed");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [counts.ERROR, inFlight, sessionId, authBad]);
-
-  function fetchUnconfiguredTypes() {
-    Promise.all([
-      fetch(`/api/portals/${portalId}/scrape/${sessionId}/unconfigured-types`).then((r) => r.json()),
-      fetch(`/api/portals/${portalId}/provider-groups`).then((r) => r.json()).catch(() => []),
-    ])
-      .then(([data, groups]) => {
-        if (Array.isArray(groups)) setProviderGroups(groups);
-        if (Array.isArray(data.unconfiguredTypes) && data.unconfiguredTypes.length > 0) {
-          setUnconfiguredTypes(data.unconfiguredTypes);
-          setUnconfiguredConfigId(data.configId ?? null);
-          setCurrentTypeIndex(0);
-          setShowTemplateModal(true);
-        }
-      })
-      .catch(() => {});
+      const data = await configResponse.json();
+      const groups = groupsResponse.ok ? await groupsResponse.json() : [];
+      if (Array.isArray(groups)) setProviderGroups(groups);
+      if (Array.isArray(data.unconfiguredTypes) && data.unconfiguredTypes.length > 0) {
+        setUnconfiguredTypes(data.unconfiguredTypes);
+        setUnconfiguredConfigId(data.configId ?? null);
+        setCurrentTypeIndex(0);
+        setShowTemplateModal(true);
+      }
+    } catch {
+      setActionError("Could not check comparison templates. Refresh the session to try again.");
+    }
   }
 
   // Check for unconfigured claim types once processing is complete
@@ -121,7 +99,10 @@ export function SessionActions({
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "skip" }) }
       );
       if (res.ok) router.refresh();
-      else setActionError("Failed to skip items — please try again");
+      else {
+        const body = await res.json().catch(() => ({}));
+        setActionError(body.error ?? body.message ?? "Failed to skip items — please try again");
+      }
     } catch {
       setActionError("Network error — please check your connection");
     } finally {
@@ -129,7 +110,7 @@ export function SessionActions({
     }
   }
 
-  async function reprocess(type: "failed" | "unprocessed") {
+  async function reprocess(type: "failed" | "unprocessed" | "documents") {
     setLoading(type);
     setActionError(null);
     try {
@@ -151,9 +132,16 @@ export function SessionActions({
 
   async function stopSession() {
     setLoading("stop");
+    setActionError(null);
     try {
       const res = await fetch(`/api/portals/${portalId}/scrape/${sessionId}`, { method: "POST" });
       if (res.ok) router.refresh();
+      else {
+        const body = await res.json().catch(() => ({}));
+        setActionError(body.error ?? body.message ?? "Failed to stop the session — please try again");
+      }
+    } catch {
+      setActionError("Network error — please check your connection");
     } finally {
       setLoading(null);
     }
@@ -162,71 +150,36 @@ export function SessionActions({
   async function deleteSession() {
     if (!confirm("Delete this session and all its items? This cannot be undone.")) return;
     setLoading("delete");
+    setActionError(null);
     try {
       const res = await fetch(`/api/portals/${portalId}/scrape/${sessionId}`, { method: "DELETE" });
       if (res.ok) router.push(`/portals/${portalId}`);
+      else {
+        const body = await res.json().catch(() => ({}));
+        setActionError(body.error ?? body.message ?? "Failed to delete the session — please try again");
+      }
+    } catch {
+      setActionError("Network error — please check your connection");
     } finally {
       setLoading(null);
     }
   }
 
-  if (total === 0) return null;
+  if (summary.total === 0) return null;
 
   return (
     <Card className="p-4 space-y-3">
-      {/* Progress bar */}
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between text-sm">
-          <span className="font-medium text-foreground">
-            {isComplete
-              ? "All items processed"
-              : counts.PROCESSING > 0
-                ? "Processing items…"
-                : (counts.DISCOVERED ?? 0) > 0
-                  ? `${counts.DISCOVERED} item${counts.DISCOVERED === 1 ? "" : "s"} queued`
-                  : "Processing items…"}
-          </span>
-          <span className="text-muted-foreground tabular-nums">
-            {done} / {total}
-          </span>
-        </div>
-        <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-700 ${
-              isComplete ? "bg-status-success" : "bg-blue-500"
-            }`}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>{pct}% complete</span>
-          {inFlight > 0 && (
-            <span className="flex items-center gap-1">
-              {counts.PROCESSING > 0
-                ? <Loader2 className="h-3 w-3 animate-spin" />
-                : <span className="h-3 w-3 rounded-full border border-current opacity-50 inline-block" />}
-              {counts.DISCOVERED ?? 0} queued · {counts.PROCESSING ?? 0} running
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Completion banner */}
-      {isComplete && (
-        <div className="flex items-center gap-2 rounded-md bg-status-success/10 px-3 py-2">
-          <CheckCircle2 className="h-4 w-4 text-status-success shrink-0" />
-          <div className="flex-1 text-xs text-status-success">
-            <span className="font-medium">Done. </span>
-            {counts.COMPARED ?? 0} matched · {counts.FLAGGED ?? 0} flagged
-            {(counts.SKIPPED ?? 0) > 0 && ` · ${counts.SKIPPED} skipped`}
-            {(counts.FILTERED ?? 0) > 0 && ` · ${counts.FILTERED} filtered`}
-            {(counts.ERROR ?? 0) > 0 && ` · ${counts.ERROR} failed`}
-          </div>
-          {isComplete && (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) > 0 && unconfiguredTypes.length === 0 && !showTemplateModal && (
+      <SessionProcessingSummary
+        counts={counts}
+        configureAction={
+          isComplete &&
+          (counts.COMPARED ?? 0) + (counts.FLAGGED ?? 0) > 0 &&
+          unconfiguredTypes.length === 0 &&
+          !showTemplateModal ? (
             <Button
               size="sm"
               variant="ghost"
-              className="h-6 px-2 text-xs text-status-success hover:text-status-success hover:bg-status-success/10"
+              className="h-7 shrink-0 px-2 text-xs"
               onClick={() => {
                 const storageKey = `unconfigured_checked_${sessionId}`;
                 sessionStorage.removeItem(storageKey);
@@ -237,15 +190,15 @@ export function SessionActions({
               <FileSliders className="mr-1 h-3 w-3" />
               Configure Templates
             </Button>
-          )}
-        </div>
-      )}
+          ) : undefined
+        }
+      />
 
       {/* Action error banner */}
       {actionError && (
         <div className="flex items-center gap-2 rounded-md bg-status-error/10 px-3 py-2 text-xs text-status-error">
           <span className="flex-1">{actionError}</span>
-          <button onClick={() => setActionError(null)} className="text-status-error hover:opacity-70">✕</button>
+          <button type="button" aria-label="Dismiss error" onClick={() => setActionError(null)} className="text-status-error hover:opacity-70">✕</button>
         </div>
       )}
 
@@ -253,7 +206,7 @@ export function SessionActions({
       {recompareError && (
         <div className="flex items-center gap-2 rounded-md bg-status-warning/10 px-3 py-2 text-xs text-status-warning">
           <span className="flex-1">{recompareError}</span>
-          <button onClick={() => setRecompareError(null)} className="text-status-warning hover:opacity-70">✕</button>
+          <button type="button" aria-label="Dismiss warning" onClick={() => setRecompareError(null)} className="text-status-warning hover:opacity-70">✕</button>
         </div>
       )}
 
@@ -334,6 +287,23 @@ export function SessionActions({
           </>
         )}
 
+        {(counts.REQUIRE_DOC ?? 0) > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => reprocess("documents")}
+            disabled={loading !== null || credentialBad}
+            title={credentialBad ? "Update portal authentication before rechecking documents" : undefined}
+          >
+            {loading === "documents" ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Recheck {counts.REQUIRE_DOC} {counts.REQUIRE_DOC === 1 ? "claim" : "claims"} needing documents
+          </Button>
+        )}
+
         {/* Continue unprocessed — show when DISCOVERED > 0 and session isn't actively running */}
         {(counts.DISCOVERED ?? 0) > 0 && sessionStatus !== "RUNNING" && (
           <Button
@@ -352,8 +322,8 @@ export function SessionActions({
           </Button>
         )}
 
-        {/* Stop — only when actively running (RUNNING session or items currently being processed) */}
-        {(sessionStatus === "RUNNING" || (counts.PROCESSING ?? 0) > 0) && (
+        {/* Stop — available while this non-cancelled session still has active work. */}
+        {summary.active > 0 && sessionStatus !== "CANCELLED" && sessionStatus !== "FAILED" && (
           <Button
             variant="outline"
             size="sm"

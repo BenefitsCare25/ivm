@@ -186,15 +186,14 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
     }
   }
 
-  const hasActiveSessions = portal.sessions.some(
-    (s) => s.status === "RUNNING" || s.status === "PENDING"
-  );
-  const hasProcessingItems = portal.sessions.some(
-    (s) =>
+  const shouldRefresh = portal.sessions.some((s) => {
+    if (s.status === "RUNNING" || s.status === "PENDING") return true;
+    if (s.status !== "COMPLETED" && s.status !== "FAILED") return false;
+    return (
       (s.itemStatusCounts["PROCESSING"] ?? 0) > 0 ||
       (s.itemStatusCounts["DISCOVERED"] ?? 0) > 0
-  );
-  const shouldRefresh = hasActiveSessions || hasProcessingItems;
+    );
+  });
   const authBad = authStatus === "expired" || authStatus === "missing";
   const authWarn = authStatus === "warn";
 
@@ -218,15 +217,21 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
           {shouldRefresh && <AutoRefresh />}
           <Button
             onClick={() => setScrapeModalOpen(true)}
-            disabled={scraping || authBad}
-            title={authBad ? "Update portal authentication before scraping" : undefined}
+            disabled={scraping || authBad || shouldRefresh}
+            title={
+              authBad
+                ? "Update portal authentication before scraping"
+                : shouldRefresh
+                  ? "Wait for the active scrape to finish or stop it first"
+                  : undefined
+            }
           >
-            {scraping ? (
+            {scraping || shouldRefresh ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Play className="mr-2 h-4 w-4" />
             )}
-            Scrape Now
+            {shouldRefresh ? "Scrape Running" : "Scrape Now"}
           </Button>
           <Button
             variant="outline"

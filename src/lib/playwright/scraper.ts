@@ -258,6 +258,25 @@ function countPopulatedFields(fields: Record<string, string>): number {
   return n;
 }
 
+async function waitForConfiguredDetailRoot(
+  page: Page,
+  readySelector: string | undefined,
+): Promise<void> {
+  if (!readySelector) return;
+
+  try {
+    await page.waitForSelector(readySelector, {
+      state: "attached",
+      timeout: DETAIL_SETTLE_TIMEOUT_MS,
+    });
+  } catch (cause) {
+    throw new Error(
+      "Claim detail page did not load correctly: the configured ready element was not found.",
+      { cause },
+    );
+  }
+}
+
 /**
  * Scrapes a detail page, extracting all visible field label-value pairs.
  */
@@ -271,6 +290,7 @@ export async function scrapeDetailPage(
   // goto abort with net::ERR_ABORTED. The poll-extract loop below handles async
   // SPA rendering, so networkidle added only fragility.
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  await waitForConfiguredDetailRoot(page, selectors.readySelector);
 
   // Poll-extract until the page yields a real result (>= MIN_DETAIL_FIELDS
   // populated values) or the settle budget is exhausted. Keying on the ACTUAL
@@ -290,9 +310,16 @@ export async function scrapeDetailPage(
   }
 
   const cleaned = filterGarbageFields(fields);
+  const populated = countPopulatedFields(cleaned);
+  const minimumExpected = selectors.readySelector ? 1 : MIN_DETAIL_FIELDS;
+  if (populated < minimumExpected) {
+    throw new Error(
+      `Claim detail page did not load correctly: found ${populated} populated claim fields.`,
+    );
+  }
 
   logger.info(
-    { fieldCount: Object.keys(cleaned).length, rawFieldCount: Object.keys(fields).length, populated: countPopulatedFields(fields), url },
+    { fieldCount: Object.keys(cleaned).length, rawFieldCount: Object.keys(fields).length, populated, url },
     "[scraper] Scraped detail page"
   );
 

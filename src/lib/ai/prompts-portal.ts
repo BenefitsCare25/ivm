@@ -19,6 +19,7 @@ You must return a JSON object with this exact structure:
     "paginationSelector": "CSS selector for the 'Next' pagination button, or null if no pagination"
   },
   "detailSelectors": {
+    "readySelector": "CSS selector for a stable element unique to a fully loaded claim detail page",
     "fieldSelectors": {
       "Field Label": "CSS selector for the value element"
     },
@@ -30,9 +31,10 @@ RULES:
 1. Use SPECIFIC CSS selectors — prefer ID selectors, then class-based, then structural (nth-child).
 2. For table columns, use "td:nth-child(N)" patterns when classes aren't available.
 3. For detailLinkSelector, find the clickable element in each row (usually an anchor tag or the row itself).
-4. If the page is a detail page (not a list), focus on detailSelectors and set listSelectors to empty.
-5. If the page is a login page, identify the username, password, and submit button selectors.
-6. Return ONLY valid JSON — no markdown, no explanation.`;
+4. For a detail page, choose a readySelector that is absent from loading, login, and error screens.
+5. If the page is a detail page (not a list), focus on detailSelectors and set listSelectors to empty.
+6. If the page is a login page, identify the username, password, and submit button selectors.
+7. Return ONLY valid JSON — no markdown, no explanation.`;
 }
 
 export function getPageAnalysisUserPrompt(url: string, htmlSnippet: string): string {

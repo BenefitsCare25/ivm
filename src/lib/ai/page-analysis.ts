@@ -300,6 +300,7 @@ function parsePageAnalysisResponse(rawText: string): Omit<PageAnalysisResponse, 
     },
     detailSelectors: {
       fieldSelectors: ds.fieldSelectors as DetailSelectors["fieldSelectors"],
+      readySelector: ds.readySelector as string | undefined,
       downloadLinkSelector: ds.downloadLinkSelector as string | undefined,
       fileNameSelector: ds.fileNameSelector as string | undefined,
     },

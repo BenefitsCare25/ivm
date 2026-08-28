@@ -21,6 +21,8 @@ import { TrackedItemsTable } from "@/components/portals/tracked-items-table";
 import { ScrapeStatusBadge } from "@/components/portals/portal-status-badge";
 import { AutoRefresh } from "@/components/portals/auto-refresh";
 import { SessionActions } from "@/components/portals/session-actions";
+import { summarizePortalSession } from "@/lib/portal-session-summary";
+import type { PortalSessionCounts } from "@/lib/portal-session-summary";
 import { FWA_PRIORITY, FWA_RULE_TYPES } from "@/types/portal";
 import type { ScrapeSessionStatus, FieldComparison, DiagnosisAssessment, AuthStatus } from "@/types/portal";
 
@@ -147,22 +149,36 @@ export default async function SessionItemsPage({
     statusCounts.map((s) => [s.status, s._count.id])
   );
 
-  // Auto-refresh when the worker is actively running jobs, OR when
-  // reprocessing was just triggered (COMPLETED + completedAt null = items
-  // re-enqueued but worker hasn't picked them up yet).
-  const isActive =
-    scrapeSession.status === "RUNNING" ||
-    scrapeSession.status === "PENDING" ||
-    (breakdown["PROCESSING"] ?? 0) > 0 ||
-    (scrapeSession.status === "COMPLETED" && !scrapeSession.completedAt);
+  const counts: PortalSessionCounts = {
+    COMPARED: breakdown["COMPARED"] ?? 0,
+    FLAGGED: breakdown["FLAGGED"] ?? 0,
+    ERROR: breakdown["ERROR"] ?? 0,
+    PROCESSING: breakdown["PROCESSING"] ?? 0,
+    DISCOVERED: breakdown["DISCOVERED"] ?? 0,
+    SKIPPED: breakdown["SKIPPED"] ?? 0,
+    VERIFIED: breakdown["VERIFIED"] ?? 0,
+    REQUIRE_DOC: breakdown["REQUIRE_DOC"] ?? 0,
+    FILTERED: breakdown["FILTERED"] ?? 0,
+  };
+  const summary = summarizePortalSession(counts);
+  const sessionCanRun = scrapeSession.status !== "CANCELLED" && scrapeSession.status !== "FAILED";
+  const isActive = sessionCanRun && (
+    summary.active > 0 ||
+    (summary.total === 0 && (scrapeSession.status === "RUNNING" || scrapeSession.status === "PENDING"))
+  );
 
-  const processingCount = (breakdown["PROCESSING"] ?? 0);
-  const discoveredCount = (breakdown["DISCOVERED"] ?? 0);
   let displayStatus = scrapeSession.status as ScrapeSessionStatus;
-  if (scrapeSession.status === "COMPLETED") {
-    if (processingCount > 0) displayStatus = "RUNNING";
-    else if (discoveredCount > 0) displayStatus = "PENDING";
+  if (summary.total > 0 && scrapeSession.status !== "CANCELLED") {
+    if ((counts.PROCESSING ?? 0) > 0) displayStatus = "RUNNING";
+    else if ((counts.DISCOVERED ?? 0) > 0) displayStatus = "PENDING";
+    else if (summary.failed > 0) displayStatus = "FAILED";
+    else displayStatus = "COMPLETED";
   }
+  const latestItemUpdate = scrapeSession.trackedItems.reduce<Date | null>(
+    (latest, item) => !latest || item.updatedAt > latest ? item.updatedAt : latest,
+    null,
+  );
+  const finishedAt = scrapeSession.completedAt ?? (!isActive ? latestItemUpdate : null);
 
   return (
     <div className="space-y-6">
@@ -182,13 +198,17 @@ export default async function SessionItemsPage({
               <ScrapeStatusBadge status={displayStatus} />
             </div>
             <p className="text-sm text-muted-foreground">
-              {scrapeSession._count.trackedItems} items found &middot;{" "}
-              {(breakdown["COMPARED"] ?? 0) + (breakdown["FLAGGED"] ?? 0) + (breakdown["VERIFIED"] ?? 0) + (breakdown["ERROR"] ?? 0) + (breakdown["SKIPPED"] ?? 0) + (breakdown["FILTERED"] ?? 0)} processed
+              {scrapeSession._count.trackedItems} claims found &middot;{" "}
+              {summary.finished} finished
+              {summary.needsDocuments > 0 && (
+                <> &middot; {summary.needsDocuments} {summary.needsDocuments === 1 ? "needs" : "need"} documents</>
+              )}
+              {summary.failed > 0 && <> &middot; {summary.failed} failed</>}
               {scrapeSession.startedAt && (
                 <>
                   {" "}&middot;{" "}
-                  {scrapeSession.completedAt
-                    ? formatDuration(scrapeSession.completedAt.getTime() - scrapeSession.startedAt.getTime())
+                  {finishedAt
+                    ? formatDuration(finishedAt.getTime() - scrapeSession.startedAt.getTime())
                     : "Running…"}
                 </>
               )}
@@ -213,18 +233,8 @@ export default async function SessionItemsPage({
       <SessionActions
         portalId={id}
         sessionId={sessionId}
-        counts={{
-          COMPARED:    breakdown["COMPARED"]    ?? 0,
-          FLAGGED:     breakdown["FLAGGED"]     ?? 0,
-          ERROR:       breakdown["ERROR"]       ?? 0,
-          PROCESSING:  breakdown["PROCESSING"]  ?? 0,
-          DISCOVERED:  breakdown["DISCOVERED"]  ?? 0,
-          SKIPPED:     breakdown["SKIPPED"]     ?? 0,
-          VERIFIED:    breakdown["VERIFIED"]    ?? 0,
-          REQUIRE_DOC: breakdown["REQUIRE_DOC"] ?? 0,
-          FILTERED:    breakdown["FILTERED"]    ?? 0,
-        }}
-        sessionStatus={scrapeSession.status}
+        counts={counts}
+        sessionStatus={displayStatus}
         authStatus={effectiveAuthStatus}
       />
 
