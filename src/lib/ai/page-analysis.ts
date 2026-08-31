@@ -11,6 +11,7 @@ import { getPageAnalysisSystemPrompt, getPageAnalysisUserPrompt } from "./prompt
 import { callCodexJson } from "./codex";
 import type { AIProvider } from "./types";
 import type { ListSelectors, DetailSelectors } from "@/types/portal";
+import { normalizeDetailSelectors, normalizeListSelectors } from "@/lib/utils";
 
 export interface PageAnalysisRequest {
   url: string;
@@ -285,24 +286,10 @@ function parsePageAnalysisResponse(rawText: string): Omit<PageAnalysisResponse, 
     parsed = JSON.parse(extracted);
   }
 
-  const ls = (parsed.listSelectors ?? {}) as Record<string, unknown>;
-  const ds = (parsed.detailSelectors ?? {}) as Record<string, unknown>;
-
   return {
     pageType: (parsed.pageType as PageAnalysisResponse["pageType"]) ?? "other",
     description: (parsed.description as string) ?? "",
-    listSelectors: {
-      tableSelector: ls.tableSelector as string | undefined,
-      rowSelector: ls.rowSelector as string | undefined,
-      columns: ls.columns as ListSelectors["columns"],
-      detailLinkSelector: ls.detailLinkSelector as string | undefined,
-      paginationSelector: ls.paginationSelector as string | undefined,
-    },
-    detailSelectors: {
-      fieldSelectors: ds.fieldSelectors as DetailSelectors["fieldSelectors"],
-      readySelector: ds.readySelector as string | undefined,
-      downloadLinkSelector: ds.downloadLinkSelector as string | undefined,
-      fileNameSelector: ds.fileNameSelector as string | undefined,
-    },
+    listSelectors: normalizeListSelectors(parsed.listSelectors),
+    detailSelectors: normalizeDetailSelectors(parsed.detailSelectors),
   };
 }

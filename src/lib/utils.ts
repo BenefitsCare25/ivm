@@ -1,5 +1,62 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import type { DetailSelectors, ListSelectors } from "@/types/portal";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function normalizeOptionalSelector(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+
+  const selector = value.trim();
+  return selector.length > 0 ? selector : undefined;
+}
+
+export function normalizeListSelectors(value: unknown): ListSelectors {
+  const selectors = isRecord(value) ? value : {};
+  const columns = Array.isArray(selectors.columns)
+    ? selectors.columns.flatMap((column) => {
+        if (!isRecord(column) || typeof column.name !== "string") return [];
+
+        const name = column.name.trim();
+        const selector = normalizeOptionalSelector(column.selector);
+        return name && selector ? [{ name, selector }] : [];
+      })
+    : undefined;
+
+  return {
+    tableSelector: normalizeOptionalSelector(selectors.tableSelector),
+    rowSelector: normalizeOptionalSelector(selectors.rowSelector),
+    columns,
+    detailLinkSelector: normalizeOptionalSelector(selectors.detailLinkSelector),
+    paginationSelector: normalizeOptionalSelector(selectors.paginationSelector),
+  };
+}
+
+export function normalizeDetailSelectors(value: unknown): DetailSelectors {
+  const selectors = isRecord(value) ? value : {};
+  const rawFieldSelectors = isRecord(selectors.fieldSelectors)
+    ? selectors.fieldSelectors
+    : {};
+  const fieldSelectors: Record<string, string> = {};
+
+  for (const [rawName, rawSelector] of Object.entries(rawFieldSelectors)) {
+    const name = rawName.trim();
+    const selector = normalizeOptionalSelector(rawSelector);
+    if (name && selector) fieldSelectors[name] = selector;
+  }
+
+  return {
+    fieldSelectors:
+      Object.keys(fieldSelectors).length > 0 ? fieldSelectors : undefined,
+    readySelector: normalizeOptionalSelector(selectors.readySelector),
+    downloadLinkSelector: normalizeOptionalSelector(
+      selectors.downloadLinkSelector,
+    ),
+    fileNameSelector: normalizeOptionalSelector(selectors.fileNameSelector),
+  };
+}
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

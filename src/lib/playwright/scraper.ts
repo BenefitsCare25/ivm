@@ -1,7 +1,12 @@
 import { Page } from "playwright";
 import { logger } from "@/lib/logger";
 import { getStorageAdapter } from "@/lib/storage";
-import { sanitizeFileName } from "@/lib/utils";
+import {
+  normalizeDetailSelectors,
+  normalizeListSelectors,
+  normalizeOptionalSelector,
+  sanitizeFileName,
+} from "@/lib/utils";
 import type { ListSelectors, DetailSelectors } from "@/types/portal";
 import * as path from "path";
 import * as fs from "fs/promises";
@@ -21,12 +26,13 @@ export async function scrapeListPage(
   page: Page,
   selectors: ListSelectors
 ): Promise<ScrapedRow[]> {
+  const normalizedSelectors = normalizeListSelectors(selectors);
   const {
     tableSelector = "table",
     rowSelector: rawRowSelector = "tbody tr",
     columns = [],
     detailLinkSelector,
-  } = selectors;
+  } = normalizedSelectors;
 
   // AI analysis sometimes returns the full absolute selector as rowSelector
   // (e.g. "#page table tbody tr" instead of just "tbody tr"). Strip the
@@ -285,12 +291,13 @@ export async function scrapeDetailPage(
   url: string,
   selectors: DetailSelectors
 ): Promise<Record<string, string>> {
+  const normalizedSelectors = normalizeDetailSelectors(selectors);
   // Use "domcontentloaded" (not "networkidle"): SPA/long-polling portal pages
   // never reach network idle, and a client-side redirect during load makes
   // goto abort with net::ERR_ABORTED. The poll-extract loop below handles async
   // SPA rendering, so networkidle added only fragility.
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
-  await waitForConfiguredDetailRoot(page, selectors.readySelector);
+  await waitForConfiguredDetailRoot(page, normalizedSelectors.readySelector);
 
   // Poll-extract until the page yields a real result (>= MIN_DETAIL_FIELDS
   // populated values) or the settle budget is exhausted. Keying on the ACTUAL
@@ -303,7 +310,7 @@ export async function scrapeDetailPage(
   const deadline = Date.now() + DETAIL_SETTLE_TIMEOUT_MS;
   let fields: Record<string, string> = {};
   for (;;) {
-    fields = await extractDetailFields(page, selectors);
+    fields = await extractDetailFields(page, normalizedSelectors);
     if (countPopulatedFields(fields) >= MIN_DETAIL_FIELDS) break;
     if (Date.now() >= deadline) break;
     await page.waitForTimeout(DETAIL_POLL_INTERVAL_MS);
@@ -311,7 +318,7 @@ export async function scrapeDetailPage(
 
   const cleaned = filterGarbageFields(fields);
   const populated = countPopulatedFields(cleaned);
-  const minimumExpected = selectors.readySelector ? 1 : MIN_DETAIL_FIELDS;
+  const minimumExpected = normalizedSelectors.readySelector ? 1 : MIN_DETAIL_FIELDS;
   if (populated < minimumExpected) {
     throw new Error(
       `Claim detail page did not load correctly: found ${populated} populated claim fields.`,
@@ -379,8 +386,9 @@ export async function downloadFiles(
   selectors: DetailSelectors,
   storagePrefix: string
 ): Promise<DownloadedFile[]> {
-  const downloadSelector = selectors.downloadLinkSelector
-    ?? 'a[href$=".pdf"], a[href$=".doc"], a[href$=".docx"], a[href$=".xlsx"], a[href$=".csv"], a[href$=".jpg"], a[href$=".jpeg"], a[href$=".png"], a[href$=".gif"], a[href*="download"]';
+  const defaultDownloadSelector = 'a[href$=".pdf"], a[href$=".doc"], a[href$=".docx"], a[href$=".xlsx"], a[href$=".csv"], a[href$=".jpg"], a[href$=".jpeg"], a[href$=".png"], a[href$=".gif"], a[href*="download"]';
+  const configuredDownloadSelector = normalizeDetailSelectors(selectors).downloadLinkSelector;
+  let downloadSelector = configuredDownloadSelector ?? defaultDownloadSelector;
 
   // Detail pages load via "domcontentloaded" (not networkidle), so attachment
   // links injected by the SPA's async XHRs may not exist yet when we get here.
@@ -390,7 +398,18 @@ export async function downloadFiles(
     .waitForSelector(downloadSelector, { state: "attached", timeout: 8_000 })
     .catch(() => {});
 
-  const links = await page.$$(downloadSelector);
+  let links;
+  try {
+    links = await page.$$(downloadSelector);
+  } catch (err) {
+    if (!configuredDownloadSelector) throw err;
+    logger.warn(
+      { err, selector: configuredDownloadSelector },
+      "[scraper] Invalid configured download selector; using default",
+    );
+    downloadSelector = defaultDownloadSelector;
+    links = await page.$$(downloadSelector);
+  }
   logger.info({ linkCount: links.length, selector: downloadSelector }, "[scraper] Found download links");
 
   if (links.length === 0) return [];
@@ -535,9 +554,12 @@ export async function goToNextPage(
   tableSelector = "table",
   rowSelector = "tbody tr"
 ): Promise<boolean> {
-  if (!paginationSelector) return false;
+  const normalizedPaginationSelector = normalizeOptionalSelector(paginationSelector);
+  if (!normalizedPaginationSelector) return false;
+  const normalizedTableSelector = normalizeOptionalSelector(tableSelector) ?? "table";
+  const normalizedRowSelector = normalizeOptionalSelector(rowSelector) ?? "tbody tr";
 
-  const nextBtn = await page.$(paginationSelector);
+  const nextBtn = await page.$(normalizedPaginationSelector);
   if (!nextBtn) return false;
 
   // Check disabled via HTML attribute OR common SPA patterns (class, aria-disabled)
@@ -551,7 +573,7 @@ export async function goToNextPage(
 
   // Capture first row text to detect if the table actually changed (SPA pagination)
   const firstRowText = await page
-    .$eval(`${tableSelector} ${rowSelector}:first-child`, (el) => el.textContent ?? "")
+    .$eval(`${normalizedTableSelector} ${normalizedRowSelector}:first-child`, (el) => el.textContent ?? "")
     .catch(() => "");
 
   // Click the button
@@ -572,7 +594,7 @@ export async function goToNextPage(
         const firstRow = document.querySelector(`${tSel} ${rSel}:first-child`);
         return firstRow ? firstRow.textContent !== oldText : false;
       },
-      [tableSelector, rowSelector, firstRowText] as const,
+      [normalizedTableSelector, normalizedRowSelector, firstRowText] as const,
       { timeout: 8_000 }
     )
     .then(() => true)

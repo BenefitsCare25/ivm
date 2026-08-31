@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isValidIsoDate } from "@/lib/date-utils";
+import { normalizeOptionalSelector } from "@/lib/utils";
 
 export const createPortalSchema = z.object({
   name: z
@@ -42,24 +43,34 @@ export const updatePortalSchema = z.object({
 
 export type UpdatePortalInput = z.infer<typeof updatePortalSchema>;
 
-const selectorField = z.string().max(500).optional().nullable();
+const optionalSelectorField = z.preprocess(
+  (value) => {
+    if (value === null) return undefined;
+    return typeof value === "string" ? normalizeOptionalSelector(value) : value;
+  },
+  z.string().max(500).optional(),
+);
+const requiredSelectorField = z.string().trim().min(1).max(500);
 
 export const updateSelectorsSchema = z.object({
   listSelectors: z.object({
-    tableSelector: selectorField,
-    rowSelector: selectorField,
+    tableSelector: optionalSelectorField,
+    rowSelector: optionalSelectorField,
     columns: z.array(z.object({
-      name: z.string().max(200),
-      selector: z.string().max(500),
+      name: z.string().trim().min(1).max(200),
+      selector: requiredSelectorField,
     })).max(50).optional().nullable(),
-    detailLinkSelector: selectorField,
-    paginationSelector: selectorField,
+    detailLinkSelector: optionalSelectorField,
+    paginationSelector: optionalSelectorField,
   }).optional(),
   detailSelectors: z.object({
-    fieldSelectors: z.record(z.string().max(200), z.string().max(500)).optional().nullable(),
-    readySelector: selectorField,
-    downloadLinkSelector: selectorField,
-    fileNameSelector: selectorField,
+    fieldSelectors: z.record(
+      z.string().trim().min(1).max(200),
+      requiredSelectorField,
+    ).optional().nullable(),
+    readySelector: optionalSelectorField,
+    downloadLinkSelector: optionalSelectorField,
+    fileNameSelector: optionalSelectorField,
   }).optional(),
 });
 
