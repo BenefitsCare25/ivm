@@ -15,6 +15,7 @@ export async function recoverStuckItems(): Promise<void> {
       id: true,
       scrapeSession: {
         select: {
+          id: true,
           portalId: true,
           portal: { select: { userId: true } },
         },
@@ -56,6 +57,7 @@ export async function recoverStuckItems(): Promise<void> {
       toRetry.map((item) => ({
         trackedItemId: item.id,
         portalId: item.scrapeSession.portalId,
+        scrapeSessionId: item.scrapeSession.id,
         userId: item.scrapeSession.portal.userId,
       })),
       { reprocess: true }
@@ -77,6 +79,7 @@ async function recoverOrphanedDiscoveredItems(): Promise<void> {
       id: true,
       scrapeSession: {
         select: {
+          id: true,
           portalId: true,
           portal: { select: { userId: true } },
         },
@@ -104,6 +107,7 @@ async function recoverOrphanedDiscoveredItems(): Promise<void> {
     orphaned.map((item) => ({
       trackedItemId: item.id,
       portalId: item.scrapeSession.portalId,
+      scrapeSessionId: item.scrapeSession.id,
       userId: item.scrapeSession.portal.userId,
     })),
     { reprocess: true }

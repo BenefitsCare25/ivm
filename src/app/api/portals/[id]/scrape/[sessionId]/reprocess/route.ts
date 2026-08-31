@@ -93,6 +93,7 @@ export async function POST(
       items.map((item) => ({
         trackedItemId: item.id,
         portalId: item.scrapeSession.portalId,
+        scrapeSessionId: sessionId,
         userId: item.scrapeSession.portal.userId,
       })),
       { reprocess: true }

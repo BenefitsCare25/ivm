@@ -44,9 +44,9 @@ const envSchema = z.object({
   // Per-call timeout for the local provider (ms). Self-hosted vision models are
   // slow; raise/lower per your hardware+model. Cloud providers use a fixed 180s.
   LOCAL_AI_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
-  // How many item (claim) jobs the detail worker processes at once. Keep low for
-  // a single self-hosted model (memory contention); raise for cloud providers.
-  DETAIL_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
+  // Maximum number of scrape sessions processed at once. A distributed
+  // session lock keeps each session serial (one claim at a time).
+  DETAIL_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(3),
   // How many of ONE claim's attachments are extracted concurrently. Default 1
   // (serial, safe for a heavy local model); raise to ~3 on a smaller/faster model.
   ATTACHMENT_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(1),

@@ -180,6 +180,7 @@ async function processPortalScrape(
         .map((item) => ({
           trackedItemId: item.id,
           portalId,
+          scrapeSessionId: sessionId,
           userId,
         }));
 

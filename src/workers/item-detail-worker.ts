@@ -1,5 +1,6 @@
 import { Job } from "bullmq";
 import { db } from "@/lib/db";
+import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { resolveAuth, isLoginPage } from "@/lib/playwright/auth";
 import { scrapeDetailPage, downloadFiles } from "@/lib/playwright/scraper";
@@ -483,7 +484,13 @@ recoverStuckItems().catch((err) =>
 const worker = startItemDetailWorker(processItemDetail, handleFinalFailure);
 
 if (worker) {
-  logger.info("[worker] Item detail worker started");
+  logger.info(
+    {
+      concurrentSessions: env.DETAIL_WORKER_CONCURRENCY,
+      claimsPerSession: 1,
+    },
+    "[worker] Item detail worker started",
+  );
 } else {
   logger.warn("[worker] Redis not available, item detail worker not started");
 }
