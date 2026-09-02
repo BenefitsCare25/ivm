@@ -1,4 +1,10 @@
-const { PrismaClient } = require("./node_modules/.prisma/client");
+let PrismaClient;
+try {
+  ({ PrismaClient } = require("./node_modules/.prisma/client"));
+} catch (error) {
+  if (error?.code !== "MODULE_NOT_FOUND") throw error;
+  ({ PrismaClient } = require("./.next/standalone/node_modules/.prisma/client"));
+}
 const db = new PrismaClient();
 
 (async () => {

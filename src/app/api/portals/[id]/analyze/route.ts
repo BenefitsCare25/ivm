@@ -4,12 +4,13 @@ import { db } from "@/lib/db";
 import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { analyzePageStructure } from "@/lib/ai/page-analysis";
 import { resolveAuth } from "@/lib/playwright/auth";
+import { scrapeListPage } from "@/lib/playwright/scraper";
 import { capturePageScreenshot, captureSimplifiedHtml } from "@/lib/playwright/screenshot";
 import {
   attachPageDiagnostics,
   type PageDiagnosticsCollector,
 } from "@/lib/playwright/page-diagnostics";
-import { errorResponse, UnauthorizedError, NotFoundError } from "@/lib/errors";
+import { AppError, errorResponse, UnauthorizedError, NotFoundError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 
 export async function POST(
@@ -146,6 +147,62 @@ export async function POST(
         model: visionModel,
         baseURL,
       });
+
+      // Test the AI's selector proposal against the same live DOM before it is
+      // shown to the user or saved. Runtime row resolution supports relative,
+      // independent page-level, and safe table-body fallback selectors.
+      if (analysis.pageType === "list" && analysis.listSelectors.tableSelector) {
+        let sampleRows: Awaited<ReturnType<typeof scrapeListPage>>;
+        try {
+          sampleRows = await scrapeListPage(page, analysis.listSelectors, {
+            discoverDetailUrls: false,
+          });
+        } catch (cause) {
+          const detail = cause instanceof Error
+            ? cause.message.slice(0, 240)
+            : "The proposed selectors could not be evaluated.";
+          logger.warn(
+            { err: cause, portalId: id },
+            "[analyze] AI list selector validation failed",
+          );
+          throw new AppError(
+            `AI analysis generated selectors that do not match the live page: ${detail} Run the analysis again or edit the proposed selectors.`,
+            422,
+            "AI_SELECTOR_VALIDATION_ERROR",
+          );
+        }
+        const columnNames = (analysis.listSelectors.columns ?? []).map(
+          (column) => column.name,
+        );
+        const populatedColumns = columnNames.filter((name) =>
+          sampleRows.some((row) => Boolean(row.fields[name]?.trim())),
+        );
+
+        if (
+          sampleRows.length > 0 &&
+          columnNames.length > 0 &&
+          populatedColumns.length === 0
+        ) {
+          throw new AppError(
+            "AI analysis found table rows, but none of its column selectors matched. Run the analysis again or review the proposed selectors.",
+            422,
+            "AI_SELECTOR_VALIDATION_ERROR",
+          );
+        }
+
+        logger.info(
+          {
+            portalId: id,
+            matchedRows: sampleRows.length,
+            configuredColumns: columnNames.length,
+            populatedColumns: populatedColumns.length,
+            emptyColumns: columnNames.filter(
+              (name) => !populatedColumns.includes(name),
+            ),
+          },
+          "[analyze] AI list selectors validated against live DOM",
+        );
+      }
 
       logger.info(
         {

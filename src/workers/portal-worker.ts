@@ -80,7 +80,9 @@ async function processPortalScrape(
 
       do {
         logger.info({ portalId, pageNum }, "[worker] Scraping list page");
-        const rows = await scrapeListPage(page, listSelectors);
+        const rows = await scrapeListPage(page, listSelectors, {
+          expectedListUrl: listUrl,
+        });
         allRows.push(...rows);
         pageNum++;
         // Stop early if we've already collected enough items (skipped when a
@@ -90,7 +92,8 @@ async function processPortalScrape(
         page,
         listSelectors.paginationSelector,
         listSelectors.tableSelector,
-        listSelectors.rowSelector
+        listSelectors.rowSelector,
+        listSelectors.columns,
       ));
 
       // Apply scrape filters — exclude rows matching configured field values

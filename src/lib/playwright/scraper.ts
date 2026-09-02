@@ -7,7 +7,7 @@ import {
   normalizeOptionalSelector,
   sanitizeFileName,
 } from "@/lib/utils";
-import type { ListSelectors, DetailSelectors } from "@/types/portal";
+import type { ColumnSelector, ListSelectors, DetailSelectors } from "@/types/portal";
 import * as path from "path";
 import * as fs from "fs/promises";
 import * as os from "os";
@@ -18,28 +18,362 @@ export interface ScrapedRow {
   fields: Record<string, string>;
 }
 
+interface ScrapeListPageOptions {
+  /** Disable click-based detail URL discovery when only validating selectors. */
+  discoverDetailUrls?: boolean;
+  /** Intended list URL, retained even if the SPA changes tenants mid-scrape. */
+  expectedListUrl?: string;
+}
+
+type ListRowSelectorStrategy =
+  | "configured-scoped"
+  | "configured-page"
+  | "table-body-fallback";
+
+interface ListRowSelectorCandidate {
+  selector: string;
+  strategy: ListRowSelectorStrategy;
+}
+
+interface ListRowResolution extends ListRowSelectorCandidate {
+  matchingIndexes: number[];
+  firstRowText: string;
+}
+
+interface ListRowInspection {
+  resolution: ListRowResolution | null;
+  genericRowCount: number;
+  invalidSelectors: string[];
+}
+
+class PortalTenantMismatchError extends Error {
+  constructor(expectedTenant: string, actualTenant: string) {
+    super(
+      `Authenticated portal session returned claims for a different tenant (${actualTenant} instead of ${expectedTenant}). Refresh this portal's authentication cookies and try again.`,
+    );
+    this.name = "PortalTenantMismatchError";
+  }
+}
+
+function getInsproTenant(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.toLowerCase() !== "benefits.inspro.com.sg") return null;
+    return parsed.pathname.match(
+      /^\/([^/]+)\/(?:insurance-claim-admin|flex-claim-admin)(?:\/|$)/i,
+    )?.[1]?.toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function assertSamePortalTenant(expectedUrl: string, actualUrl: string): void {
+  const expectedTenant = getInsproTenant(expectedUrl);
+  const actualTenant = getInsproTenant(actualUrl);
+  if (expectedTenant && actualTenant && expectedTenant !== actualTenant) {
+    throw new PortalTenantMismatchError(expectedTenant, actualTenant);
+  }
+}
+
+/**
+ * AI-generated selectors are not guaranteed to use the same ancestry path.
+ * Try the row selector relative to the configured table, then as an independent
+ * page selector, and finally use ordinary table body rows as a safe fallback.
+ * Runtime inspection still verifies that every selected row belongs to the
+ * configured table, so a broad page selector cannot leak rows from other tables.
+ */
+export function buildListRowSelectorCandidates(
+  tableSelector: string,
+  rowSelector: string,
+): ListRowSelectorCandidate[] {
+  const candidates: ListRowSelectorCandidate[] = [];
+  const seen = new Set<string>();
+
+  const add = (selector: string, strategy: ListRowSelectorStrategy) => {
+    const normalized = selector.trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    candidates.push({ selector: normalized, strategy });
+  };
+
+  if (rowSelector.startsWith(tableSelector)) {
+    add(rowSelector, "configured-scoped");
+  } else {
+    add(`${tableSelector} ${rowSelector}`, "configured-scoped");
+    add(rowSelector, "configured-page");
+  }
+  add(`${tableSelector} tbody tr`, "table-body-fallback");
+  add(
+    `${tableSelector} [role='row']:has([role='cell'], [role='gridcell'])`,
+    "table-body-fallback",
+  );
+
+  return candidates;
+}
+
+async function inspectListRows(
+  page: Page,
+  tableSelector: string,
+  candidates: ListRowSelectorCandidate[],
+  columnCount: number,
+): Promise<ListRowInspection> {
+  return page.evaluate(
+    ({ targetTableSelector, rowCandidates, configuredColumnCount }) => {
+      const table = document.querySelector(targetTableSelector);
+      if (!table) {
+        return { resolution: null, genericRowCount: 0, invalidSelectors: [] };
+      }
+
+      const emptyStatePattern = /^(?:there\s+(?:are|is)\s+)?no\s+(?:records?|results?|data|items?|claims?)(?:\s+(?:available|found|to\s+display))?[.!]*$|^nothing\s+(?:found|to\s+display)[.!]*$/i;
+      const loadingPattern = /^(?:loading|please\s+wait)(?:\.{1,3})?$/i;
+
+      const genericRowCount = Array.from(
+        table.querySelectorAll("tbody tr, tr, [role='row']"),
+      ).filter((row) => {
+        const cells = Array.from(
+          row.querySelectorAll("td, [role='cell'], [role='gridcell']"),
+        );
+        const text = (row.textContent ?? "").replace(/\s+/g, " ").trim();
+        if (
+          cells.length === 0 ||
+          !text ||
+          emptyStatePattern.test(text) ||
+          loadingPattern.test(text)
+        ) {
+          return false;
+        }
+        if (
+          cells.length === 1 &&
+          Number(cells[0]?.getAttribute("colspan") ?? "1") > 1
+        ) {
+          return false;
+        }
+        return !(configuredColumnCount > 1 && cells.length < 2);
+      }).length;
+
+      const invalidSelectors: string[] = [];
+      for (const candidate of rowCandidates) {
+        try {
+          const matches = Array.from(document.querySelectorAll(candidate.selector));
+          const matchingIndexes: number[] = [];
+          let firstRowText = "";
+
+          for (let index = 0; index < matches.length; index++) {
+            const match = matches[index];
+            if (match === table || !table.contains(match)) continue;
+
+            const cells = Array.from(
+              match.querySelectorAll("td, [role='cell'], [role='gridcell']"),
+            );
+            const text = (match.textContent ?? "").replace(/\s+/g, " ").trim();
+            if (
+              cells.length === 0 ||
+              !text ||
+              emptyStatePattern.test(text) ||
+              loadingPattern.test(text)
+            ) {
+              continue;
+            }
+            if (
+              cells.length === 1 &&
+              Number(cells[0]?.getAttribute("colspan") ?? "1") > 1
+            ) {
+              continue;
+            }
+            if (
+              candidate.strategy === "table-body-fallback" &&
+              configuredColumnCount > 1 &&
+              cells.length < 2
+            ) {
+              continue;
+            }
+
+            matchingIndexes.push(index);
+            if (!firstRowText) firstRowText = match.textContent ?? "";
+          }
+
+          if (matchingIndexes.length > 0) {
+            return {
+              resolution: {
+                ...candidate,
+                matchingIndexes,
+                firstRowText,
+              },
+              genericRowCount,
+              invalidSelectors,
+            };
+          }
+        } catch {
+          invalidSelectors.push(candidate.selector);
+        }
+      }
+
+      return {
+        resolution: null,
+        genericRowCount,
+        invalidSelectors,
+      };
+    },
+    {
+      targetTableSelector: tableSelector,
+      rowCandidates: candidates,
+      configuredColumnCount: columnCount,
+    },
+  );
+}
+
+async function waitForListRows(
+  page: Page,
+  tableSelector: string,
+  candidates: ListRowSelectorCandidate[],
+  columnCount: number,
+  timeout: number,
+): Promise<boolean> {
+  return page
+    .waitForFunction(
+      ({ targetTableSelector, rowCandidates, configuredColumnCount }) => {
+        const table = document.querySelector(targetTableSelector);
+        if (!table) return false;
+
+        const emptyStatePattern = /^(?:there\s+(?:are|is)\s+)?no\s+(?:records?|results?|data|items?|claims?)(?:\s+(?:available|found|to\s+display))?[.!]*$|^nothing\s+(?:found|to\s+display)[.!]*$/i;
+        const loadingPattern = /^(?:loading|please\s+wait)(?:\.{1,3})?$/i;
+        const genericRows = Array.from(
+          table.querySelectorAll("tbody tr, tr, [role='row']"),
+        );
+        if (genericRows.some((row) => {
+          const text = (row.textContent ?? "").replace(/\s+/g, " ").trim();
+          return emptyStatePattern.test(text);
+        })) {
+          return true;
+        }
+
+        return rowCandidates.some((candidate) => {
+          try {
+            return Array.from(document.querySelectorAll(candidate.selector)).some(
+              (match) => {
+                if (match === table || !table.contains(match)) return false;
+                const cells = Array.from(
+                  match.querySelectorAll("td, [role='cell'], [role='gridcell']"),
+                );
+                const text = (match.textContent ?? "").replace(/\s+/g, " ").trim();
+                if (
+                  cells.length === 0 ||
+                  !text ||
+                  emptyStatePattern.test(text) ||
+                  loadingPattern.test(text)
+                ) {
+                  return false;
+                }
+                if (
+                  cells.length === 1 &&
+                  Number(cells[0]?.getAttribute("colspan") ?? "1") > 1
+                ) {
+                  return false;
+                }
+                return !(
+                  candidate.strategy === "table-body-fallback" &&
+                  configuredColumnCount > 1 &&
+                  cells.length < 2
+                );
+              },
+            );
+          } catch {
+            return false;
+          }
+        });
+      },
+      {
+        targetTableSelector: tableSelector,
+        rowCandidates: candidates,
+        configuredColumnCount: columnCount,
+      },
+      { timeout },
+    )
+    .then(() => true)
+    .catch(() => false);
+}
+
+async function waitForFirstListRowToChange(
+  page: Page,
+  tableSelector: string,
+  candidate: ListRowSelectorCandidate,
+  columnCount: number,
+  previousText: string,
+  timeout: number,
+): Promise<boolean> {
+  return page
+    .waitForFunction(
+      ({ targetTableSelector, rowCandidate, configuredColumnCount, oldText }) => {
+        const table = document.querySelector(targetTableSelector);
+        if (!table) return false;
+
+        try {
+          const emptyStatePattern = /^(?:there\s+(?:are|is)\s+)?no\s+(?:records?|results?|data|items?|claims?)(?:\s+(?:available|found|to\s+display))?[.!]*$|^nothing\s+(?:found|to\s+display)[.!]*$/i;
+          const loadingPattern = /^(?:loading|please\s+wait)(?:\.{1,3})?$/i;
+          const firstRow = Array.from(document.querySelectorAll(rowCandidate.selector)).find(
+            (match) => {
+              if (match === table || !table.contains(match)) return false;
+              const cells = Array.from(
+                match.querySelectorAll("td, [role='cell'], [role='gridcell']"),
+              );
+              const text = (match.textContent ?? "").replace(/\s+/g, " ").trim();
+              if (
+                cells.length === 0 ||
+                !text ||
+                emptyStatePattern.test(text) ||
+                loadingPattern.test(text)
+              ) {
+                return false;
+              }
+              if (
+                cells.length === 1 &&
+                Number(cells[0]?.getAttribute("colspan") ?? "1") > 1
+              ) {
+                return false;
+              }
+              return !(
+                rowCandidate.strategy === "table-body-fallback" &&
+                configuredColumnCount > 1 &&
+                cells.length < 2
+              );
+            },
+          );
+          return firstRow ? (firstRow.textContent ?? "") !== oldText : false;
+        } catch {
+          return false;
+        }
+      },
+      {
+        targetTableSelector: tableSelector,
+        rowCandidate: candidate,
+        configuredColumnCount: columnCount,
+        oldText: previousText,
+      },
+      { timeout },
+    )
+    .then(() => true)
+    .catch(() => false);
+}
+
 /**
  * Scrapes a list/table page using configured selectors.
  * Returns an array of row objects with field values and detail page links.
  */
 export async function scrapeListPage(
   page: Page,
-  selectors: ListSelectors
+  selectors: ListSelectors,
+  options: ScrapeListPageOptions = {},
 ): Promise<ScrapedRow[]> {
+  const expectedPortalUrl = options.expectedListUrl ?? page.url();
   const normalizedSelectors = normalizeListSelectors(selectors);
   const {
     tableSelector = "table",
-    rowSelector: rawRowSelector = "tbody tr",
+    rowSelector = "tbody tr",
     columns = [],
     detailLinkSelector,
   } = normalizedSelectors;
 
-  // AI analysis sometimes returns the full absolute selector as rowSelector
-  // (e.g. "#page table tbody tr" instead of just "tbody tr"). Strip the
-  // tableSelector prefix so concatenation works correctly.
-  const rowSelector = rawRowSelector.startsWith(tableSelector)
-    ? rawRowSelector.slice(tableSelector.length).trim()
-    : rawRowSelector;
+  const rowCandidates = buildListRowSelectorCandidates(tableSelector, rowSelector);
 
   // Log the current URL to help diagnose auth/redirect issues
   logger.info({ url: page.url(), tableSelector }, "[scraper] Waiting for table selector");
@@ -50,25 +384,81 @@ export async function scrapeListPage(
     throw err;
   });
 
-  // Wait for rows to render (SPA portals load the table shell first, then fetch data)
-  await page.waitForFunction(
-    ([tSel, rSel]) => {
-      const rows = document.querySelectorAll(`${tSel} ${rSel}`);
-      return rows.length > 0;
-    },
-    [tableSelector, rowSelector] as const,
-    { timeout: 15_000 }
-  ).catch(() => {
+  // Wait for rows to render (SPA portals load the table shell first, then fetch data).
+  // Candidate resolution supports both relative and independent full-page selectors.
+  const rowsAppeared = await waitForListRows(
+    page,
+    tableSelector,
+    rowCandidates,
+    columns.length,
+    15_000,
+  );
+  if (!rowsAppeared) {
     logger.warn("[scraper] Timed out waiting for table rows to render");
-  });
+  }
 
   await page.waitForTimeout(1000);
 
-  const rows = await page.$$(
-    `${tableSelector} ${rowSelector}`
-  );
+  // Some multi-tenant SPAs can change the route after the initial navigation
+  // has completed. Compare against the originally requested portal, not the
+  // mutable live URL, so a late tenant switch cannot be masked by row filters.
+  assertSamePortalTenant(expectedPortalUrl, page.url());
 
-  logger.info({ rowCount: rows.length }, "[scraper] Found rows on list page");
+  const inspection = await inspectListRows(
+    page,
+    tableSelector,
+    rowCandidates,
+    columns.length,
+  );
+  const resolvedRows = inspection.resolution;
+
+  if (!resolvedRows) {
+    if (inspection.genericRowCount > 0) {
+      throw new Error(
+        `Portal table contains ${inspection.genericRowCount} row(s), but the configured row selector did not match them.`,
+      );
+    }
+    const configuredCandidates = rowCandidates.filter(
+      (candidate) => candidate.strategy !== "table-body-fallback",
+    );
+    if (
+      configuredCandidates.length > 0 &&
+      configuredCandidates.every((candidate) =>
+        inspection.invalidSelectors.includes(candidate.selector),
+      )
+    ) {
+      throw new Error("The configured table row selector is not valid CSS.");
+    }
+
+    logger.info(
+      { tableSelector, rowSelector },
+      "[scraper] Portal table is currently empty",
+    );
+    return [];
+  }
+
+  if (resolvedRows.strategy !== "configured-scoped") {
+    logger.warn(
+      {
+        tableSelector,
+        configuredRowSelector: rowSelector,
+        resolvedRowSelector: resolvedRows.selector,
+        strategy: resolvedRows.strategy,
+      },
+      "[scraper] Adapted the configured row selector to the live table DOM",
+    );
+  }
+
+  const allCandidateRows = await page.$$(resolvedRows.selector);
+  const rows = resolvedRows.matchingIndexes.flatMap((index) => {
+    const row = allCandidateRows[index];
+    return row ? [row] : [];
+  });
+
+  logger.info(
+    { rowCount: rows.length, rowSelectorStrategy: resolvedRows.strategy },
+    "[scraper] Found rows on list page",
+  );
 
   // Phase 1: Extract all field data and href-based URLs without navigation
   const results: ScrapedRow[] = [];
@@ -113,6 +503,8 @@ export async function scrapeListPage(
       detailUrl = new URL(detailUrl, page.url()).href;
     }
 
+    if (detailUrl) assertSamePortalTenant(expectedPortalUrl, detailUrl);
+
     if (detailUrl) hasAnyUrl = true;
 
     if (!firstClickableRow && !detailUrl) {
@@ -127,10 +519,15 @@ export async function scrapeListPage(
   }
 
   // Phase 2: If no URLs found and rows are clickable, discover URL pattern by clicking first row
-  if (!hasAnyUrl && firstClickableRow && results.length > 0) {
+  if (
+    options.discoverDetailUrls !== false &&
+    !hasAnyUrl &&
+    firstClickableRow &&
+    results.length > 0
+  ) {
     logger.info("[scraper] No URLs found, attempting click-discovery on first row");
     try {
-      const firstRow = (await page.$$(`${tableSelector} ${rowSelector}`))[0];
+      const firstRow = rows[0];
       if (firstRow) {
         const currentUrl = page.url();
         await firstRow.click();
@@ -142,6 +539,7 @@ export async function scrapeListPage(
 
         if (page.url() !== currentUrl) {
           const discoveredUrl = page.url();
+          assertSamePortalTenant(expectedPortalUrl, discoveredUrl);
           const firstId = results[0].portalItemId;
           const lowerFirstId = firstId.toLowerCase().replace(/\s+/g, "-");
 
@@ -164,15 +562,18 @@ export async function scrapeListPage(
 
           // Navigate back to list page for pagination support
           await page.goBack({ timeout: 15_000 });
-          await page.waitForFunction(
-            ([tSel, rSel]) => document.querySelectorAll(`${tSel} ${rSel}`).length > 0,
-            [tableSelector, rowSelector] as const,
-            { timeout: 15_000 }
-          ).catch(() => {});
+          await waitForListRows(
+            page,
+            tableSelector,
+            rowCandidates,
+            columns.length,
+            15_000,
+          );
           await page.waitForTimeout(1000);
         }
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof PortalTenantMismatchError) throw error;
       logger.warn("[scraper] Click-discovery failed");
     }
   }
@@ -552,12 +953,17 @@ export async function goToNextPage(
   page: Page,
   paginationSelector?: string,
   tableSelector = "table",
-  rowSelector = "tbody tr"
+  rowSelector = "tbody tr",
+  columns: ColumnSelector[] = [],
 ): Promise<boolean> {
   const normalizedPaginationSelector = normalizeOptionalSelector(paginationSelector);
   if (!normalizedPaginationSelector) return false;
   const normalizedTableSelector = normalizeOptionalSelector(tableSelector) ?? "table";
   const normalizedRowSelector = normalizeOptionalSelector(rowSelector) ?? "tbody tr";
+  const rowCandidates = buildListRowSelectorCandidates(
+    normalizedTableSelector,
+    normalizedRowSelector,
+  );
 
   const nextBtn = await page.$(normalizedPaginationSelector);
   if (!nextBtn) return false;
@@ -572,9 +978,16 @@ export async function goToNextPage(
   if (isDisabled) return false;
 
   // Capture first row text to detect if the table actually changed (SPA pagination)
-  const firstRowText = await page
-    .$eval(`${normalizedTableSelector} ${normalizedRowSelector}:first-child`, (el) => el.textContent ?? "")
-    .catch(() => "");
+  const resolvedBeforeClick = (
+    await inspectListRows(
+      page,
+      normalizedTableSelector,
+      rowCandidates,
+      columns.length,
+    )
+  ).resolution;
+  if (!resolvedBeforeClick) return false;
+  const firstRowText = resolvedBeforeClick.firstRowText;
 
   // Click the button
   await nextBtn.click();
@@ -588,17 +1001,17 @@ export async function goToNextPage(
   if (navigated) return true;
 
   // SPA portal: wait for table content to change
-  const changed = await page
-    .waitForFunction(
-      ([tSel, rSel, oldText]) => {
-        const firstRow = document.querySelector(`${tSel} ${rSel}:first-child`);
-        return firstRow ? firstRow.textContent !== oldText : false;
-      },
-      [normalizedTableSelector, normalizedRowSelector, firstRowText] as const,
-      { timeout: 8_000 }
-    )
-    .then(() => true)
-    .catch(() => false);
+  const changed = await waitForFirstListRowToChange(
+    page,
+    normalizedTableSelector,
+    {
+      selector: resolvedBeforeClick.selector,
+      strategy: resolvedBeforeClick.strategy,
+    },
+    columns.length,
+    firstRowText,
+    8_000,
+  );
 
   if (!changed) {
     // Content didn't change — we're on the last page or button did nothing
