@@ -6,9 +6,9 @@ import { AppError } from "@/lib/errors";
 import { PROVIDER_MODELS } from "@/lib/validations/api-key";
 import { stripMarkdownFences } from "./parse";
 import { callCodexJson } from "./codex";
-import { callVertexContent } from "./vertex";
+import { callVertexContent, VERTEX_DEFAULT_MODEL_MAX_OUTPUT_TOKENS } from "./vertex";
 import { getComparisonSystemPrompt, getComparisonUserPrompt, getTemplatedComparisonUserPrompt } from "./prompts-comparison";
-import type { AIProvider } from "./types";
+import type { AIProvider, AIUsage } from "./types";
 import type { FieldComparison, ComparisonFieldStatus, TemplateField, BusinessRuleResult, RequiredDocumentCheck, DiagnosisAssessment, DocumentLineMatch } from "@/types/portal";
 
 export interface ComparisonRequest {
@@ -23,6 +23,8 @@ export interface ComparisonRequest {
   systemPromptOverride?: string;
   /** Override the user prompt (used by full comparison with business rules) */
   userPromptOverride?: string;
+  /** Receives provider-reported usage before truncation/JSON validation can fail. */
+  onUsage?: (usage: AIUsage) => void | Promise<void>;
 }
 
 export interface ComparisonResponse {
@@ -34,6 +36,13 @@ export interface ComparisonResponse {
   requiredDocumentsCheck?: RequiredDocumentCheck[];
   diagnosisAssessment?: DiagnosisAssessment | null;
   rawResponse: unknown;
+  usage?: AIUsage;
+}
+
+interface ComparisonCallResult {
+  text: string;
+  truncated: boolean;
+  usage?: AIUsage;
 }
 
 export async function compareFields(
@@ -52,7 +61,7 @@ export async function compareFields(
       ? getTemplatedComparisonUserPrompt(request.pageFields, request.pdfFields, request.templateFields)
       : getComparisonUserPrompt(request.pageFields, request.pdfFields));
 
-  let result: { text: string; truncated: boolean };
+  let result: ComparisonCallResult;
 
   if (provider === "anthropic" || provider === "azure-foundry") {
     result = await compareWithAnthropic(request, userPrompt);
@@ -73,6 +82,8 @@ export async function compareFields(
     throw new AppError(`Unsupported provider: ${provider}`, 400, "UNSUPPORTED_PROVIDER");
   }
 
+  if (result.usage) await request.onUsage?.(result.usage);
+
   if (result.truncated) {
     logger.error(
       { provider, hasFullPrompt: !!request.systemPromptOverride },
@@ -92,7 +103,7 @@ export async function compareFields(
     "[ai] Field comparison completed"
   );
 
-  return { ...parsed, rawResponse: result.text };
+  return { ...parsed, rawResponse: result.text, usage: result.usage };
 }
 
 // Full prompts (business rules + required docs + many fields) can produce large
@@ -164,16 +175,16 @@ async function compareWithGemini(request: ComparisonRequest, userPrompt: string)
   return { text: result.response.text(), truncated };
 }
 
-async function compareWithVertex(request: ComparisonRequest, userPrompt: string): Promise<{ text: string; truncated: boolean }> {
+async function compareWithVertex(request: ComparisonRequest, userPrompt: string): Promise<ComparisonCallResult> {
   const result = await callVertexContent({
     credentialJson: request.apiKey,
     model: request.model ?? PROVIDER_MODELS.vertex.defaults.text,
     systemInstruction: request.systemPromptOverride ?? getComparisonSystemPrompt(),
     parts: [{ text: userPrompt }],
-    maxOutputTokens: request.systemPromptOverride ? FULL_PROMPT_MAX_TOKENS : BASIC_MAX_TOKENS,
-    timeoutMs: 60_000,
+    maxOutputTokens: VERTEX_DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+    timeoutMs: 300_000,
   });
-  return { text: result.text, truncated: result.truncated };
+  return { text: result.text, truncated: result.truncated, usage: result.usage };
 }
 
 const VALID_STATUSES: ComparisonFieldStatus[] = [

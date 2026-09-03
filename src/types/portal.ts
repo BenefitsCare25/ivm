@@ -534,6 +534,7 @@ export const ITEM_EVENT_TYPES = [
   "AI_COMPARE_START",
   "AI_COMPARE_DONE",
   "AI_COMPARE_FAIL",
+  "AI_USAGE",
   "ITEM_COMPLETE",
   "ITEM_ERROR",
 ] as const;
@@ -569,6 +570,7 @@ export const EVENT_TYPE_LABELS: Record<ItemEventType, string> = {
   AI_COMPARE_START: "AI Comparing Fields",
   AI_COMPARE_DONE: "AI Comparison Done",
   AI_COMPARE_FAIL: "AI Comparison Failed",
+  AI_USAGE: "AI Usage Recorded",
   ITEM_COMPLETE: "Completed",
   ITEM_ERROR: "Error",
 };
@@ -594,6 +596,7 @@ export const EVENT_SEVERITY: Record<ItemEventType, "info" | "success" | "error" 
   AI_COMPARE_START: "info",
   AI_COMPARE_DONE: "success",
   AI_COMPARE_FAIL: "error",
+  AI_USAGE: "info",
   ITEM_COMPLETE: "success",
   ITEM_ERROR: "error",
 };

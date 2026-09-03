@@ -14,6 +14,7 @@ import { Card } from "@/components/ui/card";
 import { ItemStatusBadge, ITEM_STATUS_COLORS } from "./portal-status-badge";
 import { ExpandedPanel } from "./expanded-row";
 import type { TrackedItemStatus, FieldComparison, ItemFile, ComparisonSummary, ValidationAlert } from "@/types/portal";
+import type { AIUsageSummary } from "@/lib/ai/usage";
 import { FWA_LABELS } from "@/types/portal";
 
 const STATUS_ORDER: TrackedItemStatus[] = ["COMPARED", "FLAGGED", "VERIFIED", "REQUIRE_DOC", "SKIPPED", "FILTERED", "ERROR", "PROCESSING", "DISCOVERED"];
@@ -39,6 +40,24 @@ export interface TableItem {
   createdAt: string;
   updatedAt: string;
   runtime?: string | null;
+  aiUsage: AIUsageSummary | null;
+}
+
+const TOKEN_NUMBER = new Intl.NumberFormat("en-US");
+
+function formatEstimatedCost(cost: number): string {
+  if (cost > 0 && cost < 0.0001) return "<$0.0001";
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  return `$${cost.toFixed(2)}`;
+}
+
+function usageDetails(usage: AIUsageSummary): string {
+  return usage.models.map((entry) => {
+    const rates = entry.inputUsdPerMillion != null && entry.outputUsdPerMillion != null
+      ? ` at $${entry.inputUsdPerMillion}/M input and $${entry.outputUsdPerMillion}/M output`
+      : " (pricing unavailable)";
+    return `${entry.model}: ${TOKEN_NUMBER.format(entry.inputTokens)} input, ${TOKEN_NUMBER.format(entry.outputTokens)} output${rates}`;
+  }).join("\n");
 }
 
 interface TrackedItemsTableProps {
@@ -71,12 +90,14 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
   const idKey = Object.keys(items[0].listData).find(
     (k) => items[0].listData[k] === items[0].portalItemId
   );
-  const allListKeys = Object.keys(items[0].listData).filter((k) => k !== idKey);
+  const allListKeys = Object.keys(items[0].listData).filter(
+    (key) => key !== idKey && key.trim().toLowerCase() !== "status"
+  );
   const subKeySet = new Set(allListKeys.filter((k) => k.startsWith("Sub ")));
   const previewKeys = allListKeys
     .filter((k) => !subKeySet.has(k))
     .slice(0, 3);
-  const columnCount = previewKeys.length + 6;
+  const columnCount = previewKeys.length + 7;
 
   return (
     <TooltipProvider>
@@ -117,7 +138,8 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
       </div>
 
     <Card className="overflow-hidden">
-      <table className="w-full text-sm">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[1100px] text-sm">
         <thead>
           <tr className="bg-muted">
             <th className="w-8 px-3 py-2.5" />
@@ -143,6 +165,9 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
             </th>
             <th className="whitespace-nowrap px-3 py-2.5 text-left font-medium text-muted-foreground">
               Docs
+            </th>
+            <th className="whitespace-nowrap px-3 py-2.5 text-right font-medium text-muted-foreground">
+              AI Usage
             </th>
           </tr>
         </thead>
@@ -243,6 +268,30 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
                       <span className="text-xs text-muted-foreground/40">&mdash;</span>
                     )}
                   </td>
+
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right">
+                    {item.aiUsage ? (
+                      <Tooltip content={usageDetails(item.aiUsage)} side="left" className="whitespace-pre-line">
+                        <div className="inline-flex cursor-help flex-col items-end text-xs tabular-nums">
+                          <span className="text-foreground/80">
+                            In {TOKEN_NUMBER.format(item.aiUsage.inputTokens)}
+                            <span className="px-1 text-muted-foreground/40">&middot;</span>
+                            Out {TOKEN_NUMBER.format(item.aiUsage.outputTokens)}
+                          </span>
+                          <span className="max-w-[220px] truncate text-muted-foreground/60">
+                            {item.aiUsage.models.length === 1
+                              ? item.aiUsage.models[0].model
+                              : `${item.aiUsage.models.length} models`}
+                            {item.aiUsage.estimatedCostUsd != null && (
+                              <> &middot; Est. {formatEstimatedCost(item.aiUsage.estimatedCostUsd)}</>
+                            )}
+                          </span>
+                        </div>
+                      </Tooltip>
+                    ) : (
+                      <span className="text-xs text-muted-foreground/40">&mdash;</span>
+                    )}
+                  </td>
                 </tr>
 
                 {isExpanded && (
@@ -268,6 +317,7 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
           })}
         </tbody>
       </table>
+      </div>
     </Card>
     </div>
     </TooltipProvider>

@@ -11,7 +11,7 @@ import {
   parseCurrencyConversionEvidence,
   withCurrencyConversionFields,
 } from "@/lib/comparison-reconciliation";
-import { withEventTracking } from "@/lib/portal-events";
+import { emitItemEvent, withEventTracking } from "@/lib/portal-events";
 import { toInputJson } from "@/lib/utils";
 import {
   recognizeDocuments,
@@ -214,6 +214,16 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
           templateFields,
           systemPromptOverride,
           userPromptOverride,
+          onUsage: (usage) => emitItemEvent(trackedItemId, "AI_USAGE", {
+            operation: "comparison",
+            provider,
+            model: usage.model ?? comparisonModel ?? textModel,
+            modelVersion: usage.modelVersion,
+            inputTokens: usage.promptTokens,
+            outputTokens: usage.completionTokens,
+            thoughtsTokens: usage.thoughtsTokens,
+            totalTokens: usage.totalTokens,
+          }),
         })
       );
     }
@@ -284,6 +294,16 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
           apiKey,
           visionModel,
           baseURL,
+          onUsage: (usage) => emitItemEvent(trackedItemId, "AI_USAGE", {
+            operation: "vision-verification",
+            provider,
+            model: usage.model ?? visionModel,
+            modelVersion: usage.modelVersion,
+            inputTokens: usage.promptTokens,
+            outputTokens: usage.completionTokens,
+            thoughtsTokens: usage.thoughtsTokens,
+            totalTokens: usage.totalTokens,
+          }),
         });
       } catch (err) {
         logger.warn({ err, trackedItemId }, "[worker] Vision verification failed (non-fatal)");

@@ -3,7 +3,7 @@ import { verifyWithVision } from "./vision-verify";
 import { rasterizePdfToImages } from "./pdf-raster";
 import { fieldNameMatchesPortal } from "@/lib/comparison-templates";
 import { selectVisionSourceFile } from "./vision-source-selection";
-import type { AIProvider, RasterImage } from "./types";
+import type { AIProvider, AIUsage, RasterImage } from "./types";
 import type {
   BusinessRule,
   BusinessRuleResult,
@@ -39,6 +39,7 @@ interface RunVisionChecksArgs {
   apiKey: string;
   visionModel: string;
   baseURL?: string;
+  onUsage?: (usage: AIUsage) => void | Promise<void>;
 }
 
 /**
@@ -50,7 +51,7 @@ interface RunVisionChecksArgs {
 export async function runVisionChecks(args: RunVisionChecksArgs): Promise<number> {
   const {
     comparisonResult, fields, businessRules, files, pdfFieldSources, documentTypesByFile,
-    preloadedBuffers, provider, apiKey, visionModel, baseURL,
+    preloadedBuffers, provider, apiKey, visionModel, baseURL, onUsage,
   } = args;
 
   // Only verify against formats the vision model accepts.
@@ -168,6 +169,7 @@ export async function runVisionChecks(args: RunVisionChecksArgs): Promise<number
         model: visionModel,
         baseURL,
         images: rasterCache.get(task.file.storagePath),
+        onUsage,
       });
 
       if (task.kind === "field") {

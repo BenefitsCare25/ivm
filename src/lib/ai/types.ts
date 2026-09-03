@@ -4,6 +4,18 @@ import type { FieldMapping } from "@/types/mapping";
 
 export type AIProvider = "codex" | "anthropic" | "openai" | "gemini" | "vertex" | "azure-foundry" | "local";
 
+export interface AIUsage {
+  /** Billable request tokens, including tool-result prompt tokens when present. */
+  promptTokens?: number;
+  /** Billable response tokens, including model reasoning/thought tokens. */
+  completionTokens?: number;
+  /** Reasoning/thought tokens included in completionTokens. */
+  thoughtsTokens?: number;
+  totalTokens?: number;
+  model?: string;
+  modelVersion?: string;
+}
+
 export interface AIExtractionRequest {
   sourceAssetId: string;
   mimeType: string;
@@ -24,6 +36,8 @@ export interface AIExtractionRequest {
    * local models. The fill-session flow leaves this unset (it uses those keys).
    */
   compactSchema?: boolean;
+  /** Receives provider-reported usage before response parsing, including truncated/invalid responses. */
+  onUsage?: (usage: AIUsage) => void | Promise<void>;
 }
 
 export interface RasterImage {
@@ -37,7 +51,7 @@ export interface AIExtractionResponse {
   rawResponse: unknown;
   truncated?: boolean;
   /** Token accounting for observability (best-effort; populated by the local/OpenAI path). */
-  usage?: { promptTokens?: number; completionTokens?: number };
+  usage?: AIUsage;
   /** Model stop reason, e.g. "stop" (complete) or "length" (hit max_tokens). */
   finishReason?: string;
 }

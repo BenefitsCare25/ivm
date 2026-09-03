@@ -26,7 +26,8 @@ export async function GET(
     if (!item) throw new NotFoundError("Item");
 
     const events = await db.trackedItemEvent.findMany({
-      where: { trackedItemId: itemId },
+      // Usage records feed the table totals and stay out of the human activity log.
+      where: { trackedItemId: itemId, eventType: { not: "AI_USAGE" } },
       orderBy: { createdAt: "asc" },
       select: {
         id: true,

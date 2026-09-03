@@ -127,6 +127,17 @@ export async function runExtraction({
           baseURL,
           storagePath: file.storagePath,
           knownDocumentTypes,
+          onUsage: (usage) => emitItemEvent(trackedItemId, "AI_USAGE", {
+            operation: "extraction",
+            provider,
+            model: usage.model ?? visionModel,
+            modelVersion: usage.modelVersion,
+            inputTokens: usage.promptTokens,
+            outputTokens: usage.completionTokens,
+            thoughtsTokens: usage.thoughtsTokens,
+            totalTokens: usage.totalTokens,
+            fileName: file.originalName,
+          }),
           // Portal comparison consumes only label/value/rawText — request the lean
           // schema so the throughput-bound local model emits ~40% fewer output tokens.
           compactSchema: true,

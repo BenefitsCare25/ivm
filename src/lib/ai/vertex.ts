@@ -3,10 +3,11 @@ import { AppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { getExtractionSystemPrompt, getExtractionUserPrompt, getTextExtractionUserPrompt } from "./prompts";
 import { parseExtractionResponse } from "./parse";
-import type { AIExtractionRequest, AIExtractionResponse } from "./types";
+import type { AIExtractionRequest, AIExtractionResponse, AIUsage } from "./types";
 
 export const VERTEX_LOCATION = "asia-southeast1";
 export const VERTEX_DEFAULT_MODEL = "gemini-3.5-flash";
+export const VERTEX_DEFAULT_MODEL_MAX_OUTPUT_TOKENS = 65_536;
 export const VERTEX_CAPACITY_HEADER = "X-Vertex-AI-LLM-Request-Type";
 export const VERTEX_CAPACITY_REQUEST_TYPE = "shared";
 
@@ -29,6 +30,37 @@ export interface VertexServiceAccount extends Record<string, unknown> {
 export interface VertexPart {
   text?: string;
   inlineData?: { mimeType: string; data: string };
+}
+
+interface VertexUsageMetadata {
+  promptTokenCount?: number;
+  toolUsePromptTokenCount?: number;
+  candidatesTokenCount?: number;
+  thoughtsTokenCount?: number;
+  totalTokenCount?: number;
+}
+
+export function buildVertexUsage(
+  metadata: VertexUsageMetadata | undefined,
+  model: string,
+  modelVersion?: string,
+): AIUsage | undefined {
+  const promptTokens = metadata?.promptTokenCount;
+  const toolPromptTokens = metadata?.toolUsePromptTokenCount;
+  const candidateTokens = metadata?.candidatesTokenCount;
+  const thoughtsTokens = metadata?.thoughtsTokenCount;
+  const hasUsage = [promptTokens, toolPromptTokens, candidateTokens, thoughtsTokens]
+    .some((value) => typeof value === "number");
+  if (!hasUsage) return undefined;
+
+  return {
+    promptTokens: (promptTokens ?? 0) + (toolPromptTokens ?? 0),
+    completionTokens: (candidateTokens ?? 0) + (thoughtsTokens ?? 0),
+    thoughtsTokens: thoughtsTokens ?? 0,
+    totalTokens: metadata?.totalTokenCount,
+    model,
+    modelVersion,
+  };
 }
 
 export class VertexCredentialError extends Error {
@@ -108,10 +140,17 @@ export async function callVertexContent(options: {
   systemInstruction?: string;
   maxOutputTokens?: number;
   timeoutMs?: number;
-}): Promise<{ text: string; rawResponse: unknown; truncated: boolean }> {
+}): Promise<{
+  text: string;
+  rawResponse: unknown;
+  truncated: boolean;
+  usage?: AIUsage;
+  model: string;
+}> {
+  const requestedModel = options.model ?? VERTEX_DEFAULT_MODEL;
   const client = createVertexClient(options.credentialJson, options.timeoutMs ?? 60_000);
   const response = await client.models.generateContent({
-    model: options.model ?? VERTEX_DEFAULT_MODEL,
+    model: requestedModel,
     contents: [{ role: "user", parts: options.parts }],
     config: {
       ...(options.systemInstruction ? { systemInstruction: options.systemInstruction } : {}),
@@ -121,7 +160,8 @@ export async function callVertexContent(options: {
 
   const text = response.text ?? "";
   const truncated = response.candidates?.[0]?.finishReason === "MAX_TOKENS";
-  return { text, rawResponse: response, truncated };
+  const usage = buildVertexUsage(response.usageMetadata, requestedModel, response.modelVersion);
+  return { text, rawResponse: response, truncated, usage, model: requestedModel };
 }
 
 export async function extractWithVertex(request: AIExtractionRequest): Promise<AIExtractionResponse> {
@@ -167,6 +207,7 @@ export async function extractWithVertex(request: AIExtractionRequest): Promise<A
     parts,
     timeoutMs: 60_000,
   });
+  if (result.usage) await request.onUsage?.(result.usage);
   if (!result.text) {
     throw new AppError("AI returned no text response", 500, "AI_EMPTY_RESPONSE");
   }
@@ -176,5 +217,12 @@ export async function extractWithVertex(request: AIExtractionRequest): Promise<A
     { sourceAssetId: request.sourceAssetId, documentType, fieldCount: fields.length },
     "Vertex extraction completed"
   );
-  return { documentType, fields, rawResponse: result.rawResponse };
+  return {
+    documentType,
+    fields,
+    rawResponse: result.rawResponse,
+    truncated: result.truncated,
+    usage: result.usage,
+    finishReason: result.truncated ? "MAX_TOKENS" : "STOP",
+  };
 }

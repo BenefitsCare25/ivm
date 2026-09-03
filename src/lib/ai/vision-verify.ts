@@ -7,7 +7,7 @@ import { rasterizePdfToImages } from "./pdf-raster";
 import { downscaleImages } from "./image-scale";
 import { callCodexJson } from "./codex";
 import { callVertexContent } from "./vertex";
-import type { AIProvider, RasterImage } from "./types";
+import type { AIProvider, AIUsage, RasterImage } from "./types";
 import type { VisionVerdict } from "@/types/portal";
 
 const IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
@@ -25,6 +25,7 @@ export interface VisionVerifyRequest {
   baseURL?: string;
   /** Pre-rasterized page images (local provider). When set, the PDF is not re-rasterized. */
   images?: RasterImage[];
+  onUsage?: (usage: AIUsage) => void | Promise<void>;
 }
 
 export interface VisionVerifyResult {
@@ -194,5 +195,6 @@ async function withVertex(req: VisionVerifyRequest): Promise<VisionVerifyResult>
     maxOutputTokens: 1024,
     timeoutMs: 45_000,
   });
+  if (result.usage) await req.onUsage?.(result.usage);
   return parse(result.text, req.model);
 }

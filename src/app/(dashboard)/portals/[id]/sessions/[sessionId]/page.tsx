@@ -22,6 +22,7 @@ import { ScrapeStatusBadge } from "@/components/portals/portal-status-badge";
 import { AutoRefresh } from "@/components/portals/auto-refresh";
 import { SessionActions } from "@/components/portals/session-actions";
 import { summarizePortalSession } from "@/lib/portal-session-summary";
+import { summarizeAIUsageEvents } from "@/lib/ai/usage";
 import type { PortalSessionCounts } from "@/lib/portal-session-summary";
 import { FWA_PRIORITY, FWA_RULE_TYPES } from "@/types/portal";
 import type { ScrapeSessionStatus, FieldComparison, DiagnosisAssessment, AuthStatus } from "@/types/portal";
@@ -98,6 +99,10 @@ export default async function SessionItemsPage({
               fieldComparisons: true,
               diagnosisAssessment: true,
             },
+          },
+          events: {
+            where: { eventType: "AI_USAGE" },
+            select: { payload: true },
           },
         },
       },
@@ -266,6 +271,7 @@ export default async function SessionItemsPage({
           runtime: COMPLETED_STATUSES.has(item.status)
             ? formatDuration(item.updatedAt.getTime() - (item.processingStartedAt ?? item.createdAt).getTime())
             : item.status === "PROCESSING" ? "Running…" : null,
+          aiUsage: summarizeAIUsageEvents(item.events),
           fwaAlert: fwaByItem.get(item.id) ?? null,
           fwaAlerts: fwaAlertsByItem.get(item.id) ?? [],
         }))}

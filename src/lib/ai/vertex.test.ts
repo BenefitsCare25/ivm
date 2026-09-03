@@ -3,11 +3,13 @@ import test from "node:test";
 import {
   parseVertexServiceAccount,
   buildVertexClientOptions,
+  buildVertexUsage,
   vertexCredentialLabel,
   VertexCredentialError,
   VERTEX_CAPACITY_HEADER,
   VERTEX_CAPACITY_REQUEST_TYPE,
   VERTEX_DEFAULT_MODEL,
+  VERTEX_DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
   VERTEX_LOCATION,
 } from "./vertex";
 
@@ -21,6 +23,7 @@ const credential = JSON.stringify({
 test("Vertex connection is pinned to the Singapore model and shared PayGo", () => {
   assert.equal(VERTEX_LOCATION, "asia-southeast1");
   assert.equal(VERTEX_DEFAULT_MODEL, "gemini-3.5-flash");
+  assert.equal(VERTEX_DEFAULT_MODEL_MAX_OUTPUT_TOKENS, 65_536);
   assert.equal(VERTEX_CAPACITY_HEADER, "X-Vertex-AI-LLM-Request-Type");
   assert.equal(VERTEX_CAPACITY_REQUEST_TYPE, "shared");
 
@@ -48,5 +51,29 @@ test("malformed and incomplete credentials are rejected", () => {
   assert.throws(
     () => parseVertexServiceAccount(JSON.stringify({ type: "service_account" })),
     VertexCredentialError
+  );
+});
+
+test("Vertex usage counts response and reasoning tokens as billable output", () => {
+  assert.deepEqual(
+    buildVertexUsage(
+      {
+        promptTokenCount: 100,
+        toolUsePromptTokenCount: 5,
+        candidatesTokenCount: 20,
+        thoughtsTokenCount: 30,
+        totalTokenCount: 155,
+      },
+      "gemini-3.5-flash",
+      "gemini-3.5-flash-001",
+    ),
+    {
+      promptTokens: 105,
+      completionTokens: 50,
+      thoughtsTokens: 30,
+      totalTokens: 155,
+      model: "gemini-3.5-flash",
+      modelVersion: "gemini-3.5-flash-001",
+    },
   );
 });
