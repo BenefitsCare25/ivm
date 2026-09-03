@@ -189,6 +189,7 @@ export interface TrackedItemFileSummary {
 
 export const MATCH_MODES = ["fuzzy", "exact", "numeric"] as const;
 export type MatchMode = (typeof MATCH_MODES)[number];
+export const MAX_DOCUMENT_FIELD_ALIASES = 20;
 
 export const MATCH_MODE_LABELS: Record<MatchMode, string> = {
   fuzzy: "Fuzzy (names, dates, text)",

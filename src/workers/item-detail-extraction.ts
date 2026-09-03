@@ -73,6 +73,7 @@ export async function runExtraction({
   displayProvider,
   knownDocumentTypes,
   cachedDocTypes,
+  expectedFields,
 }: {
   trackedItemId: string;
   downloadedFiles: DownloadedFile[];
@@ -84,6 +85,10 @@ export async function runExtraction({
   displayProvider: string;
   knownDocumentTypes?: string[];
   cachedDocTypes?: DocTypeRecord[];
+  expectedFields?: Array<{
+    portalFieldName: string;
+    documentFieldNames: string[];
+  }>;
 }): Promise<ExtractionResult> {
   const supportedFiles = downloadedFiles.filter(
     (f) => f.mimeType === "application/pdf" || f.mimeType.startsWith("image/")
@@ -127,6 +132,7 @@ export async function runExtraction({
           baseURL,
           storagePath: file.storagePath,
           knownDocumentTypes,
+          expectedFields,
           onUsage: (usage) => emitItemEvent(trackedItemId, "AI_USAGE", {
             operation: "extraction",
             provider,
@@ -164,8 +170,11 @@ export async function runExtraction({
         if (extraction.truncated) {
           await emitItemEvent(trackedItemId, "AI_EXTRACT_TRUNCATED", {
             fileName: file.originalName,
-            note: "Response hit max_tokens limit — partial extraction",
+            note: "Response hit max_tokens limit; partial extraction was rejected.",
           });
+          throw new Error(
+            `AI extraction was truncated for ${file.originalName}; partial fields were not accepted.`
+          );
         }
 
         await emitItemEvent(

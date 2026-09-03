@@ -31,7 +31,10 @@ export async function extractWithCodex(request: AIExtractionRequest): Promise<AI
     ? getTextExtractionUserPrompt(request.fileName, request.textContent)
     : getExtractionUserPrompt(request.fileName);
   const result = await callCodexJson(
-    getExtractionSystemPrompt(request.knownDocumentTypes, { compact: request.compactSchema }),
+    getExtractionSystemPrompt(request.knownDocumentTypes, {
+      compact: request.compactSchema,
+      expectedFields: request.expectedFields,
+    }),
     userPrompt,
     { images: request.images, model: request.model }
   );

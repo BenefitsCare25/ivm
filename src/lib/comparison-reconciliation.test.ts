@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildFullComparisonUserPrompt } from "@/lib/ai/prompt-builder";
+import { getExtractionSystemPrompt } from "@/lib/ai/prompts";
 import {
   applyCurrencyConversionEvidence,
   groupTemplateFields,
+  normalizeTemplateFields,
   reconcileFieldComparisons,
 } from "@/lib/comparison-reconciliation";
 import { selectVisionSourceFile } from "@/lib/ai/vision-source-selection";
+import { createComparisonTemplateSchema } from "@/lib/validations/portal";
 import type { FieldComparison, TemplateField } from "@/types/portal";
 
 const fields: TemplateField[] = [
@@ -40,6 +43,12 @@ const fields: TemplateField[] = [
   },
 ];
 
+function comparisonFor(comparisons: FieldComparison[], fieldName: string): FieldComparison {
+  const comparison = comparisons.find((row) => row.fieldName === fieldName);
+  assert.ok(comparison, `Expected a comparison row for ${fieldName}`);
+  return comparison;
+}
+
 test("groups repeated portal mappings into document-label alternatives", () => {
   const grouped = groupTemplateFields(fields);
 
@@ -52,6 +61,33 @@ test("groups repeated portal mappings into document-label alternatives", () => {
     grouped.find((field) => field.portalFieldName === "Incurred Date")?.documentFieldNames,
     ["Invoice Date", "Admission Date"]
   );
+});
+
+test("normalizes duplicate persisted rows into one field with aliases", () => {
+  const normalized = normalizeTemplateFields(fields);
+
+  assert.equal(normalized.length, 3);
+  assert.deepEqual(
+    normalized.find((field) => field.portalFieldName === "Invoice Number"),
+    {
+      portalFieldName: "Invoice Number",
+      documentFieldName: "Invoice Number",
+      documentFieldAliases: ["Case No. / Bill Ref. No."],
+      mode: "exact",
+    }
+  );
+});
+
+test("extraction prompt prioritizes every configured field and alias", () => {
+  const expectedFields = groupTemplateFields(fields).map((field) => ({
+    portalFieldName: field.portalFieldName,
+    documentFieldNames: field.documentFieldNames,
+  }));
+  const prompt = getExtractionSystemPrompt(undefined, { compact: true, expectedFields });
+
+  assert.match(prompt, /WORKFLOW TARGET FIELDS \(highest extraction priority\)/);
+  assert.match(prompt, /Portal "Invoice Number": document label ONE OF \["Invoice Number","Case No\. \/ Bill Ref\. No\."\]/);
+  assert.equal(prompt.match(/Portal "Invoice Number"/g)?.length, 1);
 });
 
 test("full prompt requests one result per portal field", () => {
@@ -102,6 +138,96 @@ test("keeps a matching alias and removes contradictory duplicate rows", () => {
   assert.equal(invoiceRows[0].pdfValue, "7726161416D0001");
 });
 
+test("returns exactly one row per configured portal field when the model omits fields", () => {
+  const reconciled = reconcileFieldComparisons([], fields, {
+    "Invoice Number": "INV-42",
+  }, {
+    pageFields: {
+      "Invoice Number": "INV-42",
+      "Incurred Date": "4 Sep 2026",
+      "Receipt Amount": "100.00",
+    },
+  });
+
+  assert.deepEqual(
+    reconciled.map((row) => row.fieldName),
+    ["Invoice Number", "Incurred Date", "Receipt Amount"]
+  );
+  assert.equal(reconciled[0].status, "MATCH");
+  assert.equal(reconciled[1].status, "UNCERTAIN");
+  assert.equal(reconciled[2].status, "UNCERTAIN");
+});
+
+test("uses the scraped portal value instead of a model-transcribed page value", () => {
+  const reconciled = reconcileFieldComparisons([
+    {
+      fieldName: "Invoice Number",
+      pageValue: "INV-42",
+      pdfValue: "INV-42",
+      status: "MATCH",
+      confidence: 0.9,
+    },
+  ], fields, {}, {
+    pageFields: { "Invoice Number": "INV-24" },
+  });
+
+  assert.equal(reconciled[0].pageValue, "INV-24");
+  assert.equal(reconciled[0].status, "MISMATCH");
+});
+
+test("downgrades a fuzzy match when the model copied the wrong portal value", () => {
+  const fuzzyFields: TemplateField[] = [{
+    portalFieldName: "Claimant",
+    documentFieldName: "Patient Name",
+    mode: "fuzzy",
+  }];
+  const reconciled = reconcileFieldComparisons([{
+    fieldName: "Claimant",
+    pageValue: "Bob",
+    pdfValue: "Bob",
+    status: "MATCH",
+    confidence: 0.98,
+  }], fuzzyFields, {}, {
+    pageFields: { Claimant: "Alice" },
+  });
+
+  assert.equal(reconciled[0].pageValue, "Alice");
+  assert.equal(reconciled[0].status, "UNCERTAIN");
+  assert.ok(reconciled[0].confidence <= 0.5);
+});
+
+test("rejects duplicate mappings that normalize beyond the alias limit", () => {
+  const duplicateFields = Array.from({ length: 22 }, (_, index): TemplateField => ({
+    portalFieldName: "Invoice Number",
+    documentFieldName: `Invoice label ${index + 1}`,
+    mode: "exact",
+  }));
+
+  assert.throws(() => createComparisonTemplateSchema.parse({
+    name: "Alias overflow",
+    groupingKey: { "Claim Type": "Hospital" },
+    fields: duplicateFields,
+    requiredDocuments: [],
+    businessRules: [],
+  }));
+});
+
+test("corrects a model mismatch when configured numeric values are equivalent", () => {
+  const reconciled = reconcileFieldComparisons([
+    {
+      fieldName: "Receipt Amount",
+      pageValue: "384.46",
+      pdfValue: "$384.46",
+      status: "MISMATCH",
+      confidence: 0.8,
+    },
+  ], fields, {}, {
+    pageFields: { "Receipt Amount": "S$ 384.46" },
+  });
+
+  assert.equal(comparisonFor(reconciled, "Receipt Amount").status, "MATCH");
+});
+
 test("recovers a missing numeric amount from a differently-labelled PDF field", () => {
   const comparisons: FieldComparison[] = [
     {
@@ -116,11 +242,12 @@ test("recovers a missing numeric amount from a differently-labelled PDF field", 
   const reconciled = reconcileFieldComparisons(comparisons, fields, {
     "TOTAL AMOUNT (AFTER GOVT SUBSIDY)": "$384.46",
   });
+  const receipt = comparisonFor(reconciled, "Receipt Amount");
 
-  assert.equal(reconciled.length, 1);
-  assert.equal(reconciled[0].status, "MATCH");
-  assert.equal(reconciled[0].pdfValue, "$384.46");
-  assert.equal(reconciled[0].documentLineMatches?.[0]?.label, "TOTAL AMOUNT (AFTER GOVT SUBSIDY)");
+  assert.equal(reconciled.length, 3);
+  assert.equal(receipt.status, "MATCH");
+  assert.equal(receipt.pdfValue, "$384.46");
+  assert.equal(receipt.documentLineMatches?.[0]?.label, "TOTAL AMOUNT (AFTER GOVT SUBSIDY)");
 });
 
 test("promotes fallback line evidence when a matched PDF value is blank", () => {
@@ -136,9 +263,10 @@ test("promotes fallback line evidence when a matched PDF value is blank", () => 
   ];
 
   const reconciled = reconcileFieldComparisons(comparisons, fields);
+  const incurredDate = comparisonFor(reconciled, "Incurred Date");
 
-  assert.equal(reconciled[0].status, "MATCH");
-  assert.equal(reconciled[0].pdfValue, "07/05/2026");
+  assert.equal(incurredDate.status, "MATCH");
+  assert.equal(incurredDate.pdfValue, "07/05/2026");
 });
 
 test("rejects a match that has neither a document value nor fallback evidence", () => {
@@ -153,9 +281,10 @@ test("rejects a match that has neither a document value nor fallback evidence", 
   ];
 
   const reconciled = reconcileFieldComparisons(comparisons, fields);
+  const incurredDate = comparisonFor(reconciled, "Incurred Date");
 
-  assert.equal(reconciled[0].status, "MISSING_IN_PDF");
-  assert.equal(reconciled[0].pdfValue, null);
+  assert.equal(incurredDate.status, "MISSING_IN_PDF");
+  assert.equal(incurredDate.pdfValue, null);
 });
 
 test("uses converted document currency as amount evidence", () => {
@@ -258,10 +387,11 @@ test("recovers a combined receipt amount by summing separate billing documents",
     fieldSources,
     billingFiles: ["invoice-61.pdf", "invoice-18.50.pdf"],
   });
+  const receipt = comparisonFor(reconciled, "Receipt Amount");
 
-  assert.equal(reconciled[0].status, "MATCH");
-  assert.match(reconciled[0].pdfValue ?? "", /61\.00.*18\.50/);
-  assert.equal(reconciled[0].documentLineMatches?.length, 2);
+  assert.equal(receipt.status, "MATCH");
+  assert.match(receipt.pdfValue ?? "", /61\.00.*18\.50/);
+  assert.equal(receipt.documentLineMatches?.length, 2);
 });
 
 test("does not sum multiple amount fields from a single invoice", () => {
@@ -285,7 +415,7 @@ test("does not sum multiple amount fields from a single invoice", () => {
     billingFiles: ["invoice.pdf"],
   });
 
-  assert.equal(reconciled[0].status, "MISMATCH");
+  assert.equal(comparisonFor(reconciled, "Receipt Amount").status, "MISMATCH");
 });
 
 test("does not match a composite identifier by substring", () => {
@@ -343,7 +473,7 @@ test("does not sum explicitly foreign amounts into an SGD portal amount", () => 
     billingFiles: ["invoice-61.pdf", "invoice-18.50.pdf"],
   });
 
-  assert.equal(reconciled[0].status, "MISMATCH");
+  assert.equal(comparisonFor(reconciled, "Receipt Amount").status, "MISMATCH");
 });
 
 test("ignores an ambiguous amount field containing several totals", () => {
@@ -367,5 +497,5 @@ test("ignores an ambiguous amount field containing several totals", () => {
     billingFiles: ["invoice-61.pdf", "invoice-18.50.pdf"],
   });
 
-  assert.equal(reconciled[0].status, "MISMATCH");
+  assert.equal(comparisonFor(reconciled, "Receipt Amount").status, "MISMATCH");
 });

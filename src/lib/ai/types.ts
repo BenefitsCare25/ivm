@@ -28,6 +28,11 @@ export interface AIExtractionRequest {
   storagePath?: string; // Disk path for proxy Read-tool extraction
   textContent?: string; // Pre-extracted text for DOCX files
   knownDocumentTypes?: string[]; // Constrain AI to pick from this list when provided
+  /** Configured comparison fields that must be actively searched for during extraction. */
+  expectedFields?: Array<{
+    portalFieldName: string;
+    documentFieldNames: string[];
+  }>;
   images?: RasterImage[]; // Pre-rasterized page images (local/Codex providers: PDFs converted to PNGs)
   /**
    * Request the lean output schema ({label, value, rawText} per field only).

@@ -34,7 +34,10 @@ export async function extractWithProxyReadTool(
     ...(request.baseURL ? { baseURL: request.baseURL } : {}),
   });
 
-  const systemPrompt = getExtractionSystemPrompt(request.knownDocumentTypes);
+  const systemPrompt = getExtractionSystemPrompt(request.knownDocumentTypes, {
+    compact: request.compactSchema,
+    expectedFields: request.expectedFields,
+  });
 
   const userPrompt = `You MUST follow these steps exactly:
 

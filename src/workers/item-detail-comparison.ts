@@ -30,6 +30,7 @@ import type { AIProvider } from "@/lib/ai/types";
 import type { DocTypeRecord } from "@/lib/intelligence";
 import type { MatchedTemplate } from "@/lib/comparison-templates";
 import type { TemplateField, BillStatusSignal, TrackedItemStatus } from "@/types/portal";
+import { resolvePreservedComparisonStatus } from "@/lib/comparison-status";
 
 interface ComparisonInput {
   trackedItemId: string;
@@ -65,6 +66,10 @@ interface ComparisonInput {
   foreignCurrency?: boolean;
   /** Tampering or unacceptable document-type evidence detected before comparison. */
   intelligenceFlag?: boolean;
+  /** Template resolved before extraction so both stages use the same configuration. */
+  resolvedTemplate?: MatchedTemplate | null;
+  /** Status before the worker changed the item to PROCESSING. */
+  priorStatus?: TrackedItemStatus;
 }
 
 interface ComparisonOutput {
@@ -144,7 +149,9 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
 
   if (hasPageData && hasPdfFields) {
     const allPageData = { ...listData, ...effectiveDetailData };
-    const template = await findMatchingTemplate(portalId, allPageData);
+    const template = input.resolvedTemplate !== undefined
+      ? input.resolvedTemplate
+      : await findMatchingTemplate(portalId, allPageData);
     matchedTemplate = template;
 
     let comparePageFields = comparablePageData;
@@ -230,7 +237,7 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
   }
 
   let ruleFlag = false;
-  let preservedPrior = false;
+  const preserveExistingResult = input.preservePrior ?? false;
 
   if (comparisonResult) {
     if (matchedTemplate && matchedTemplate.fields.length > 0) {
@@ -241,6 +248,7 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
         {
           fieldSources: pdfFieldSources,
           billingFiles: recognizedDocs.filter(isBillingDocument).map((doc) => doc.fileName),
+          pageFields: comparablePageData,
         }
       );
       comparisonResult.matchCount = comparisonResult.fieldComparisons.filter((c) => c.status === "MATCH").length;
@@ -323,15 +331,14 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
     // Clobber guard: the worker decided up front (before the destructive
     // intelligence step) whether this degraded re-run should keep the previous
     // comparison rather than overwrite it. Honour that decision here too.
-    preservedPrior = (input.preservePrior ?? false) && partialFailure;
-    if (preservedPrior) {
+    if (preserveExistingResult) {
       logger.warn(
         { trackedItemId, failedFiles },
-        "[worker] Partial extraction failure — preserving previous comparison result"
+        "[worker] Degraded extraction — preserving previous comparison result"
       );
     }
 
-    if (!preservedPrior) {
+    if (!preserveExistingResult) {
       ruleFlag = await saveComparisonResult(
         trackedItemId, comparisonResult, displayProvider, templateId, matchedTemplate,
         billStatusSignal, documentTypesByFile, fileExtractions,
@@ -351,8 +358,7 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
   let claimantMissing = false;
   let wrongClaimType = false;
   let policyFlag = false;
-  const runPolicy =
-    !(input.preservePrior ?? false) && !preservedPrior && !noDocuments && !allExtractionsFailed;
+  const runPolicy = !preserveExistingResult && !noDocuments && !allExtractionsFailed;
   if (runPolicy) {
     const policy = buildClaimPolicyValidations({
       fieldComparisons: comparisonResult?.fieldComparisons ?? [],
@@ -393,6 +399,9 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
   }
 
   const hasMismatch = (comparisonResult?.mismatchCount ?? 0) > 0;
+  const hasUnresolvedField = comparisonResult?.fieldComparisons.some(
+    (comparison) => comparison.status !== "MATCH"
+  ) ?? false;
   // Any unfound required document surfaces the item for review. Deterministic
   // synonym/alias matching has already flipped false positives to found, so what
   // remains is either genuinely missing (FAIL) or low-confidence (WARNING —
@@ -407,7 +416,11 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
   // A partial failure always surfaces the item — the comparison ran on incomplete
   // data, so a clean "COMPARED" would be misleading. A missing claimant (rule 1)
   // is a "pending document" verdict (REQUIRE_DOC) and takes precedence over FLAGGED.
-  const finalStatus: TrackedItemStatus = noDocuments
+  const preservedStatus = resolvePreservedComparisonStatus(
+    preserveExistingResult,
+    input.priorStatus
+  );
+  const finalStatus: TrackedItemStatus = preservedStatus ?? (noDocuments
     ? "REQUIRE_DOC"
     : allExtractionsFailed
       ? "ERROR"
@@ -415,18 +428,18 @@ export async function runComparison(input: ComparisonInput): Promise<ComparisonO
         ? "REQUIRE_DOC"
         : claimantMissing
           ? "REQUIRE_DOC"
-          : (preservedPrior || partialFailure || hasMismatch || ruleFlag || hasMissingDoc ||
+          : (partialFailure || hasMismatch || hasUnresolvedField || ruleFlag || hasMissingDoc ||
              wrongClaimType || policyFlag || (input.foreignCurrency ?? false) ||
              (input.intelligenceFlag ?? false))
             ? "FLAGGED"
-            : "COMPARED";
+            : "COMPARED");
 
-  const reviewMessage: string | null = allExtractionsFailed
-    ? `AI could not read any of the ${failedFiles.length} submitted document(s): ${failedFiles.join(", ")}. Manual review required.`
-    : flagUnreadable
-      ? `The submitted document(s) could not be read (blank or unreadable): ${unreadableFiles.join(", ")}. A readable document is required.`
-      : preservedPrior
-        ? `Re-read failed for ${failedFiles.length} document(s): ${failedFiles.join(", ")}. Showing the previous comparison — manual review recommended.`
+  const reviewMessage: string | null = preservedStatus
+    ? "The re-read did not produce a complete extraction. Showing the previous comparison result."
+    : allExtractionsFailed
+      ? `AI could not read any of the ${failedFiles.length} submitted document(s): ${failedFiles.join(", ")}. Manual review required.`
+      : flagUnreadable
+        ? `The submitted document(s) could not be read (blank or unreadable): ${unreadableFiles.join(", ")}. A readable document is required.`
         : partialFailure
           ? `${failedFiles.length} document(s) could not be read: ${failedFiles.join(", ")}. Comparison may be incomplete — manual review recommended.`
           : null;

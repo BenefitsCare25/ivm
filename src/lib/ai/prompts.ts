@@ -1,5 +1,6 @@
 import type { ExtractedField } from "@/types/extraction";
 import type { TargetField } from "@/types/target";
+import type { AIExtractionRequest } from "./types";
 
 /** A fully-specified example field; compact rendering drops the keys the portal path ignores. */
 interface ExampleField {
@@ -47,9 +48,18 @@ function renderExampleField(f: ExampleField, compact: boolean): string {
  */
 export function getExtractionSystemPrompt(
   knownDocumentTypes?: string[],
-  opts?: { compact?: boolean }
+  opts?: {
+    compact?: boolean;
+    expectedFields?: AIExtractionRequest["expectedFields"];
+  }
 ): string {
   const compact = opts?.compact ?? false;
+
+  const expectedFieldsBlock = opts?.expectedFields?.length
+    ? `\n\nWORKFLOW TARGET FIELDS (highest extraction priority):\nThe downstream comparison requires every portal field below. Actively search every page for any of its document labels. Return a field when it is present, using the label printed in the document. Do not invent a value when it is absent. Before returning, verify that you searched for every target:\n${opts.expectedFields
+        .map((field) => `- Portal "${field.portalFieldName}": document label ONE OF ${JSON.stringify(field.documentFieldNames)}`)
+        .join("\n")}`
+    : "";
 
   const docTypeInstruction = knownDocumentTypes && knownDocumentTypes.length > 0
     ? `Document type identification:
@@ -123,7 +133,7 @@ COMPLETENESS IS CRITICAL:
 
 Rules:
 ${fieldKeyRules}
-${docTypeInstruction}${confidenceBlock}
+${docTypeInstruction}${expectedFieldsBlock}${confidenceBlock}
 
 Survey/Form response rules (IMPORTANT):
 - If the document is a filled-out survey, questionnaire, or form with rated/selected answers, extract each QUESTION as a field and its SELECTED ANSWER as the value.

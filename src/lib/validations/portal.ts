@@ -6,6 +6,8 @@ import {
   MAX_CLAIM_CONCURRENCY,
   MIN_CLAIM_CONCURRENCY,
 } from "@/lib/claim-concurrency";
+import { normalizeTemplateFields } from "@/lib/comparison-reconciliation";
+import { MAX_DOCUMENT_FIELD_ALIASES } from "@/types/portal";
 
 export const createPortalSchema = z.object({
   name: z
@@ -153,11 +155,19 @@ export type UpdateTrackedItemInput = z.infer<typeof updateTrackedItemSchema>;
 export const templateFieldSchema = z.object({
   portalFieldName: z.string().min(1).max(200),
   documentFieldName: z.string().min(1).max(200),
-  documentFieldAliases: z.array(z.string().min(1).max(200)).max(20).optional(),
+  documentFieldAliases: z
+    .array(z.string().min(1).max(200))
+    .max(MAX_DOCUMENT_FIELD_ALIASES)
+    .optional(),
   mode: z.enum(["fuzzy", "exact", "numeric"]),
   tolerance: z.number().min(0).max(1000).optional(),
   verifyWithVision: z.boolean().optional(),
 });
+
+const rawTemplateFieldsSchema = z.array(templateFieldSchema).max(100);
+export const templateFieldsSchema = rawTemplateFieldsSchema
+  .transform((fields) => normalizeTemplateFields(fields))
+  .pipe(rawTemplateFieldsSchema);
 
 export const requiredDocumentSchema = z.object({
   documentTypeName: z.string().min(1).max(200),
@@ -195,7 +205,7 @@ export const createComparisonTemplateSchema = z.object({
   comparisonConfigId: z.string().optional(),
   providerGroupId: z.string().optional().nullable(),
   groupingKey: z.record(z.string().max(200), z.string().max(500)),
-  fields: z.array(templateFieldSchema).max(100).default([]),
+  fields: templateFieldsSchema.default([]),
   requiredDocuments: z.array(requiredDocumentSchema).max(20).default([]),
   businessRules: z.array(businessRuleSchema).max(50).default([]),
 });
@@ -205,7 +215,7 @@ export type CreateComparisonTemplateInput = z.infer<typeof createComparisonTempl
 export const updateComparisonTemplateSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   providerGroupId: z.string().nullable().optional(),
-  fields: z.array(templateFieldSchema).max(100).optional(),
+  fields: templateFieldsSchema.optional(),
   requiredDocuments: z.array(requiredDocumentSchema).max(20).optional(),
   businessRules: z.array(businessRuleSchema).max(50).optional(),
 });

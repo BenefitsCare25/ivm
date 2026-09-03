@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { errorResponse, NotFoundError } from "@/lib/errors";
-import { itemMatchesGroupingKey } from "@/lib/comparison-templates";
+import { findMatchingTemplate } from "@/lib/comparison-templates";
 
 export async function GET(
   _req: NextRequest,
@@ -36,26 +36,23 @@ export async function GET(
       select: { id: true },
     });
 
-    // Fetch templates once — avoids N+1 inside the item loop
-    const [items, existingTemplates] = await Promise.all([
-      db.trackedItem.findMany({
-        where: {
-          scrapeSessionId: sessionId,
-          status: { in: ["COMPARED", "FLAGGED"] },
-          comparisonResult: { templateId: null },
+    // Limit discovery work to recent completed comparisons.
+    const items = await db.trackedItem.findMany({
+      where: {
+        scrapeSessionId: sessionId,
+        status: { in: ["COMPARED", "FLAGGED"] },
+        comparisonResult: { templateId: null },
+      },
+      select: {
+        id: true,
+        listData: true,
+        detailData: true,
+        comparisonResult: {
+          select: { fieldComparisons: true },
         },
-        select: {
-          id: true,
-          listData: true,
-          detailData: true,
-          comparisonResult: {
-            select: { fieldComparisons: true },
-          },
-        },
-        take: 500,
-      }),
-      db.comparisonTemplate.findMany({ where: { portalId: id } }),
-    ]);
+      },
+      take: 500,
+    });
 
     const seen = new Map<
       string,
@@ -86,11 +83,9 @@ export async function GET(
       const keyStr = JSON.stringify(keyParts);
       if (seen.has(keyStr)) continue;
 
-      // Check if a template already covers this grouping key (in-memory, no DB call)
-      const hasTemplate = existingTemplates.some((t) =>
-        itemMatchesGroupingKey(groupingFields, allData, t.groupingKey as Record<string, string>)
-      );
-      if (hasTemplate) continue;
+      // Use the same grouping + provider-group resolver as normal processing and
+      // recompare. A claim type is not configured when its provider scope misses.
+      if (await findMatchingTemplate(id, allData)) continue;
 
       const comparisons = (item.comparisonResult?.fieldComparisons ?? []) as Array<{
         fieldName: string;

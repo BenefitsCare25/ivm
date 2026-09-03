@@ -13,6 +13,8 @@ export interface ReconciliationDocumentContext {
   fieldSources?: Record<string, string>;
   /** Files confidently recognised as invoices, bills, or receipts. */
   billingFiles?: string[];
+  /** Portal values used to synthesize a row when the model omits a configured field. */
+  pageFields?: Record<string, string>;
 }
 
 export interface CurrencyConversionEvidence {
@@ -148,6 +150,34 @@ export function groupTemplateFields(fields: TemplateField[]): GroupedTemplateFie
   return [...grouped.values()];
 }
 
+/**
+ * Store one row per portal field. Repeated legacy rows become document aliases,
+ * preserving their first configured comparison mode and display order.
+ */
+export function normalizeTemplateFields(fields: TemplateField[]): TemplateField[] {
+  return groupTemplateFields(
+    fields
+      .map((field) => ({
+        ...field,
+        portalFieldName: field.portalFieldName.trim(),
+        documentFieldName: field.documentFieldName.trim(),
+        documentFieldAliases: field.documentFieldAliases
+          ?.map((alias) => alias.trim())
+          .filter(Boolean),
+      }))
+      .filter((field) => field.portalFieldName && field.documentFieldName)
+  ).map((field) => ({
+    portalFieldName: field.portalFieldName,
+    documentFieldName: field.documentFieldNames[0],
+    ...(field.documentFieldNames.length > 1
+      ? { documentFieldAliases: field.documentFieldNames.slice(1) }
+      : {}),
+    mode: field.mode,
+    ...(field.tolerance != null ? { tolerance: field.tolerance } : {}),
+    ...(field.verifyWithVision ? { verifyWithVision: true } : {}),
+  }));
+}
+
 /** Shared template-field matching for filtering, reconciliation, and vision. */
 export function fieldNameMatchesPortal(comparisonFieldName: string, portalFieldName: string): boolean {
   const name = normalizeName(comparisonFieldName);
@@ -160,6 +190,16 @@ function findCanonicalField(
   fields: GroupedTemplateField[]
 ): GroupedTemplateField | undefined {
   return fields.find((field) => fieldNameMatchesPortal(comparisonFieldName, field.portalFieldName));
+}
+
+function findFieldValue(
+  fields: Record<string, string> | undefined,
+  fieldName: string
+): string | null {
+  if (!fields) return null;
+  const target = normalizeName(fieldName);
+  const entry = Object.entries(fields).find(([name]) => normalizeName(name) === target);
+  return entry?.[1]?.trim() || null;
 }
 
 function numericCandidates(value: string): number[] {
@@ -400,6 +440,29 @@ function findDeterministicDocumentMatch(
   return null;
 }
 
+function compareDeterministicPair(
+  pageValue: string,
+  pdfValue: string,
+  field: GroupedTemplateField
+): boolean | null {
+  if (field.mode === "exact") {
+    const page = normalizeExactValue(pageValue);
+    const document = normalizeExactValue(pdfValue);
+    if (!page || !document) return null;
+    return page === document;
+  }
+
+  if (field.mode === "numeric") {
+    const page = singleMonetaryAmount(pageValue);
+    const document = singleMonetaryAmount(pdfValue);
+    if (page == null || document == null) return null;
+    if (!currenciesCompatible(explicitCurrency(pageValue), explicitCurrency(pdfValue))) return false;
+    return Math.abs(page - document) <= (field.tolerance ?? 0);
+  }
+
+  return null;
+}
+
 function mergeLineMatches(rows: FieldComparison[]): NonNullable<FieldComparison["documentLineMatches"]> {
   const seen = new Set<string>();
   const merged: NonNullable<FieldComparison["documentLineMatches"]> = [];
@@ -438,15 +501,32 @@ export function reconcileFieldComparisons(
 
   const reconciled: FieldComparison[] = [];
   for (const field of groupedFields) {
-    const rows = rowsByPortalField.get(normalizeName(field.portalFieldName));
-    if (!rows?.length) continue;
-
-    const sorted = [...rows].sort((a, b) =>
-      STATUS_PRIORITY[b.status] - STATUS_PRIORITY[a.status] ||
-      Number(hasDocumentValue(b.pdfValue)) - Number(hasDocumentValue(a.pdfValue)) ||
-      b.confidence - a.confidence
-    );
-    const selected: FieldComparison = { ...sorted[0], fieldName: field.portalFieldName };
+    const rows = rowsByPortalField.get(normalizeName(field.portalFieldName)) ?? [];
+    const pageValue = findFieldValue(documentContext.pageFields, field.portalFieldName);
+    const modelSelected = rows.length > 0
+      ? [...rows].sort((a, b) =>
+          STATUS_PRIORITY[b.status] - STATUS_PRIORITY[a.status] ||
+          Number(hasDocumentValue(b.pdfValue)) - Number(hasDocumentValue(a.pdfValue)) ||
+          b.confidence - a.confidence
+        )[0]
+      : null;
+    const modelPageValue = modelSelected?.pageValue;
+    const selected: FieldComparison = modelSelected
+      ? {
+          ...modelSelected,
+          fieldName: field.portalFieldName,
+          // The portal scrape is the source of truth for the left-hand value.
+          // Do not let a model copy/transcription error change what is compared.
+          ...(pageValue != null ? { pageValue } : {}),
+        }
+      : {
+          fieldName: field.portalFieldName,
+          pageValue,
+          pdfValue: null,
+          status: pageValue ? "UNCERTAIN" : "MISSING_ON_PAGE",
+          confidence: 0,
+          notes: "The comparison model omitted this configured field; no automatic verdict was assumed.",
+        };
     if (!hasDocumentValue(selected.pdfValue)) selected.pdfValue = null;
     const lineMatches = mergeLineMatches(rows);
     if (lineMatches.length > 0) selected.documentLineMatches = lineMatches;
@@ -478,6 +558,42 @@ export function reconcileFieldComparisons(
       selected.confidence = Math.max(selected.confidence, 0.99);
       selected.documentLineMatches = multiDocumentMatch.lineMatches;
       selected.notes = [selected.notes, multiDocumentMatch.notes].filter(Boolean).join(" ");
+    }
+
+    if (selected.pageValue && selected.pdfValue) {
+      const pairMatches = compareDeterministicPair(selected.pageValue, selected.pdfValue, field);
+      if (pairMatches === true && selected.status !== "MATCH") {
+        selected.status = "MATCH";
+        selected.confidence = Math.max(selected.confidence, 0.99);
+        selected.notes = [
+          selected.notes,
+          "Corrected deterministically from the configured exact/numeric values.",
+        ].filter(Boolean).join(" ");
+      } else if (pairMatches === false && selected.status === "MATCH") {
+        selected.status = "MISMATCH";
+        selected.confidence = Math.max(selected.confidence, 0.99);
+        selected.notes = [
+          selected.notes,
+          "Corrected deterministically because the configured exact/numeric values differ.",
+        ].filter(Boolean).join(" ");
+      }
+    }
+
+    const fuzzyPageValueChanged =
+      field.mode === "fuzzy" &&
+      pageValue != null &&
+      (!hasDocumentValue(modelPageValue) || normalizeName(modelPageValue) !== normalizeName(pageValue));
+    if (
+      fuzzyPageValueChanged &&
+      selected.status === "MATCH" &&
+      (!selected.pdfValue || normalizeName(selected.pdfValue) !== normalizeName(pageValue))
+    ) {
+      selected.status = "UNCERTAIN";
+      selected.confidence = Math.min(selected.confidence, 0.5);
+      selected.notes = [
+        selected.notes,
+        "The model copied a different portal value; the authoritative fuzzy comparison requires review.",
+      ].filter(Boolean).join(" ");
     }
 
     if (

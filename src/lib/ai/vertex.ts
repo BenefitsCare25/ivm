@@ -203,9 +203,11 @@ export async function extractWithVertex(request: AIExtractionRequest): Promise<A
     model: request.model,
     systemInstruction: getExtractionSystemPrompt(request.knownDocumentTypes, {
       compact: request.compactSchema,
+      expectedFields: request.expectedFields,
     }),
     parts,
-    timeoutMs: 60_000,
+    maxOutputTokens: VERTEX_DEFAULT_MODEL_MAX_OUTPUT_TOKENS,
+    timeoutMs: 300_000,
   });
   if (result.usage) await request.onUsage?.(result.usage);
   if (!result.text) {

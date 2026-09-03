@@ -5,7 +5,7 @@ import { errorResponse, NotFoundError, ValidationError } from "@/lib/errors";
 import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { compareFields } from "@/lib/ai/comparison";
 import { getFullComparisonSystemPrompt, buildFullComparisonUserPrompt } from "@/lib/ai/prompt-builder";
-import { filterFieldsByTemplate, itemMatchesGroupingKey, filterComparisonsByTemplate } from "@/lib/comparison-templates";
+import { filterFieldsByTemplate, findMatchingTemplate, filterComparisonsByTemplate } from "@/lib/comparison-templates";
 import { withCodeRuleResults } from "@/lib/business-rules/evaluate-code-rules";
 import { buildBusinessRuleValidations } from "@/lib/business-rules/persist";
 import { runVisionChecks, type VisionCheckFile } from "@/lib/ai/vision-checks";
@@ -71,8 +71,6 @@ export async function POST(
       (portal.groupingFields as string[]) ??
       []
     );
-    const templateKey = template.groupingKey as Record<string, string>;
-
     // Find items that match this template's grouping key and have no template-based comparison (or already have this template)
     const items = await db.trackedItem.findMany({
       where: {
@@ -90,13 +88,15 @@ export async function POST(
       },
     });
 
-    const matchingItems = items.filter((item) => {
+    const matchingItems: typeof items = [];
+    for (const item of items) {
       const allData = {
         ...(item.listData as Record<string, string>),
         ...((item.detailData as Record<string, string>) ?? {}),
       };
-      return itemMatchesGroupingKey(groupingFields, allData, templateKey);
-    });
+      const resolvedTemplate = await findMatchingTemplate(id, allData);
+      if (resolvedTemplate?.id === template.id) matchingItems.push(item);
+    }
 
     if (matchingItems.length === 0) {
       return NextResponse.json({ recompared: 0 });
@@ -216,6 +216,7 @@ export async function POST(
           {
             fieldSources: pdfFieldSources,
             billingFiles: recognizedDocs.filter(isBillingDocument).map((doc) => doc.fileName),
+            pageFields: filteredPageFields,
           }
         );
         result.matchCount = result.fieldComparisons.filter((c) => c.status === "MATCH").length;
@@ -360,6 +361,9 @@ export async function POST(
       if (validationInserts.length > 0) await Promise.all(validationInserts);
 
       const hasMismatch = result.mismatchCount > 0;
+      const hasUnresolvedField = result.fieldComparisons.some(
+        (comparison) => comparison.status !== "MATCH"
+      );
       const hasMissingDoc = hasUnsatisfiedRequiredDocuments(
         result.requiredDocumentsCheck,
         templateRequiredDocuments
@@ -367,7 +371,7 @@ export async function POST(
       // Missing claimant → "pending document" (REQUIRE_DOC), precedence over FLAGGED.
       const status: TrackedItemStatus = policy.claimantMissing
         ? "REQUIRE_DOC"
-        : (hasMismatch || ruleFlag || hasMissingDoc || policy.wrongClaimType || policyFlag || preservedDocFlag)
+        : (hasMismatch || hasUnresolvedField || ruleFlag || hasMissingDoc || policy.wrongClaimType || policyFlag || preservedDocFlag)
           ? "FLAGGED"
           : "COMPARED";
       await db.trackedItem.update({

@@ -30,6 +30,8 @@ import { recoverStuckItems, handleFinalFailure } from "./item-detail-recovery";
 import type { DetailSelectors } from "@/types/portal";
 import type { BrowserContext, Page } from "playwright";
 import { parsePortalAISelection } from "@/lib/ai/connected-models";
+import { findMatchingTemplate } from "@/lib/comparison-templates";
+import { groupTemplateFields } from "@/lib/comparison-reconciliation";
 
 const JOB_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -258,6 +260,21 @@ async function processItemDetailCore(
       }
       const knownDocumentTypes = cachedDocTypes?.map((dt) => dt.name);
 
+      // Resolve once so extraction and comparison cannot select different
+      // provider-scoped templates. The mapped labels also focus extraction on
+      // the exact values required by this workflow.
+      const allPageData = {
+        ...((item.listData as Record<string, string>) ?? {}),
+        ...effectiveDetailData,
+      };
+      const resolvedTemplate = await findMatchingTemplate(portalId, allPageData);
+      const expectedFields = resolvedTemplate
+        ? groupTemplateFields(resolvedTemplate.fields).map((field) => ({
+            portalFieldName: field.portalFieldName,
+            documentFieldNames: field.documentFieldNames,
+          }))
+        : undefined;
+
       // ── AI extraction ───────────────────────────────────────
       const extraction = await runExtraction({
         trackedItemId,
@@ -270,6 +287,7 @@ async function processItemDetailCore(
         displayProvider,
         knownDocumentTypes,
         cachedDocTypes,
+        expectedFields,
       });
 
       // If this run degraded (some/all documents failed to extract, OR every
@@ -339,6 +357,8 @@ async function processItemDetailCore(
         groupingFields: (portal.groupingFields as string[]) ?? [],
         foreignCurrency: foreignCurrencyDetected,
         intelligenceFlag,
+        resolvedTemplate,
+        priorStatus,
       });
 
       // ── Final status ────────────────────────────────────────
