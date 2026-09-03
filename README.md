@@ -11,7 +11,7 @@ AI-powered document-to-form autofill platform. Upload a source document, extract
 - Files served securely via authenticated download endpoint
 
 ### AI Extraction
-- Multi-provider BYOK (Bring Your Own Key): Anthropic Claude, OpenAI GPT-4o, Google Gemini 2.0 Flash
+- Multi-provider BYOK (Bring Your Own Key): Anthropic Claude, OpenAI, Google Gemini, and Google Vertex AI
 - Extracts structured fields: name, value, field type, confidence score, bounding box
 - Field types: TEXT, DATE, NUMBER, PHONE, EMAIL, ADDRESS, NAME, CURRENCY, BOOLEAN, OTHER
 - User can edit any extracted field inline after review
@@ -48,7 +48,8 @@ AI-powered document-to-form autofill platform. Upload a source document, extract
 - Email/password registration and sign-in
 - GitHub OAuth (optional)
 - JWT session strategy (NextAuth v5)
-- BYOK API key management: save, validate, delete per provider
+- BYOK credential management: save, validate, delete per provider
+- Vertex AI service-account JSON is entered in Settings, validated against Gemini 3.5 Flash in `asia-southeast1`, and encrypted in the database (never stored in environment variables)
 - Preferred AI provider setting
 
 ### Production Hardening
@@ -81,7 +82,7 @@ AI-powered document-to-form autofill platform. Upload a source document, extract
 | Styling | Tailwind CSS v4 + CSS custom properties |
 | UI | Radix UI primitives |
 | Auth | NextAuth v5 (JWT, Credentials + GitHub OAuth) |
-| AI | Anthropic Claude, OpenAI GPT-4o, Google Gemini 2.0 Flash |
+| AI | Anthropic Claude, OpenAI, Google Gemini, Google Vertex AI |
 | Queue | BullMQ + Redis (optional async extraction) |
 | Storage | Local filesystem or AWS S3 |
 | Logging | Pino (pretty in dev, JSON in prod) |

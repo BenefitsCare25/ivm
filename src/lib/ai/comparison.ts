@@ -6,6 +6,7 @@ import { AppError } from "@/lib/errors";
 import { PROVIDER_MODELS } from "@/lib/validations/api-key";
 import { stripMarkdownFences } from "./parse";
 import { callCodexJson } from "./codex";
+import { callVertexContent } from "./vertex";
 import { getComparisonSystemPrompt, getComparisonUserPrompt, getTemplatedComparisonUserPrompt } from "./prompts-comparison";
 import type { AIProvider } from "./types";
 import type { FieldComparison, ComparisonFieldStatus, TemplateField, BusinessRuleResult, RequiredDocumentCheck, DiagnosisAssessment, DocumentLineMatch } from "@/types/portal";
@@ -59,6 +60,8 @@ export async function compareFields(
     result = await compareWithOpenAI(request, userPrompt);
   } else if (provider === "gemini") {
     result = await compareWithGemini(request, userPrompt);
+  } else if (provider === "vertex") {
+    result = await compareWithVertex(request, userPrompt);
   } else if (provider === "codex") {
     const response = await callCodexJson(
       request.systemPromptOverride ?? getComparisonSystemPrompt(),
@@ -159,6 +162,18 @@ async function compareWithGemini(request: ComparisonRequest, userPrompt: string)
   ]);
   const truncated = result.response.candidates?.[0]?.finishReason === "MAX_TOKENS";
   return { text: result.response.text(), truncated };
+}
+
+async function compareWithVertex(request: ComparisonRequest, userPrompt: string): Promise<{ text: string; truncated: boolean }> {
+  const result = await callVertexContent({
+    credentialJson: request.apiKey,
+    model: request.model ?? PROVIDER_MODELS.vertex.defaults.text,
+    systemInstruction: request.systemPromptOverride ?? getComparisonSystemPrompt(),
+    parts: [{ text: userPrompt }],
+    maxOutputTokens: request.systemPromptOverride ? FULL_PROMPT_MAX_TOKENS : BASIC_MAX_TOKENS,
+    timeoutMs: 60_000,
+  });
+  return { text: result.text, truncated: result.truncated };
 }
 
 const VALID_STATUSES: ComparisonFieldStatus[] = [

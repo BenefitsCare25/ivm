@@ -186,7 +186,10 @@ export function ApiKeysForm() {
   const handleSave = async (provider: AIProvider) => {
     const apiKey = keyInputs[provider]?.trim();
     if (!apiKey) {
-      setErrors((prev) => ({ ...prev, [provider]: "Please enter an API key" }));
+      setErrors((prev) => ({
+        ...prev,
+        [provider]: provider === "vertex" ? "Please paste the service-account JSON key" : "Please enter an API key",
+      }));
       return;
     }
 
@@ -422,18 +425,40 @@ export function ApiKeysForm() {
                       </div>
                     </>
                   )}
-                  <div className="flex gap-2">
-                    <Input
-                      type="password"
-                      placeholder={info.placeholder}
-                      value={keyInputs[provider] || ""}
-                      onChange={(e) => {
-                        setKeyInputs((prev) => ({ ...prev, [provider]: e.target.value }));
-                        setErrors((prev) => ({ ...prev, [provider]: "" }));
-                      }}
-                      onKeyDown={(e) => { if (e.key === "Enter") handleSave(provider); }}
-                      disabled={isSaving}
-                    />
+                  <div className={provider === "vertex" ? "flex items-end gap-2" : "flex gap-2"}>
+                    {provider === "vertex" ? (
+                      <div className="w-full">
+                        <textarea
+                          rows={7}
+                          aria-label="Service account JSON key"
+                          autoComplete="off"
+                          spellCheck={false}
+                          placeholder={info.placeholder}
+                          value={keyInputs[provider] || ""}
+                          onChange={(e) => {
+                            setKeyInputs((prev) => ({ ...prev, [provider]: e.target.value }));
+                            setErrors((prev) => ({ ...prev, [provider]: "" }));
+                          }}
+                          disabled={isSaving}
+                          className="min-h-32 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs shadow-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                        />
+                        <p className="mt-1 text-[10px] text-muted-foreground/70">
+                          Stored encrypted in IVM. The JSON key is never written to environment variables or returned to the browser.
+                        </p>
+                      </div>
+                    ) : (
+                      <Input
+                        type="password"
+                        placeholder={info.placeholder}
+                        value={keyInputs[provider] || ""}
+                        onChange={(e) => {
+                          setKeyInputs((prev) => ({ ...prev, [provider]: e.target.value }));
+                          setErrors((prev) => ({ ...prev, [provider]: "" }));
+                        }}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSave(provider); }}
+                        disabled={isSaving}
+                      />
+                    )}
                     <Button onClick={() => handleSave(provider)} disabled={isSaving} className="shrink-0">
                       {isSaving ? (
                         <>
@@ -441,7 +466,7 @@ export function ApiKeysForm() {
                           Validating...
                         </>
                       ) : (
-                        "Save Key"
+                        provider === "vertex" ? "Connect Vertex" : "Save Key"
                       )}
                     </Button>
                   </div>

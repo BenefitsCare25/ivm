@@ -38,7 +38,7 @@ export const updatePortalSchema = z.object({
   scrapeLimit: z.number().int().min(1).nullable().optional(),
   defaultDocumentTypeIds: z.array(z.string().cuid()).max(20).optional(),
   scrapeFilters: scrapeFiltersSchema.optional(),
-  comparisonModel: z.enum(["claude-opus-4-6", "claude-sonnet-4-6"]).nullable().optional(),
+  comparisonModel: z.string().trim().min(1).max(500).nullable().optional(),
 });
 
 export type UpdatePortalInput = z.infer<typeof updatePortalSchema>;

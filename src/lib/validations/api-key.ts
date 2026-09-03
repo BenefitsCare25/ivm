@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const AI_PROVIDERS = ["anthropic", "openai", "gemini", "azure-foundry", "local"] as const;
+export const AI_PROVIDERS = ["anthropic", "openai", "gemini", "vertex", "azure-foundry", "local"] as const;
 export type AIProvider = (typeof AI_PROVIDERS)[number];
 
 /** Providers that require a user-supplied endpoint URL (custom/self-hosted). */
@@ -8,7 +8,7 @@ export const ENDPOINT_PROVIDERS: readonly AIProvider[] = ["azure-foundry", "loca
 
 export const saveApiKeySchema = z.object({
   provider: z.enum(AI_PROVIDERS),
-  apiKey: z.string().min(1, "API key is required"),
+  apiKey: z.string().min(1, "API key is required").max(20_000, "Credential is too large"),
   endpoint: z.string().url("Must be a valid URL").optional(),
   validationModel: z.string().optional(),
 }).refine(
@@ -35,6 +35,11 @@ export const PROVIDER_INFO: Record<AIProvider, { name: string; description: stri
     name: "Google Gemini",
     description: "Gemini 2.5 for document extraction and analysis",
     placeholder: "AIzaSy...",
+  },
+  vertex: {
+    name: "Google Vertex AI (Singapore)",
+    description: "Gemini 3.5 Flash via Vertex AI in asia-southeast1 using Standard PayGo",
+    placeholder: "Paste the full service-account JSON key",
   },
   "azure-foundry": {
     name: "Azure AI Foundry (Claude)",
@@ -95,6 +100,12 @@ export const PROVIDER_MODELS: Record<AIProvider, ProviderModels> = {
     ],
     defaults: { vision: "gemini-2.5-flash", text: "gemini-2.5-flash" },
   },
+  vertex: {
+    models: [
+      { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash (Singapore)", tier: ["vision", "text"], costLabel: "Vertex PayGo" },
+    ],
+    defaults: { vision: "gemini-3.5-flash", text: "gemini-3.5-flash" },
+  },
   "azure-foundry": {
     models: [
       { id: "claude-opus-4-7", label: "Claude Opus 4.7", tier: ["vision", "text"], costLabel: "$15 / $75" },
@@ -124,6 +135,7 @@ export const modelPreferencesSchema = z.object({
   anthropic: z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
   openai: z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
   gemini: z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
+  vertex: z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
   "azure-foundry": z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
   local: z.object({ visionModel: z.string(), textModel: z.string() }).optional(),
 });

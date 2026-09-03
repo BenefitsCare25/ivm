@@ -27,6 +27,7 @@ import { isFlexClaim } from "@/lib/validations/claim-policy";
 import { recoverStuckItems, handleFinalFailure } from "./item-detail-recovery";
 import type { DetailSelectors } from "@/types/portal";
 import type { BrowserContext, Page } from "playwright";
+import { parsePortalAISelection } from "@/lib/ai/connected-models";
 
 const JOB_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -239,7 +240,13 @@ async function processItemDetailCore(
       }
 
       // ── Resolve AI provider ─────────────────────────────────
-      const { provider, apiKey, visionModel, textModel, baseURL, displayProvider } = await resolveProviderAndKey(userId);
+      const portalAISelection = parsePortalAISelection(portal.comparisonModel as string | null);
+      const { provider, apiKey, visionModel, textModel, baseURL, displayProvider } =
+        await resolveProviderAndKey(userId, portalAISelection?.provider);
+      // Every dropdown option supports both tiers, so a portal override routes
+      // extraction, comparison, and vision checks through the selected model.
+      const effectiveVisionModel = portalAISelection?.model ?? visionModel;
+      const effectiveTextModel = portalAISelection?.model ?? textModel;
 
       let cachedDocTypes: DocTypeRecord[] | undefined;
       try {
@@ -256,7 +263,7 @@ async function processItemDetailCore(
         userId,
         provider,
         apiKey,
-        visionModel,
+        visionModel: effectiveVisionModel,
         baseURL,
         displayProvider,
         knownDocumentTypes,
@@ -320,11 +327,11 @@ async function processItemDetailCore(
         fileBuffers: extraction.fileBuffers,
         provider,
         apiKey,
-        textModel,
-        visionModel,
+        textModel: effectiveTextModel,
+        visionModel: effectiveVisionModel,
         baseURL,
         displayProvider,
-        comparisonModel: portal.comparisonModel as string | null,
+        comparisonModel: portalAISelection?.model ?? (portal.comparisonModel as string | null),
         cachedDocTypes,
         flexClaim: isFlexClaim(portal.name, portal.baseUrl),
         groupingFields: (portal.groupingFields as string[]) ?? [],

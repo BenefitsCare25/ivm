@@ -9,6 +9,7 @@ import { PROVIDER_MODELS } from "@/lib/validations/api-key";
 import { stripMarkdownFences, extractJsonObject } from "./parse";
 import { getPageAnalysisSystemPrompt, getPageAnalysisUserPrompt } from "./prompts-portal";
 import { callCodexJson } from "./codex";
+import { callVertexContent } from "./vertex";
 import type { AIProvider } from "./types";
 import type { ListSelectors, DetailSelectors } from "@/types/portal";
 import { normalizeDetailSelectors, normalizeListSelectors } from "@/lib/utils";
@@ -62,6 +63,8 @@ export async function analyzePageStructure(
       rawText = await analyzeWithOpenAI(request);
     } else if (provider === "gemini") {
       rawText = await analyzeWithGemini(request);
+    } else if (provider === "vertex") {
+      rawText = await analyzeWithVertex(request);
     } else if (provider === "codex") {
       const response = await callCodexJson(
         getPageAnalysisSystemPrompt(),
@@ -292,4 +295,19 @@ function parsePageAnalysisResponse(rawText: string): Omit<PageAnalysisResponse, 
     listSelectors: normalizeListSelectors(parsed.listSelectors),
     detailSelectors: normalizeDetailSelectors(parsed.detailSelectors),
   };
+}
+
+async function analyzeWithVertex(request: PageAnalysisRequest): Promise<string> {
+  const result = await callVertexContent({
+    credentialJson: request.apiKey,
+    model: request.model ?? PROVIDER_MODELS.vertex.defaults.vision,
+    systemInstruction: getPageAnalysisSystemPrompt(),
+    parts: [
+      { inlineData: { mimeType: "image/png", data: request.screenshot.toString("base64") } },
+      { text: getPageAnalysisUserPrompt(request.url, request.htmlSnippet) },
+    ],
+    maxOutputTokens: 4096,
+    timeoutMs: 60_000,
+  });
+  return result.text;
 }

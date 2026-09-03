@@ -2,7 +2,7 @@ import type { ExtractedField } from "@/types/extraction";
 import type { TargetField } from "@/types/target";
 import type { FieldMapping } from "@/types/mapping";
 
-export type AIProvider = "codex" | "anthropic" | "openai" | "gemini" | "azure-foundry" | "local";
+export type AIProvider = "codex" | "anthropic" | "openai" | "gemini" | "vertex" | "azure-foundry" | "local";
 
 export interface AIExtractionRequest {
   sourceAssetId: string;

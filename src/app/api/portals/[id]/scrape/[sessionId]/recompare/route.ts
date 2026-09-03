@@ -33,6 +33,7 @@ import {
 } from "@/lib/intelligence";
 import { buildClaimPolicyValidations, buildHospitalSearchText, isFlexClaim } from "@/lib/validations/claim-policy";
 import type { TemplateField, RequiredDocument, BusinessRule, TrackedItemStatus } from "@/types/portal";
+import { parsePortalAISelection } from "@/lib/ai/connected-models";
 
 export async function POST(
   req: NextRequest,
@@ -44,7 +45,7 @@ export async function POST(
 
     const portal = await db.portal.findFirst({
       where: { id, userId: session.user.id },
-      select: { id: true, groupingFields: true, name: true, baseUrl: true },
+      select: { id: true, groupingFields: true, name: true, baseUrl: true, comparisonModel: true },
     });
     if (!portal) throw new NotFoundError("Portal");
     const flexClaim = isFlexClaim(portal.name, portal.baseUrl);
@@ -101,7 +102,11 @@ export async function POST(
       return NextResponse.json({ recompared: 0 });
     }
 
-    const { provider, apiKey, textModel, visionModel, baseURL, displayProvider } = await resolveProviderAndKey(session.user.id);
+    const portalAISelection = parsePortalAISelection(portal.comparisonModel);
+    const { provider, apiKey, textModel, visionModel, baseURL, displayProvider } =
+      await resolveProviderAndKey(session.user.id, portalAISelection?.provider);
+    const effectiveTextModel = portalAISelection?.model ?? textModel;
+    const effectiveVisionModel = portalAISelection?.model ?? visionModel;
     const templateFields = template.fields as unknown as TemplateField[];
     const templateRequiredDocuments = template.requiredDocuments as unknown as RequiredDocument[];
     const templateBusinessRules = template.businessRules as unknown as BusinessRule[];
@@ -195,7 +200,7 @@ export async function POST(
         pdfFields: filteredPdfFields,
         provider,
         apiKey,
-        model: textModel,
+        model: effectiveTextModel,
         baseURL,
         templateFields,
         systemPromptOverride,
@@ -261,7 +266,7 @@ export async function POST(
             documentTypesByFile: docTypesByFile,
             provider,
             apiKey,
-            visionModel,
+            visionModel: effectiveVisionModel,
             baseURL,
           });
         } catch (visionErr) {

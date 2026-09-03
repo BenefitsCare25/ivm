@@ -8,6 +8,7 @@ import { withRetry } from "@/lib/retry";
 import { getMappingSystemPrompt, getMappingUserPrompt } from "./prompts";
 import { parseMappingResponse } from "./parse-mapping";
 import { callCodexJson } from "./codex";
+import { callVertexContent } from "./vertex";
 import type { AIMappingRequest, AIMappingResponse } from "./types";
 
 interface TextCallResult {
@@ -156,6 +157,22 @@ export async function proposeFieldMappings(
         { maxRetries: 2, operation: "mapping:gemini" }
       );
       rawText = result.rawText;
+      rawResponse = result.rawResponse;
+      break;
+    }
+    case "vertex": {
+      const result = await withRetry(
+        () => callVertexContent({
+          credentialJson: apiKey,
+          model: request.model,
+          systemInstruction: systemPrompt,
+          parts: [{ text: userPrompt }],
+          maxOutputTokens: 4096,
+          timeoutMs: 30_000,
+        }),
+        { maxRetries: 2, operation: "mapping:vertex" }
+      );
+      rawText = result.text;
       rawResponse = result.rawResponse;
       break;
     }

@@ -6,6 +6,7 @@ import { stripMarkdownFences } from "./parse";
 import { rasterizePdfToImages } from "./pdf-raster";
 import { downscaleImages } from "./image-scale";
 import { callCodexJson } from "./codex";
+import { callVertexContent } from "./vertex";
 import type { AIProvider, RasterImage } from "./types";
 import type { VisionVerdict } from "@/types/portal";
 
@@ -76,6 +77,9 @@ export async function verifyWithVision(req: VisionVerifyRequest): Promise<Vision
     }
     if (req.provider === "gemini") {
       return await withGemini(req);
+    }
+    if (req.provider === "vertex") {
+      return await withVertex(req);
     }
     if (req.provider === "openai") {
       if (isPdf) {
@@ -176,4 +180,19 @@ async function withGemini(req: VisionVerifyRequest): Promise<VisionVerifyResult>
     }),
   ]);
   return parse(result.response.text(), req.model);
+}
+
+async function withVertex(req: VisionVerifyRequest): Promise<VisionVerifyResult> {
+  const result = await callVertexContent({
+    credentialJson: req.apiKey,
+    model: req.model,
+    systemInstruction: systemPrompt(),
+    parts: [
+      { inlineData: { mimeType: req.mimeType, data: req.fileData.toString("base64") } },
+      { text: req.question },
+    ],
+    maxOutputTokens: 1024,
+    timeoutMs: 45_000,
+  });
+  return parse(result.text, req.model);
 }

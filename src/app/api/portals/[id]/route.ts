@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { updatePortalSchema } from "@/lib/validations/portal";
 import { errorResponse, UnauthorizedError, NotFoundError, ValidationError } from "@/lib/errors";
+import { getConnectedAIModelOptions, parsePortalAISelection } from "@/lib/ai/connected-models";
+import type { ModelPreferences } from "@/lib/validations/api-key";
 
 export async function GET(
   _req: Request,
@@ -84,6 +86,27 @@ export async function PATCH(
 
     if (!parsed.success) {
       throw new ValidationError("Validation failed", parsed.error.flatten().fieldErrors);
+    }
+
+    if (parsed.data.comparisonModel) {
+      const selection = parsePortalAISelection(parsed.data.comparisonModel);
+      if (!selection) {
+        throw new ValidationError("Select a model from one of your connected AI providers.");
+      }
+      const aiSettings = await db.user.findUnique({
+        where: { id: session.user.id },
+        select: {
+          modelPreferences: true,
+          apiKeys: { where: { isActive: true }, select: { provider: true } },
+        },
+      });
+      const available = getConnectedAIModelOptions(
+        aiSettings?.apiKeys.map((key) => key.provider) ?? [],
+        (aiSettings?.modelPreferences as ModelPreferences | null) ?? null
+      );
+      if (!available.some((model) => model.value === parsed.data.comparisonModel)) {
+        throw new ValidationError("That AI model is not available through an active connection.");
+      }
     }
 
     const updated = await db.portal.updateMany({

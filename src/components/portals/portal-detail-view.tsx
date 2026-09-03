@@ -22,6 +22,7 @@ import type { ScrapeSessionStatus, DiscoveredClaimType, ScrapeFilters, AuthStatu
 import { FieldDiscovery } from "./field-discovery";
 import { ScraperFiltersCard } from "./scraper-filters-card";
 import { ProviderGroupsCard } from "./provider-groups-card";
+import type { ConnectedAIModelOption } from "@/lib/ai/connected-models";
 
 interface SessionData {
   id: string;
@@ -57,6 +58,7 @@ interface PortalData {
   scrapeFilters: ScrapeFilters;
   defaultDocumentTypeIds: string[];
   comparisonModel: string | null;
+  availableAIModels: ConnectedAIModelOption[];
   availableFields: string[];
   detectedClaimTypes: string[];
   templateCount: number;
@@ -196,6 +198,16 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
   });
   const authBad = authStatus === "expired" || authStatus === "missing";
   const authWarn = authStatus === "warn";
+  const modelGroups = portal.availableAIModels.reduce<
+    Array<{ provider: string; label: string; models: ConnectedAIModelOption[] }>
+  >((groups, model) => {
+    const group = groups.find((candidate) => candidate.provider === model.provider);
+    if (group) group.models.push(model);
+    else groups.push({ provider: model.provider, label: model.providerLabel, models: [model] });
+    return groups;
+  }, []);
+  const selectedModelAvailable =
+    !modelValue || portal.availableAIModels.some((model) => model.value === modelValue);
 
   return (
     <div className="space-y-6">
@@ -389,8 +401,20 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
               className="h-7 text-xs w-full rounded border border-border bg-background text-foreground px-2 disabled:opacity-50"
             >
               <option value="">Default (user setting)</option>
-              <option value="claude-sonnet-4-6">Sonnet 4.6</option>
-              <option value="claude-opus-4-6">Opus 4.6</option>
+              {!selectedModelAvailable && (
+                <option value={modelValue} disabled>
+                  Unavailable saved model: {modelValue}
+                </option>
+              )}
+              {modelGroups.map((group) => (
+                <optgroup key={group.provider} label={group.label}>
+                  {group.models.map((model) => (
+                    <option key={model.value} value={model.value}>
+                      {model.modelLabel}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
             </select>
           </CardContent>
         </Card>

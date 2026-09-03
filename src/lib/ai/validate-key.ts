@@ -5,6 +5,7 @@ import { AppError, ValidationError } from "@/lib/errors";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { PROVIDER_MODELS, type AIProvider } from "@/lib/validations/api-key";
+import { callVertexContent, VertexCredentialError } from "./vertex";
 
 async function validateAnthropicKey(apiKey: string): Promise<boolean> {
   try {
@@ -93,6 +94,45 @@ async function validateGeminiKey(apiKey: string): Promise<boolean> {
   }
 }
 
+async function validateVertexKey(credentialJson: string, model?: string): Promise<boolean> {
+  try {
+    await callVertexContent({
+      credentialJson,
+      model: model ?? PROVIDER_MODELS.vertex.defaults.text,
+      parts: [{ text: "Reply with OK." }],
+      maxOutputTokens: 8,
+      timeoutMs: 15_000,
+    });
+    return true;
+  } catch (err: unknown) {
+    if (err instanceof VertexCredentialError) {
+      throw new ValidationError(err.message);
+    }
+    const error = err as { status?: number; code?: number; message?: string; name?: string };
+    const status = error.status ?? error.code;
+    if (status === 401) {
+      throw new ValidationError("Google rejected this service-account key. Create a new JSON key and try again.");
+    }
+    if (status === 403) {
+      throw new ValidationError(
+        "Service account lacks Vertex prediction permission. Grant the Vertex AI User role in this project."
+      );
+    }
+    if (status === 404) {
+      throw new ValidationError(
+        "Gemini 3.5 Flash was not found in asia-southeast1 for this Google Cloud project."
+      );
+    }
+    if (error.name === "AbortError" || error.message?.toLowerCase().includes("timeout")) {
+      throw new ValidationError("Vertex AI validation timed out. Try again.");
+    }
+    logger.warn({ status, name: error.name }, "[validate-key] Vertex unexpected error");
+    throw new ValidationError(
+      "Could not validate Vertex AI. Confirm the API is enabled, billing is active, and the service account has Vertex AI User."
+    );
+  }
+}
+
 async function validateAzureFoundryKey(apiKey: string, endpoint: string, model?: string): Promise<boolean> {
   // Strip /v1/messages suffix — SDK appends it automatically; users often paste the full URL
   const normalizedEndpoint = endpoint.replace(/\/v1\/messages\/?$/, "").replace(/\/?$/, "/");
@@ -174,6 +214,8 @@ export async function validateApiKey(provider: AIProvider, apiKey: string, endpo
       return validateOpenAIKey(apiKey);
     case "gemini":
       return validateGeminiKey(apiKey);
+    case "vertex":
+      return validateVertexKey(apiKey, model);
     case "azure-foundry":
       if (!endpoint) throw new ValidationError("Endpoint URL is required for Azure AI Foundry.");
       return validateAzureFoundryKey(apiKey, endpoint, model);

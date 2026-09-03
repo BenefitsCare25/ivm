@@ -8,6 +8,7 @@ import { assertSafeEndpoint } from "@/lib/endpoint-safety";
 import { errorResponse, UnauthorizedError, ValidationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { authLimiter } from "@/lib/rate-limit";
+import { vertexCredentialLabel } from "@/lib/ai/vertex";
 
 export async function GET() {
   try {
@@ -68,7 +69,7 @@ export async function POST(req: Request) {
     await validateApiKey(provider, apiKey, normalizedEndpoint, validationModel);
 
     const encryptedKey = encrypt(apiKey);
-    const keyPrefix = maskApiKey(apiKey);
+    const keyPrefix = provider === "vertex" ? vertexCredentialLabel(apiKey) : maskApiKey(apiKey);
 
     const result = await db.userApiKey.upsert({
       where: { userId_provider: { userId: session.user.id, provider } },

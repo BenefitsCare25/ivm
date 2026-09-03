@@ -40,10 +40,13 @@ async function isProxyHealthy(url: string): Promise<boolean> {
   }
 }
 
-export async function resolveProviderAndKey(userId: string): Promise<ResolvedProvider> {
+export async function resolveProviderAndKey(
+  userId: string,
+  requestedProvider?: ApiKeyProvider
+): Promise<ResolvedProvider> {
   // The deployment-wide ChatGPT OAuth connection is authoritative when selected.
   // Tokens are owned by Codex App Server; IVM never receives an API key or OAuth token.
-  if (env.AI_PROVIDER === "codex") {
+  if (!requestedProvider && env.AI_PROVIDER === "codex") {
     const account = await getCodexAccountStatus();
     if (account.connected) {
       return {
@@ -67,10 +70,16 @@ export async function resolveProviderAndKey(userId: string): Promise<ResolvedPro
 
   // 1. User's own BYOK keys take priority
   if (user?.apiKeys.length) {
+    const requested = requestedProvider
+      ? user.apiKeys.find((key) => key.provider === requestedProvider)
+      : null;
+    if (requestedProvider && !requested) {
+      throw new ValidationError(`No active ${requestedProvider} connection is available for this portal.`);
+    }
     const preferred = user.preferredProvider
       ? user.apiKeys.find((k) => k.provider === user.preferredProvider)
       : null;
-    const key = preferred ?? user.apiKeys[0];
+    const key = requested ?? preferred ?? user.apiKeys[0];
     const provider = key.provider as ApiKeyProvider;
     const prefs = (user.modelPreferences as ModelPreferences | null)?.[provider];
     const defaults = PROVIDER_MODELS[provider].defaults;
@@ -100,6 +109,10 @@ export async function resolveProviderAndKey(userId: string): Promise<ResolvedPro
     };
   }
 
+  if (requestedProvider) {
+    throw new ValidationError(`No active ${requestedProvider} connection is available for this portal.`);
+  }
+
   // 3. System Anthropic API key fallback
   const systemKey = env.ANTHROPIC_API_KEY;
   if (systemKey) {
@@ -115,6 +128,6 @@ export async function resolveProviderAndKey(userId: string): Promise<ResolvedPro
   throw new ValidationError(
     env.AI_PROVIDER === "codex"
       ? "The deployment ChatGPT OAuth connection is unavailable and no fallback provider is configured."
-      : "No API key configured. Go to Settings to add your API key for Claude, OpenAI, or Gemini."
+      : "No AI connection configured. Go to Settings to add Claude, OpenAI, Gemini, or Vertex AI."
   );
 }

@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { requireAuth } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { PortalDetailView } from "@/components/portals/portal-detail-view";
+import { getConnectedAIModelOptions } from "@/lib/ai/connected-models";
+import type { ModelPreferences } from "@/lib/validations/api-key";
 
 export default async function PortalDetailPage({
   params,
@@ -44,7 +46,7 @@ export default async function PortalDetailPage({
   if (!portal) notFound();
 
   // Parallelise independent queries
-  const [sessionItemCounts, recentItems, configs] = await Promise.all([
+  const [sessionItemCounts, recentItems, configs, aiSettings] = await Promise.all([
     db.trackedItem.groupBy({
       by: ["scrapeSessionId", "status"],
       where: { scrapeSession: { portalId: id } },
@@ -60,6 +62,16 @@ export default async function PortalDetailPage({
       where: { portalId: id },
       orderBy: { createdAt: "asc" },
       include: { _count: { select: { templates: true } } },
+    }),
+    db.user.findUnique({
+      where: { id: session.user.id },
+      select: {
+        modelPreferences: true,
+        apiKeys: {
+          where: { isActive: true },
+          select: { provider: true },
+        },
+      },
     }),
   ]);
 
@@ -140,6 +152,10 @@ export default async function PortalDetailPage({
     },
     defaultDocumentTypeIds: portal.defaultDocumentTypeIds,
     comparisonModel: portal.comparisonModel ?? null,
+    availableAIModels: getConnectedAIModelOptions(
+      aiSettings?.apiKeys.map((key) => key.provider) ?? [],
+      (aiSettings?.modelPreferences as ModelPreferences | null) ?? null
+    ),
     availableFields,
     detectedClaimTypes,
     templateCount: configs.reduce((sum, c) => sum + c._count.templates, 0),

@@ -4,6 +4,7 @@ import { extractTextFromDocx } from "./docx-extractor";
 import { extractWithAnthropic } from "./anthropic";
 import { extractWithOpenAI } from "./openai";
 import { extractWithGemini } from "./gemini";
+import { extractWithVertex } from "./vertex";
 import { extractWithCodex } from "./codex";
 import { extractWithProxyReadTool } from "./proxy-extraction";
 import { rasterizePdfToImages } from "./pdf-raster";
@@ -66,6 +67,8 @@ export async function extractFieldsFromDocument(
           return extractWithOpenAI(enrichedRequest);
         case "gemini":
           return extractWithGemini(enrichedRequest);
+        case "vertex":
+          return extractWithVertex(enrichedRequest);
         case "codex":
           return extractWithCodex(enrichedRequest);
         default:
