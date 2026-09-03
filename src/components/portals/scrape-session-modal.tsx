@@ -12,10 +12,16 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  DEFAULT_CLAIM_CONCURRENCY,
+  MAX_CLAIM_CONCURRENCY,
+  MIN_CLAIM_CONCURRENCY,
+} from "@/lib/claim-concurrency";
 
 export interface ScrapeStartOptions {
   submittedFrom?: string;
   submittedTo?: string;
+  claimConcurrency: number;
 }
 
 interface ScrapeSessionModalProps {
@@ -28,12 +34,14 @@ interface ScrapeSessionModalProps {
 export function ScrapeSessionModal({ open, onOpenChange, onStart, loading }: ScrapeSessionModalProps) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [claimConcurrency, setClaimConcurrency] = useState(DEFAULT_CLAIM_CONCURRENCY);
 
   // Start each session fresh — a prior run's range must not silently carry over.
   useEffect(() => {
     if (open) {
       setFrom("");
       setTo("");
+      setClaimConcurrency(DEFAULT_CLAIM_CONCURRENCY);
     }
   }, [open]);
 
@@ -44,6 +52,7 @@ export function ScrapeSessionModal({ open, onOpenChange, onStart, loading }: Scr
     onStart({
       submittedFrom: from || undefined,
       submittedTo: to || undefined,
+      claimConcurrency,
     });
   }
 
@@ -89,6 +98,31 @@ export function ScrapeSessionModal({ open, onOpenChange, onStart, loading }: Scr
           {rangeInvalid && (
             <p className="text-xs text-red-500">&ldquo;To&rdquo; date must be on or after &ldquo;From&rdquo; date.</p>
           )}
+          <div className="border-t border-border pt-3">
+            <label htmlFor="claim-concurrency" className="text-sm font-medium text-foreground">
+              Claims processed at once
+            </label>
+            <p id="claim-concurrency-help" className="mt-0.5 text-xs text-muted-foreground">
+              Higher concurrency finishes sooner but uses more browser and AI capacity.
+            </p>
+            <select
+              id="claim-concurrency"
+              aria-describedby="claim-concurrency-help"
+              value={claimConcurrency}
+              onChange={(event) => setClaimConcurrency(Number(event.target.value))}
+              disabled={loading}
+              className="mt-2 h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {Array.from(
+                { length: MAX_CLAIM_CONCURRENCY - MIN_CLAIM_CONCURRENCY + 1 },
+                (_, index) => index + MIN_CLAIM_CONCURRENCY,
+              ).map((value) => (
+                <option key={value} value={value}>
+                  {value} {value === 1 ? "claim — lowest resource use" : value === MAX_CLAIM_CONCURRENCY ? "claims — fastest" : "claims"}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">

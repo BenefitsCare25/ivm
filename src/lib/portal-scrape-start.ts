@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { DEFAULT_CLAIM_CONCURRENCY } from "@/lib/claim-concurrency";
 
 const ACTIVE_SESSION_STATUSES = ["PENDING", "RUNNING"] as const;
 const ACTIVE_ITEM_STATUSES = ["DISCOVERED", "PROCESSING"] as const;
@@ -9,6 +10,7 @@ interface CreateScrapeSessionInput {
   acceptableDocumentTypeIds?: string[];
   submittedFrom?: Date | null;
   submittedTo?: Date | null;
+  claimConcurrency?: number;
 }
 
 type CreateScrapeSessionResult =
@@ -48,6 +50,7 @@ export async function createScrapeSessionIfIdle(
         acceptableDocumentTypeIds: input.acceptableDocumentTypeIds ?? [],
         submittedFrom: input.submittedFrom ?? null,
         submittedTo: input.submittedTo ?? null,
+        claimConcurrency: input.claimConcurrency ?? DEFAULT_CLAIM_CONCURRENCY,
       },
       select: { id: true },
     });

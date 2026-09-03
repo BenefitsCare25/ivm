@@ -1,8 +1,20 @@
-import { randomUUID } from "node:crypto";
 import { DelayedError, Queue, Worker, Job } from "bullmq";
 import { getQueueConnection } from "./connection";
 import { logger } from "@/lib/logger";
 import { env } from "@/lib/env";
+import {
+  DEFAULT_CLAIM_CONCURRENCY,
+  MAX_CLAIM_CONCURRENCY,
+  normalizeClaimConcurrency,
+} from "@/lib/claim-concurrency";
+import {
+  acquireActiveSessionLease,
+  acquireClaimSlot,
+  releaseActiveSessionLease,
+  releaseClaimSlot,
+} from "./session-capacity";
+
+export { DEFAULT_CLAIM_CONCURRENCY, MAX_CLAIM_CONCURRENCY } from "@/lib/claim-concurrency";
 
 const QUEUE_NAME = "item-detail";
 
@@ -11,19 +23,14 @@ const QUEUE_NAME = "item-detail";
 const LOCK_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 const SESSION_LOCK_TTL_MS = LOCK_DURATION_MS + 60_000;
 const SESSION_RETRY_DELAY_MS = 1_000;
-const SESSION_LOCK_PREFIX = `${QUEUE_NAME}:session:`;
-const RELEASE_SESSION_LOCK_SCRIPT = `
-  if redis.call("get", KEYS[1]) == ARGV[1] then
-    return redis.call("del", KEYS[1])
-  end
-  return 0
-`;
 
 export interface ItemDetailJobData {
   trackedItemId: string;
   portalId: string;
   scrapeSessionId: string;
   userId: string;
+  /** Maximum claims from this scrape session that may run at once. */
+  claimConcurrency?: number;
 }
 
 export interface ItemDetailJobResult {
@@ -34,51 +41,19 @@ export interface ItemDetailJobResult {
 
 let itemDetailQueue: Queue<ItemDetailJobData, ItemDetailJobResult> | null = null;
 
-interface SessionLock {
-  key: string;
-  token: string;
-}
-
-async function acquireSessionLock(
-  scrapeSessionId: string,
-): Promise<SessionLock | null> {
-  const connection = getQueueConnection();
-  if (!connection) return null;
-
-  const key = `${SESSION_LOCK_PREFIX}${scrapeSessionId}`;
-  const token = randomUUID();
-  const acquired = await connection.set(
-    key,
-    token,
-    "PX",
-    SESSION_LOCK_TTL_MS,
-    "NX",
-  );
-
-  return acquired === "OK" ? { key, token } : null;
-}
-
-async function releaseSessionLock(lock: SessionLock): Promise<void> {
-  const connection = getQueueConnection();
-  if (!connection) return;
-
-  await connection.eval(
-    RELEASE_SESSION_LOCK_SCRIPT,
-    1,
-    lock.key,
-    lock.token,
-  );
-}
-
 async function deferForActiveSession(
   job: Job<ItemDetailJobData>,
   scrapeSessionId: string,
+  claimConcurrency: number,
+  reason: "session-limit" | "claim-limit",
 ): Promise<never> {
   const delayMs = SESSION_RETRY_DELAY_MS + Math.floor(Math.random() * 250);
   await job.moveToDelayed(Date.now() + delayMs, job.token);
   logger.debug(
-    { jobId: job.id, scrapeSessionId, delayMs },
-    "[queue] Deferred claim because its session is already processing another claim",
+    { jobId: job.id, scrapeSessionId, delayMs, claimConcurrency, reason },
+    reason === "session-limit"
+      ? "[queue] Deferred claim because the active-session limit is reached"
+      : "[queue] Deferred claim because its session is at claim-processing capacity",
   );
   throw new DelayedError();
 }
@@ -167,24 +142,81 @@ export function startItemDetailWorker(
     job: Job<ItemDetailJobData>,
   ): Promise<ItemDetailJobResult> => {
     // Legacy queued jobs created before scrapeSessionId was added are scoped by
-    // portal. The app permits only one active session per portal, so this keeps
-    // the same one-claim-at-a-time guarantee during rolling deployments.
+    // portal. The app permits only one active session per portal, so legacy and
+    // current jobs share the same per-session capacity during rolling deploys.
     const scrapeSessionId =
       job.data.scrapeSessionId || `legacy-portal:${job.data.portalId}`;
-    const sessionLock = await acquireSessionLock(scrapeSessionId);
+    const claimConcurrency = normalizeClaimConcurrency(job.data.claimConcurrency);
+    const activeSessionLease = await acquireActiveSessionLease(
+      conn,
+      scrapeSessionId,
+      env.DETAIL_WORKER_CONCURRENCY,
+      SESSION_LOCK_TTL_MS,
+    );
+    if (!activeSessionLease) {
+      return deferForActiveSession(
+        job,
+        scrapeSessionId,
+        claimConcurrency,
+        "session-limit",
+      );
+    }
+
+    let sessionLock;
+    try {
+      sessionLock = await acquireClaimSlot(
+        conn,
+        scrapeSessionId,
+        claimConcurrency,
+        SESSION_LOCK_TTL_MS,
+      );
+    } catch (err) {
+      await releaseActiveSessionLease(
+        conn,
+        activeSessionLease,
+        SESSION_LOCK_TTL_MS,
+      ).catch((releaseErr) => {
+        logger.error(
+          { err: releaseErr, scrapeSessionId, jobId: job.id },
+          "[queue] Failed to release active-session lease after claim-lock error",
+        );
+      });
+      throw err;
+    }
     if (!sessionLock) {
-      return deferForActiveSession(job, scrapeSessionId);
+      try {
+        await releaseActiveSessionLease(conn, activeSessionLease, SESSION_LOCK_TTL_MS);
+      } catch (err) {
+        logger.error(
+          { err, scrapeSessionId, jobId: job.id },
+          "[queue] Failed to release active-session lease after claim deferral",
+        );
+      }
+      return deferForActiveSession(
+        job,
+        scrapeSessionId,
+        claimConcurrency,
+        "claim-limit",
+      );
     }
 
     try {
       return await processor(job);
     } finally {
       try {
-        await releaseSessionLock(sessionLock);
+        await releaseClaimSlot(conn, sessionLock);
       } catch (err) {
         logger.error(
           { err, scrapeSessionId, jobId: job.id },
           "[queue] Failed to release detail-session lock",
+        );
+      }
+      try {
+        await releaseActiveSessionLease(conn, activeSessionLease, SESSION_LOCK_TTL_MS);
+      } catch (err) {
+        logger.error(
+          { err, scrapeSessionId, jobId: job.id },
+          "[queue] Failed to release active-session lease",
         );
       }
     }
@@ -195,7 +227,9 @@ export function startItemDetailWorker(
     sessionAwareProcessor,
     {
       connection: conn,
-      concurrency: env.DETAIL_WORKER_CONCURRENCY,
+      // Reserve enough worker capacity for every active session to process its
+      // full claim allowance concurrently.
+      concurrency: env.DETAIL_WORKER_CONCURRENCY * MAX_CLAIM_CONCURRENCY,
       // Long lock so BullMQ doesn't stall-detect jobs mid-AI-call
       lockDuration: LOCK_DURATION_MS,
       // Check for stalled jobs every 30 seconds

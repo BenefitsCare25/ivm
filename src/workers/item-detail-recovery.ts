@@ -17,6 +17,7 @@ export async function recoverStuckItems(): Promise<void> {
         select: {
           id: true,
           portalId: true,
+          claimConcurrency: true,
           portal: { select: { userId: true } },
         },
       },
@@ -59,6 +60,7 @@ export async function recoverStuckItems(): Promise<void> {
         portalId: item.scrapeSession.portalId,
         scrapeSessionId: item.scrapeSession.id,
         userId: item.scrapeSession.portal.userId,
+        claimConcurrency: item.scrapeSession.claimConcurrency,
       })),
       { reprocess: true }
     );
@@ -81,6 +83,7 @@ async function recoverOrphanedDiscoveredItems(): Promise<void> {
         select: {
           id: true,
           portalId: true,
+          claimConcurrency: true,
           portal: { select: { userId: true } },
         },
       },
@@ -109,6 +112,7 @@ async function recoverOrphanedDiscoveredItems(): Promise<void> {
       portalId: item.scrapeSession.portalId,
       scrapeSessionId: item.scrapeSession.id,
       userId: item.scrapeSession.portal.userId,
+      claimConcurrency: item.scrapeSession.claimConcurrency,
     })),
     { reprocess: true }
   );

@@ -16,6 +16,7 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "lint": "next lint",
+    "test:session-capacity": "tsx scripts/test-session-capacity.ts",
     "ai:check": "node --env-file=.env scripts/check-chatgpt-oauth.mjs"
   },
   "prisma": {

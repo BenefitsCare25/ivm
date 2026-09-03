@@ -49,7 +49,7 @@ export async function POST(
 
     const scrapeSession = await db.scrapeSession.findFirst({
       where: { id: sessionId, portalId: id },
-      select: { id: true },
+      select: { id: true, claimConcurrency: true },
     });
     if (!scrapeSession) throw new NotFoundError("Session");
 
@@ -95,6 +95,7 @@ export async function POST(
         portalId: item.scrapeSession.portalId,
         scrapeSessionId: sessionId,
         userId: item.scrapeSession.portal.userId,
+        claimConcurrency: scrapeSession.claimConcurrency,
       })),
       { reprocess: true }
     );

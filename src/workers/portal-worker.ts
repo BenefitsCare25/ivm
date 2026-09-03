@@ -46,6 +46,11 @@ async function processPortalScrape(
     return { status: "FAILED", itemsFound: 0, errorMessage: "Scrape session is no longer pending" };
   }
 
+  const scrapeSession = await db.scrapeSession.findUniqueOrThrow({
+    where: { id: sessionId },
+    select: { claimConcurrency: true },
+  });
+
   try {
     const portal = await db.portal.findUniqueOrThrow({
       where: { id: portalId },
@@ -185,6 +190,7 @@ async function processPortalScrape(
           portalId,
           scrapeSessionId: sessionId,
           userId,
+          claimConcurrency: scrapeSession.claimConcurrency,
         }));
 
       const missingDetailIds = trackedItems

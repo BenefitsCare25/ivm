@@ -149,7 +149,7 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
     }
   }
 
-  async function triggerScrape(options: ScrapeStartOptions = {}) {
+  async function triggerScrape(options: ScrapeStartOptions) {
     setScraping(true);
     setError(null);
     try {

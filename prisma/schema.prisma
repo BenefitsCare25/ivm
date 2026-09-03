@@ -406,6 +406,8 @@ model ScrapeSession {
   completedAt               DateTime?
   authExpiredAt             DateTime?
   errorMessage              String?
+  /** Maximum claim detail jobs allowed to run concurrently for this session. */
+  claimConcurrency          Int                 @default(3)
   /** Inclusive "Submitted On" date filter applied at list-scrape time (per run). */
   submittedFrom             DateTime?
   submittedTo               DateTime?

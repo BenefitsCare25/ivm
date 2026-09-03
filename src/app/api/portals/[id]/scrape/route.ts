@@ -54,6 +54,7 @@ export async function POST(
       acceptableDocumentTypeIds,
       submittedFrom: body.submittedFrom ? new Date(body.submittedFrom) : null,
       submittedTo: body.submittedTo ? new Date(body.submittedTo) : null,
+      claimConcurrency: body.claimConcurrency,
     });
     if (!startResult.created) {
       throw new AppError(

@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { isValidIsoDate } from "@/lib/date-utils";
 import { normalizeOptionalSelector } from "@/lib/utils";
+import {
+  DEFAULT_CLAIM_CONCURRENCY,
+  MAX_CLAIM_CONCURRENCY,
+  MIN_CLAIM_CONCURRENCY,
+} from "@/lib/claim-concurrency";
 
 export const createPortalSchema = z.object({
   name: z
@@ -125,6 +130,12 @@ export const startScrapeSchema = z
     // are dropped at list-scrape time before any detail scrape/comparison.
     submittedFrom: isoDate.optional(),
     submittedTo: isoDate.optional(),
+    claimConcurrency: z
+      .number()
+      .int()
+      .min(MIN_CLAIM_CONCURRENCY)
+      .max(MAX_CLAIM_CONCURRENCY)
+      .default(DEFAULT_CLAIM_CONCURRENCY),
   })
   .refine(
     (v) => !(v.submittedFrom && v.submittedTo) || v.submittedTo >= v.submittedFrom,

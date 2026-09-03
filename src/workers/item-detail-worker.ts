@@ -10,6 +10,8 @@ import { fetchDocTypes } from "@/lib/intelligence";
 import type { DocTypeRecord } from "@/lib/intelligence";
 import { emitItemEvent, emitFailureEvent, withEventTracking } from "@/lib/portal-events";
 import {
+  DEFAULT_CLAIM_CONCURRENCY,
+  MAX_CLAIM_CONCURRENCY,
   startItemDetailWorker,
   type ItemDetailJobData,
   type ItemDetailJobResult,
@@ -494,7 +496,9 @@ if (worker) {
   logger.info(
     {
       concurrentSessions: env.DETAIL_WORKER_CONCURRENCY,
-      claimsPerSession: 1,
+      defaultClaimConcurrency: DEFAULT_CLAIM_CONCURRENCY,
+      maxClaimConcurrency: MAX_CLAIM_CONCURRENCY,
+      workerConcurrency: env.DETAIL_WORKER_CONCURRENCY * MAX_CLAIM_CONCURRENCY,
     },
     "[worker] Item detail worker started",
   );
