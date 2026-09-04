@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
-import { errorResponse, NotFoundError } from "@/lib/errors";
+import { errorResponse, NotFoundError, ValidationError } from "@/lib/errors";
 import { createProviderGroupSchema } from "@/lib/validations/portal";
 import { clearTemplateCache } from "@/lib/comparison-templates";
 import { toInputJson } from "@/lib/utils";
+import { validateProviderGroupDraft } from "@/lib/provider-group-validation";
 
 export async function GET(
   _req: NextRequest,
@@ -60,6 +61,12 @@ export async function POST(
 
     const body = await req.json();
     const data = createProviderGroupSchema.parse(body);
+    const issues = validateProviderGroupDraft(data);
+    if (issues.length > 0) {
+      throw new ValidationError(issues[0]!.message, {
+        providerGroup: issues.map((issue) => issue.message),
+      });
+    }
 
     const group = await db.providerGroup.create({
       data: {

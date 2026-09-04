@@ -267,7 +267,12 @@ async function processItemDetailCore(
         ...((item.listData as Record<string, string>) ?? {}),
         ...effectiveDetailData,
       };
-      const resolvedTemplate = await findMatchingTemplate(portalId, allPageData);
+      // The web app and detail worker are separate processes, so a setup save
+      // cannot invalidate this worker's in-memory cache. Refresh once per item
+      // to ensure a rerun always uses the latest mappings and provider members.
+      const resolvedTemplate = await findMatchingTemplate(portalId, allPageData, {
+        forceRefresh: true,
+      });
       const expectedFields = resolvedTemplate
         ? groupTemplateFields(resolvedTemplate.fields).map((field) => ({
             portalFieldName: field.portalFieldName,

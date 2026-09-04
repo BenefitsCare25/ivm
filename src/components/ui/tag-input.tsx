@@ -9,9 +9,20 @@ interface TagInputProps {
   placeholder: string;
   onAdd: (value: string) => void;
   onRemove: (index: number) => void;
+  ariaLabel?: string;
+  ariaDescribedBy?: string;
+  invalid?: boolean;
 }
 
-export function TagInput({ tags, placeholder, onAdd, onRemove }: TagInputProps) {
+export function TagInput({
+  tags,
+  placeholder,
+  onAdd,
+  onRemove,
+  ariaLabel,
+  ariaDescribedBy,
+  invalid = false,
+}: TagInputProps) {
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -45,7 +56,8 @@ export function TagInput({ tags, placeholder, onAdd, onRemove }: TagInputProps) 
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onRemove(i); }}
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            aria-label={`Remove ${tag}`}
+            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X className="h-3 w-3" />
           </button>
@@ -58,6 +70,9 @@ export function TagInput({ tags, placeholder, onAdd, onRemove }: TagInputProps) 
         onKeyDown={handleKeyDown}
         onBlur={commit}
         placeholder={tags.length === 0 ? placeholder : ""}
+        aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={invalid}
         className="h-auto flex-1 min-w-24 border-none bg-transparent p-0 text-xs shadow-none focus-visible:ring-0 placeholder:text-muted-foreground/60"
       />
     </div>

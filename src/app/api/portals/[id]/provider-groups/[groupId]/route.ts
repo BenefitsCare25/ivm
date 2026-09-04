@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
-import { errorResponse, NotFoundError } from "@/lib/errors";
+import { errorResponse, NotFoundError, ValidationError } from "@/lib/errors";
 import { updateProviderGroupSchema } from "@/lib/validations/portal";
 import { clearTemplateCache } from "@/lib/comparison-templates";
 import { toInputJson } from "@/lib/utils";
+import { validateProviderGroupDraft } from "@/lib/provider-group-validation";
 
 export async function PATCH(
   req: NextRequest,
@@ -22,6 +23,28 @@ export async function PATCH(
 
     const body = await req.json();
     const data = updateProviderGroupSchema.parse(body);
+    const existing = await db.providerGroup.findFirst({
+      where: { id: groupId, portalId: id },
+      select: {
+        name: true,
+        providerFieldName: true,
+        matchMode: true,
+        members: true,
+      },
+    });
+    if (!existing) throw new NotFoundError("ProviderGroup");
+
+    const issues = validateProviderGroupDraft({
+      name: data.name ?? existing.name,
+      providerFieldName: data.providerFieldName ?? existing.providerFieldName,
+      matchMode: data.matchMode ?? (existing.matchMode as "list" | "others"),
+      members: data.members ?? ((existing.members ?? []) as string[]),
+    });
+    if (issues.length > 0) {
+      throw new ValidationError(issues[0]!.message, {
+        providerGroup: issues.map((issue) => issue.message),
+      });
+    }
 
     const updateData: Record<string, unknown> = {};
     if (data.name !== undefined) updateData.name = data.name;

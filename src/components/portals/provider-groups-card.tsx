@@ -35,7 +35,7 @@ export function ProviderGroupsCard({ portalId, availableFields }: Props) {
   }, [portalId]);
 
   return (
-    <Card>
+    <Card id="provider-groups" className="scroll-mt-6">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -170,10 +170,21 @@ function GroupRow({
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <button onClick={onEdit} className="text-muted-foreground hover:text-foreground p-1 cursor-pointer">
+          <button
+            type="button"
+            onClick={onEdit}
+            aria-label={`Edit ${group.name}`}
+            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             <Pencil className="h-3.5 w-3.5" />
           </button>
-          <button onClick={handleDelete} disabled={deleting} className="text-muted-foreground hover:text-destructive p-1 cursor-pointer">
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            aria-label={`Delete ${group.name}`}
+            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
           </button>
         </div>

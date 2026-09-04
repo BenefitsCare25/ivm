@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuthApi } from "@/lib/auth-helpers";
 import { db } from "@/lib/db";
 import { errorResponse, NotFoundError } from "@/lib/errors";
-import { findMatchingTemplate } from "@/lib/comparison-templates";
+import { clearTemplateCache, findMatchingTemplate } from "@/lib/comparison-templates";
 
 export async function GET(
   _req: NextRequest,
@@ -28,6 +28,10 @@ export async function GET(
     if (groupingFields.length === 0) {
       return NextResponse.json({ unconfiguredTypes: [], needsGroupingConfig: true });
     }
+
+    // This request may land on a different web process from the one that saved
+    // the setup. Refresh once, then reuse the cache while scanning the session.
+    clearTemplateCache(id);
 
     // Find the first config with matching grouping fields to link new templates
     const matchingConfig = await db.comparisonConfig.findFirst({

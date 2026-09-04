@@ -5,7 +5,7 @@ import { errorResponse, NotFoundError, ValidationError } from "@/lib/errors";
 import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { compareFields } from "@/lib/ai/comparison";
 import { getFullComparisonSystemPrompt, buildFullComparisonUserPrompt } from "@/lib/ai/prompt-builder";
-import { filterFieldsByTemplate, findMatchingTemplate, filterComparisonsByTemplate } from "@/lib/comparison-templates";
+import { clearTemplateCache, filterFieldsByTemplate, findMatchingTemplate, filterComparisonsByTemplate } from "@/lib/comparison-templates";
 import { withCodeRuleResults } from "@/lib/business-rules/evaluate-code-rules";
 import { buildBusinessRuleValidations } from "@/lib/business-rules/persist";
 import { runVisionChecks, type VisionCheckFile } from "@/lib/ai/vision-checks";
@@ -42,6 +42,9 @@ export async function POST(
   try {
     const session = await requireAuthApi();
     const { id, sessionId } = await params;
+    // A setup save may have happened in another web process. Refresh once at
+    // the start of this bulk operation, then reuse the cache for every item.
+    clearTemplateCache(id);
 
     const portal = await db.portal.findFirst({
       where: { id, userId: session.user.id },

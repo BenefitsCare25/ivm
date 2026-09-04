@@ -5,8 +5,10 @@ import {
   reconcileFieldComparisons,
   type ReconciliationDocumentContext,
 } from "@/lib/comparison-reconciliation";
+import { fuzzyMatchProvider, normalizeForMatch } from "@/lib/provider-matching";
 
 export { fieldNameMatchesPortal } from "@/lib/comparison-reconciliation";
+export { fuzzyMatchProvider, normalizeForMatch } from "@/lib/provider-matching";
 
 export interface MatchedTemplate {
   id: string;
@@ -49,17 +51,6 @@ export function clearTemplateCache(portalId: string): void {
   templateCache.delete(portalId);
 }
 
-export function normalizeForMatch(value: string): string {
-  return value.toLowerCase().trim().replace(/\s+/g, " ");
-}
-
-export function fuzzyMatchProvider(itemValue: string, normalizedMembers: string[]): boolean {
-  const normalized = normalizeForMatch(itemValue);
-  return normalizedMembers.some(
-    (member) => normalized.includes(member) || member.includes(normalized)
-  );
-}
-
 /** Returns true if `itemData` matches the given template grouping key for all configured fields. */
 export function itemMatchesGroupingKey(
   groupingFields: string[],
@@ -79,12 +70,13 @@ export function itemMatchesGroupingKey(
  */
 export async function findMatchingTemplate(
   portalId: string,
-  itemData: Record<string, string>
+  itemData: Record<string, string>,
+  options: { forceRefresh?: boolean } = {}
 ): Promise<MatchedTemplate | null> {
   const now = Date.now();
   let cached = templateCache.get(portalId);
 
-  if (!cached || cached.expiresAt < now) {
+  if (options.forceRefresh || !cached || cached.expiresAt < now) {
     const [portal, configs, templates, providerGroups] = await Promise.all([
       db.portal.findUnique({ where: { id: portalId }, select: { groupingFields: true } }),
       db.comparisonConfig.findMany({

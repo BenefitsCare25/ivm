@@ -120,7 +120,7 @@ export function TemplateFieldMappings({ fields: initial, saving, onSave }: Props
   }
 
   return (
-    <Card>
+    <Card id="field-mappings" className="scroll-mt-6">
       <CardHeader className="pb-3">
         <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <CardTitle className="text-base">Field Mappings</CardTitle>
