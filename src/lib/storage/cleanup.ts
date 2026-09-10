@@ -6,7 +6,7 @@ import { logger } from "@/lib/logger";
 const BASE_DIR = process.env.STORAGE_LOCAL_PATH ?? "./uploads";
 const PORTAL_FILES_DIR = path.join(BASE_DIR, "portal-files");
 const PORTAL_EVENTS_DIR = path.join(BASE_DIR, "portal-events");
-const RETENTION_DAYS = parseInt(process.env.SCRAPE_RETENTION_DAYS ?? "7", 10);
+const RETENTION_DAYS = parseInt(process.env.SCRAPE_RETENTION_DAYS ?? "2", 10);
 
 async function walkFiles(dir: string): Promise<string[]> {
   const results: string[] = [];
@@ -87,7 +87,8 @@ export async function runStorageCleanup(): Promise<{ deleted: number; freedBytes
 }
 
 /**
- * Retention-based cleanup: delete scrape sessions older than SCRAPE_RETENTION_DAYS.
+ * Retention-based cleanup: delete terminal scrape sessions older than
+ * SCRAPE_RETENTION_DAYS. Pending/running sessions are never retention-purged.
  * Cascading deletes in Prisma remove TrackedItem, TrackedItemFile,
  * TrackedItemEvent, ComparisonResult, and ValidationResult automatically.
  * We collect file paths before deletion to remove from disk.
@@ -106,7 +107,10 @@ export async function runRetentionCleanup(): Promise<{
 
   // Find sessions to purge
   const staleSessions = await db.scrapeSession.findMany({
-    where: { createdAt: { lt: cutoff } },
+    where: {
+      createdAt: { lt: cutoff },
+      status: { in: ["COMPLETED", "FAILED", "CANCELLED"] },
+    },
     select: { id: true },
   });
 
@@ -120,27 +124,51 @@ export async function runRetentionCleanup(): Promise<{
   const [filesToDelete, screenshotsToDelete] = await Promise.all([
     db.trackedItemFile.findMany({
       where: { trackedItem: { scrapeSessionId: { in: sessionIds } } },
-      select: { storagePath: true, sizeBytes: true },
+      select: {
+        storagePath: true,
+        sizeBytes: true,
+        trackedItem: { select: { scrapeSessionId: true } },
+      },
     }),
     db.trackedItemEvent.findMany({
       where: {
         trackedItem: { scrapeSessionId: { in: sessionIds } },
         screenshotPath: { not: null },
       },
-      select: { screenshotPath: true },
+      select: {
+        screenshotPath: true,
+        trackedItem: { select: { scrapeSessionId: true } },
+      },
     }),
   ]);
 
   // Delete sessions (cascades to items, files, events, comparisons, validations)
   const { count: sessionsDeleted } = await db.scrapeSession.deleteMany({
-    where: { id: { in: sessionIds } },
+    where: {
+      id: { in: sessionIds },
+      status: { in: ["COMPLETED", "FAILED", "CANCELLED"] },
+    },
   });
 
+  // A session may have changed state after the candidate query. Only remove
+  // files for sessions that were actually deleted by the guarded delete above.
+  const survivingSessions = await db.scrapeSession.findMany({
+    where: { id: { in: sessionIds } },
+    select: { id: true },
+  });
+  const survivingIds = new Set(survivingSessions.map((session) => session.id));
+  const deletedIds = new Set(sessionIds.filter((id) => !survivingIds.has(id)));
+
   const allDeletions = [
-    ...filesToDelete.map((f) => ({ path: path.join(BASE_DIR, f.storagePath), size: f.sizeBytes })),
+    ...filesToDelete
+      .filter((file) => deletedIds.has(file.trackedItem.scrapeSessionId))
+      .map((file) => ({ path: path.join(BASE_DIR, file.storagePath), size: file.sizeBytes })),
     ...screenshotsToDelete
-      .filter((e) => e.screenshotPath)
-      .map((e) => ({ path: path.join(BASE_DIR, e.screenshotPath!), size: 0 })),
+      .filter(
+        (event) =>
+          event.screenshotPath && deletedIds.has(event.trackedItem.scrapeSessionId)
+      )
+      .map((event) => ({ path: path.join(BASE_DIR, event.screenshotPath!), size: 0 })),
   ];
 
   await Promise.all(allDeletions.map((d) => fs.unlink(d.path).catch(() => {})));

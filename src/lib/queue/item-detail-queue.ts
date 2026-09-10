@@ -12,6 +12,8 @@ import {
   acquireClaimSlot,
   releaseActiveSessionLease,
   releaseClaimSlot,
+  renewActiveSessionLease,
+  renewClaimSlot,
 } from "./session-capacity";
 
 export { DEFAULT_CLAIM_CONCURRENCY, MAX_CLAIM_CONCURRENCY } from "@/lib/claim-concurrency";
@@ -21,8 +23,21 @@ const QUEUE_NAME = "item-detail";
 // Max time a single item job may run before being timed out by BullMQ stall detection.
 // Must be longer than the slowest possible job (Playwright + AI extraction + AI comparison).
 const LOCK_DURATION_MS = 10 * 60 * 1000; // 10 minutes
-const SESSION_LOCK_TTL_MS = LOCK_DURATION_MS + 60_000;
-const SESSION_RETRY_DELAY_MS = 1_000;
+// Capacity leases are heartbeated while a job runs. A crashed worker therefore
+// blocks its session for at most one minute instead of the full ten-minute job
+// lock, while healthy long-running jobs retain their slots indefinitely.
+const SESSION_LOCK_TTL_MS = 60_000;
+const SESSION_LOCK_RENEW_INTERVAL_MS = 20_000;
+// Capacity misses are normal while another long-running claim is active. A
+// longer retry interval avoids hot-looping hundreds of delayed jobs.
+const SESSION_RETRY_DELAY_MS = 15_000;
+
+export function getItemDetailWorkerConcurrency(): number {
+  return Math.min(
+    env.DETAIL_WORKER_JOB_CONCURRENCY,
+    env.DETAIL_WORKER_CONCURRENCY * MAX_CLAIM_CONCURRENCY,
+  );
+}
 
 export interface ItemDetailJobData {
   trackedItemId: string;
@@ -47,9 +62,9 @@ async function deferForActiveSession(
   claimConcurrency: number,
   reason: "session-limit" | "claim-limit",
 ): Promise<never> {
-  const delayMs = SESSION_RETRY_DELAY_MS + Math.floor(Math.random() * 250);
+  const delayMs = SESSION_RETRY_DELAY_MS + Math.floor(Math.random() * 5_000);
   await job.moveToDelayed(Date.now() + delayMs, job.token);
-  logger.debug(
+  logger.trace(
     { jobId: job.id, scrapeSessionId, delayMs, claimConcurrency, reason },
     reason === "session-limit"
       ? "[queue] Deferred claim because the active-session limit is reached"
@@ -200,9 +215,38 @@ export function startItemDetailWorker(
       );
     }
 
+    let renewalInFlight = false;
+    const renewalTimer = setInterval(() => {
+      if (renewalInFlight) return;
+      renewalInFlight = true;
+      Promise.all([
+        renewClaimSlot(conn, sessionLock, SESSION_LOCK_TTL_MS),
+        renewActiveSessionLease(conn, activeSessionLease, SESSION_LOCK_TTL_MS),
+      ])
+        .then(([claimRenewed, sessionRenewed]) => {
+          if (!claimRenewed || !sessionRenewed) {
+            logger.error(
+              { jobId: job.id, scrapeSessionId, claimRenewed, sessionRenewed },
+              "[queue] Item-detail capacity lease ownership was lost",
+            );
+          }
+        })
+        .catch((err) => {
+          logger.error(
+            { err, jobId: job.id, scrapeSessionId },
+            "[queue] Failed to renew item-detail capacity lease",
+          );
+        })
+        .finally(() => {
+          renewalInFlight = false;
+        });
+    }, SESSION_LOCK_RENEW_INTERVAL_MS);
+    renewalTimer.unref();
+
     try {
       return await processor(job);
     } finally {
+      clearInterval(renewalTimer);
       try {
         await releaseClaimSlot(conn, sessionLock);
       } catch (err) {
@@ -229,7 +273,7 @@ export function startItemDetailWorker(
       connection: conn,
       // Reserve enough worker capacity for every active session to process its
       // full claim allowance concurrently.
-      concurrency: env.DETAIL_WORKER_CONCURRENCY * MAX_CLAIM_CONCURRENCY,
+      concurrency: getItemDetailWorkerConcurrency(),
       // Long lock so BullMQ doesn't stall-detect jobs mid-AI-call
       lockDuration: LOCK_DURATION_MS,
       // Check for stalled jobs every 30 seconds

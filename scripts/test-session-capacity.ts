@@ -6,6 +6,8 @@ import {
   acquireClaimSlot,
   releaseActiveSessionLease,
   releaseClaimSlot,
+  renewActiveSessionLease,
+  renewClaimSlot,
   type ActiveSessionLease,
   type ClaimSlotLock,
 } from "../src/lib/queue/session-capacity";
@@ -78,6 +80,11 @@ async function main(): Promise<void> {
     const sessionB = await acquire("session-b", 1);
     const sessionC = await acquire("session-c", 1);
     assert(sessionB && sessionC, "three distinct sessions should be active together");
+    const renewalTtl = TTL_MS * 2;
+    assert.equal(await renewClaimSlot(redis, sessionB.claim, renewalTtl), true);
+    assert.equal(await renewActiveSessionLease(redis, sessionB.session, renewalTtl), true);
+    assert((await redis.pttl(sessionB.claim.key)) > TTL_MS, "claim renewal should extend its TTL");
+    assert((await redis.pttl(sessionB.session.slotKey)) > TTL_MS, "session renewal should extend its TTL");
     assert.equal(
       await acquire("session-d", 1),
       null,

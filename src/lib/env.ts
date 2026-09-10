@@ -47,6 +47,10 @@ const envSchema = z.object({
   // Maximum number of scrape sessions processed at once. Each session can use
   // the per-session claim concurrency configured by the detail queue.
   DETAIL_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(3),
+  // Host-wide ceiling for resource-heavy claim jobs. This is intentionally
+  // independent of session fairness/capacity so a burst of sessions cannot
+  // oversubscribe CPU with Chromium and document-processing work.
+  DETAIL_WORKER_JOB_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(2),
   // How many of ONE claim's attachments are extracted concurrently. Default 1
   // (serial, safe for a heavy local model); raise to ~3 on a smaller/faster model.
   ATTACHMENT_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(1),

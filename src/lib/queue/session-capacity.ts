@@ -8,6 +8,14 @@ const RELEASE_CLAIM_SLOT_SCRIPT = `
   return 0
 `;
 
+const RENEW_CLAIM_SLOT_SCRIPT = `
+  if redis.call("get", KEYS[1]) == ARGV[1] then
+    redis.call("pexpire", KEYS[1], ARGV[2])
+    return 1
+  end
+  return 0
+`;
+
 const ACQUIRE_ACTIVE_SESSION_SCRIPT = `
   local countKey = KEYS[#KEYS]
 
@@ -48,6 +56,17 @@ const RELEASE_ACTIVE_SESSION_SCRIPT = `
   redis.call("pexpire", KEYS[1], ARGV[2])
   redis.call("pexpire", KEYS[2], ARGV[2])
   return activeClaims
+`;
+
+const RENEW_ACTIVE_SESSION_SCRIPT = `
+  if redis.call("get", KEYS[1]) ~= ARGV[1] then
+    return 0
+  end
+  redis.call("pexpire", KEYS[1], ARGV[2])
+  if redis.call("exists", KEYS[2]) == 1 then
+    redis.call("pexpire", KEYS[2], ARGV[2])
+  end
+  return 1
 `;
 
 export interface ClaimSlotLock {
@@ -112,6 +131,21 @@ export async function releaseActiveSessionLease(
   );
 }
 
+export async function renewActiveSessionLease(
+  connection: IORedis,
+  lease: ActiveSessionLease,
+  ttlMs: number,
+): Promise<boolean> {
+  return Number(await connection.eval(
+    RENEW_ACTIVE_SESSION_SCRIPT,
+    2,
+    lease.slotKey,
+    lease.countKey,
+    lease.scrapeSessionId,
+    ttlMs,
+  )) === 1;
+}
+
 export async function acquireClaimSlot(
   connection: IORedis,
   scrapeSessionId: string,
@@ -141,4 +175,18 @@ export async function releaseClaimSlot(
   lock: ClaimSlotLock,
 ): Promise<void> {
   await connection.eval(RELEASE_CLAIM_SLOT_SCRIPT, 1, lock.key, lock.token);
+}
+
+export async function renewClaimSlot(
+  connection: IORedis,
+  lock: ClaimSlotLock,
+  ttlMs: number,
+): Promise<boolean> {
+  return Number(await connection.eval(
+    RENEW_CLAIM_SLOT_SCRIPT,
+    1,
+    lock.key,
+    lock.token,
+    ttlMs,
+  )) === 1;
 }

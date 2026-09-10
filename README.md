@@ -154,6 +154,9 @@ npm run dev                   # http://localhost:3000
 | `CODEX_REVIEW_EFFORT` | No | Reasoning effort (default `medium`) |
 | `ANTHROPIC_API_KEY` | No | Fallback AI key if no BYOK configured |
 | `REDIS_URL` | No | Redis for rate limiting + queue (falls back to in-memory) |
+| `SCRAPE_RETENTION_DAYS` | No | Purge terminal scrape sessions and stored documents after this many days (default: 2) |
+| `DETAIL_WORKER_CONCURRENCY` | No | Maximum scrape sessions admitted concurrently (default: 3) |
+| `DETAIL_WORKER_JOB_CONCURRENCY` | No | Host-wide cap for heavy claim jobs (default: 2) |
 | `STORAGE_PROVIDER` | No | `local` (default) or `s3` |
 | `SENTRY_DSN` | No | Sentry error tracking |
 | `LOG_LEVEL` | No | `debug` (dev) / `info` (prod) |
