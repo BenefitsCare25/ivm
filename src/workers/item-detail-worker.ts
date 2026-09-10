@@ -12,6 +12,7 @@ import { emitItemEvent, emitFailureEvent, withEventTracking } from "@/lib/portal
 import {
   DEFAULT_CLAIM_CONCURRENCY,
   MAX_CLAIM_CONCURRENCY,
+  getItemDetailWorkerConcurrency,
   startItemDetailWorker,
   type ItemDetailJobData,
   type ItemDetailJobResult,
@@ -32,6 +33,7 @@ import type { BrowserContext, Page } from "playwright";
 import { parsePortalAISelection } from "@/lib/ai/connected-models";
 import { findMatchingTemplate } from "@/lib/comparison-templates";
 import { groupTemplateFields } from "@/lib/comparison-reconciliation";
+import { runWithDrainedTimeout } from "@/lib/async/drained-timeout";
 
 const JOB_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -47,34 +49,18 @@ function isAuthError(message: string): boolean {
   return AUTH_ERROR_SIGNATURES.some((sig) => message.includes(sig));
 }
 
-function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  label: string,
-  onTimeout?: () => Promise<void>
-): Promise<T> {
-  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(async () => {
-      try {
-        if (onTimeout) await onTimeout();
-      } catch {
-        // best-effort — don't let cleanup errors mask the timeout
-      }
-      reject(new Error(`Timed out after ${ms / 1000}s: ${label}`));
-    }, ms);
-  });
-
-  return Promise.race([
-    promise.finally(() => { if (timeoutHandle !== undefined) clearTimeout(timeoutHandle); }),
-    timeoutPromise,
-  ]);
+function throwIfAborted(signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new Error("Item-detail processing was cancelled");
 }
 
 async function processItemDetailCore(
-  job: Job<ItemDetailJobData>
+  job: Job<ItemDetailJobData>,
+  signal: AbortSignal,
 ): Promise<ItemDetailJobResult> {
+  throwIfAborted(signal);
   const { trackedItemId, portalId, userId } = job.data;
 
   // Remember the status BEFORE we flip to PROCESSING: if a prior run already
@@ -84,6 +70,13 @@ async function processItemDetailCore(
     select: { status: true },
   });
   const priorStatus = priorItem?.status;
+
+  // A deleted session can leave an old BullMQ job behind. Treat that job as a
+  // harmless no-op instead of attempting an update that can never succeed.
+  if (!priorItem) {
+    logger.warn({ trackedItemId, jobId: job.id }, "[worker] Skipping orphaned item-detail job");
+    return { status: "FAILED", mismatchCount: 0, errorMessage: "Tracked item no longer exists" };
+  }
 
   await db.trackedItem.update({
     where: { id: trackedItemId },
@@ -96,6 +89,17 @@ async function processItemDetailCore(
   // A known portal URL used by the error path to reliably re-probe for an
   // auth-expiry (login) redirect after a navigation failure.
   let authCheckUrl: string | undefined;
+  let abortClosePromise: Promise<void> | null = null;
+  const closeContextOnAbort = (): void => {
+    if (!context || abortClosePromise) return;
+    abortClosePromise = context.close().catch((error) => {
+      logger.warn(
+        { err: error, trackedItemId },
+        "[worker] Failed to close browser context after cancellation",
+      );
+    });
+  };
+  signal.addEventListener("abort", closeContextOnAbort, { once: true });
 
   try {
     const item = await db.trackedItem.findUniqueOrThrow({
@@ -129,13 +133,12 @@ async function processItemDetailCore(
         listPageUrl: portal.listPageUrl,
         portalId: portal.id,
       }));
+      throwIfAborted(signal);
       await emitItemEvent(trackedItemId, "AUTH_SUCCESS", { landingUrl: page.url() });
     } catch (authErr) {
       await emitFailureEvent(trackedItemId, "AUTH_FAIL", authErr);
       throw authErr;
     }
-
-    try {
       // ── Detail page scrape ──────────────────────────────────
       const detailData = await withEventTracking(
         trackedItemId,
@@ -149,6 +152,7 @@ async function processItemDetailCore(
         () => scrapeDetailPage(page!, item.detailPageUrl!, detailSelectors),
         () => page!.screenshot({ fullPage: true, type: "png" }).then((b) => Buffer.from(b))
       );
+      throwIfAborted(signal);
 
       await emitItemEvent(trackedItemId, "SELECTOR_MATCH", {
         fieldCount: Object.keys(detailData).length,
@@ -223,6 +227,7 @@ async function processItemDetailCore(
       await emitItemEvent(trackedItemId, "DOWNLOAD_START", { storagePrefix });
 
       const downloadedFiles = await downloadFiles(page!, detailSelectors, storagePrefix);
+      throwIfAborted(signal);
 
       await emitItemEvent(trackedItemId, "DOWNLOAD_DONE", {
         fileCount: downloadedFiles.length,
@@ -294,6 +299,7 @@ async function processItemDetailCore(
         cachedDocTypes,
         expectedFields,
       });
+      throwIfAborted(signal);
 
       // If this run degraded (some/all documents failed to extract, OR every
       // document extracted to zero usable fields) and a richer prior comparison
@@ -332,6 +338,7 @@ async function processItemDetailCore(
         foreignCurrencyDetected = intelligence.foreignCurrencyDetected;
         intelligenceFlag = intelligence.intelligenceFlag;
       }
+      throwIfAborted(signal);
 
       // ── Template lookup + AI comparison ─────────────────────
       const comparison = await runComparison({
@@ -365,6 +372,7 @@ async function processItemDetailCore(
         resolvedTemplate,
         priorStatus,
       });
+      throwIfAborted(signal);
 
       // ── Final status ────────────────────────────────────────
       await db.trackedItem.update({
@@ -385,9 +393,6 @@ async function processItemDetailCore(
       await syncScrapeSessionProgress(item.scrapeSessionId, "item-complete");
 
       return { status: "COMPLETED", mismatchCount: comparison.mismatchCount };
-    } finally {
-      await context?.close();
-    }
   } catch (err) {
     let errorMessage = err instanceof Error ? err.message : "Unknown error";
     logger.error({ err, trackedItemId }, "[worker] Item detail processing failed");
@@ -407,8 +412,12 @@ async function processItemDetailCore(
       /ERR_ABORTED|net::ERR|page\.goto|Claim detail page did not load correctly/i.test(errorMessage)
     ) {
       try {
-        await page.goto(authCheckUrl, { waitUntil: "domcontentloaded", timeout: 15_000 });
-        if (await isLoginPage(page)) {
+        let loginDetected = await isLoginPage(page);
+        if (!loginDetected) {
+          await page.goto(authCheckUrl, { waitUntil: "domcontentloaded", timeout: 15_000 });
+          loginDetected = await isLoginPage(page);
+        }
+        if (loginDetected) {
           errorMessage = "Portal session expired — the portal redirected to login. Update cookies on the portal page and retry.";
           reclassified = true;
         }
@@ -492,21 +501,25 @@ async function processItemDetailCore(
     }
 
     return { status: "FAILED", mismatchCount: 0, errorMessage };
+  } finally {
+    signal.removeEventListener("abort", closeContextOnAbort);
+    await abortClosePromise;
+    // Keep the page alive through the error classifier and evidence capture.
+    // Closing it earlier made a visible Inspro login page impossible to detect,
+    // so expired cookies were misreported as "0 populated claim fields".
+    await context?.close();
   }
 }
 
 async function processItemDetail(
-  job: Job<ItemDetailJobData>
+  job: Job<ItemDetailJobData>,
+  signal: AbortSignal,
 ): Promise<ItemDetailJobResult> {
-  const timeoutMinutes = Math.round(JOB_TIMEOUT_MS / 60_000);
-  return withTimeout(
-    processItemDetailCore(job),
+  return runWithDrainedTimeout(
+    (timeoutSignal) => processItemDetailCore(job, timeoutSignal),
     JOB_TIMEOUT_MS,
     `item:${job.data.trackedItemId}`,
-    () => handleFinalFailure(
-      job,
-      new Error(`Processing timed out after ${timeoutMinutes} minutes — too many documents or AI took too long`)
-    )
+    signal,
   );
 }
 
@@ -523,7 +536,7 @@ if (worker) {
       concurrentSessions: env.DETAIL_WORKER_CONCURRENCY,
       defaultClaimConcurrency: DEFAULT_CLAIM_CONCURRENCY,
       maxClaimConcurrency: MAX_CLAIM_CONCURRENCY,
-      workerConcurrency: env.DETAIL_WORKER_CONCURRENCY * MAX_CLAIM_CONCURRENCY,
+      workerConcurrency: getItemDetailWorkerConcurrency(),
     },
     "[worker] Item detail worker started",
   );

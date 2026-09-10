@@ -14,6 +14,7 @@ import {
 
 const MAX_ACTIVE_SESSIONS = 3;
 const TTL_MS = 30_000;
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface CapacityLease {
   session: ActiveSessionLease;
@@ -85,6 +86,7 @@ async function main(): Promise<void> {
     assert.equal(await renewActiveSessionLease(redis, sessionB.session, renewalTtl), true);
     assert((await redis.pttl(sessionB.claim.key)) > TTL_MS, "claim renewal should extend its TTL");
     assert((await redis.pttl(sessionB.session.slotKey)) > TTL_MS, "session renewal should extend its TTL");
+    assert((await redis.pttl(sessionB.session.memberKey)) > TTL_MS, "session-member renewal should extend its TTL");
     assert.equal(
       await acquire("session-d", 1),
       null,
@@ -96,6 +98,37 @@ async function main(): Promise<void> {
     assert(sessionD, "a waiting session should start after an active session releases its slot");
 
     await Promise.all([release(sessionB!), release(sessionC!), release(sessionD)]);
+
+    const staleNamespace = `${namespace}:stale-release`;
+    const shortTtl = 80;
+    const staleLease = await acquireActiveSessionLease(
+      redis,
+      "same-session",
+      1,
+      shortTtl,
+      { namespace: staleNamespace },
+    );
+    assert(staleLease);
+    await delay(shortTtl + 40);
+    const replacementLease = await acquireActiveSessionLease(
+      redis,
+      "same-session",
+      1,
+      TTL_MS,
+      { namespace: staleNamespace },
+    );
+    assert(replacementLease);
+
+    // A timed-out owner from an earlier slot generation must not decrement or
+    // release the replacement generation, even when the session ID is equal.
+    await releaseActiveSessionLease(redis, staleLease, TTL_MS);
+    assert.equal(await redis.get(replacementLease.countKey), "1");
+    assert.equal(
+      await redis.get(replacementLease.slotKey),
+      replacementLease.slotValue,
+    );
+    await releaseActiveSessionLease(redis, replacementLease, TTL_MS);
+
     assert.deepEqual(
       await redis.keys(`${namespace}:*`),
       [],

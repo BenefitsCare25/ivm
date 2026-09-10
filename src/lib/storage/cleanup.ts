@@ -8,6 +8,15 @@ const PORTAL_FILES_DIR = path.join(BASE_DIR, "portal-files");
 const PORTAL_EVENTS_DIR = path.join(BASE_DIR, "portal-events");
 const RETENTION_DAYS = parseInt(process.env.SCRAPE_RETENTION_DAYS ?? "2", 10);
 
+export function getTerminalRetentionAgeFilter(cutoff: Date) {
+  return {
+    OR: [
+      { completedAt: { lt: cutoff } },
+      { completedAt: null, createdAt: { lt: cutoff } },
+    ],
+  };
+}
+
 async function walkFiles(dir: string): Promise<string[]> {
   const results: string[] = [];
   let entries;
@@ -87,8 +96,10 @@ export async function runStorageCleanup(): Promise<{ deleted: number; freedBytes
 }
 
 /**
- * Retention-based cleanup: delete terminal scrape sessions older than
- * SCRAPE_RETENTION_DAYS. Pending/running sessions are never retention-purged.
+ * Retention-based cleanup: delete terminal scrape sessions whose completion
+ * time is older than SCRAPE_RETENTION_DAYS. Legacy terminal rows without a
+ * completion timestamp fall back to their creation time. Pending/running
+ * sessions are never retention-purged.
  * Cascading deletes in Prisma remove TrackedItem, TrackedItemFile,
  * TrackedItemEvent, ComparisonResult, and ValidationResult automatically.
  * We collect file paths before deletion to remove from disk.
@@ -99,6 +110,7 @@ export async function runRetentionCleanup(): Promise<{
   freedBytes: number;
 }> {
   const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const retentionAgeFilter = getTerminalRetentionAgeFilter(cutoff);
 
   logger.info(
     { retentionDays: RETENTION_DAYS, cutoff: cutoff.toISOString() },
@@ -108,8 +120,8 @@ export async function runRetentionCleanup(): Promise<{
   // Find sessions to purge
   const staleSessions = await db.scrapeSession.findMany({
     where: {
-      createdAt: { lt: cutoff },
       status: { in: ["COMPLETED", "FAILED", "CANCELLED"] },
+      ...retentionAgeFilter,
     },
     select: { id: true },
   });
@@ -147,6 +159,7 @@ export async function runRetentionCleanup(): Promise<{
     where: {
       id: { in: sessionIds },
       status: { in: ["COMPLETED", "FAILED", "CANCELLED"] },
+      ...retentionAgeFilter,
     },
   });
 

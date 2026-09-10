@@ -17,31 +17,47 @@ const RENEW_CLAIM_SLOT_SCRIPT = `
 `;
 
 const ACQUIRE_ACTIVE_SESSION_SCRIPT = `
-  local countKey = KEYS[#KEYS]
+  local countKey = KEYS[#KEYS - 1]
+  local memberKey = KEYS[#KEYS]
+  local slotCount = #KEYS - 2
 
-  for index = 1, #KEYS - 1 do
-    if redis.call("get", KEYS[index]) == ARGV[1] then
+  for index = 1, slotCount do
+    local slotValue = redis.call("get", KEYS[index])
+    local sessionPrefix = ARGV[1] .. ":"
+    if slotValue == ARGV[1] or
+       (slotValue and string.sub(slotValue, 1, string.len(sessionPrefix)) == sessionPrefix) then
+      if not redis.call("set", memberKey, ARGV[4], "PX", ARGV[2], "NX") then
+        return {0, ""}
+      end
       redis.call("incr", countKey)
       redis.call("pexpire", KEYS[index], ARGV[2])
       redis.call("pexpire", countKey, ARGV[2])
-      return index
+      return {index, slotValue}
     end
   end
 
-  for index = 1, #KEYS - 1 do
-    if redis.call("set", KEYS[index], ARGV[1], "PX", ARGV[2], "NX") then
+  for index = 1, slotCount do
+    if redis.call("set", KEYS[index], ARGV[3], "PX", ARGV[2], "NX") then
+      if not redis.call("set", memberKey, ARGV[4], "PX", ARGV[2], "NX") then
+        if redis.call("get", KEYS[index]) == ARGV[3] then
+          redis.call("del", KEYS[index])
+        end
+        return {0, ""}
+      end
       redis.call("set", countKey, 1, "PX", ARGV[2])
-      return index
+      return {index, ARGV[3]}
     end
   end
 
-  return 0
+  return {0, ""}
 `;
 
 const RELEASE_ACTIVE_SESSION_SCRIPT = `
-  if redis.call("get", KEYS[1]) ~= ARGV[1] then
-    return 0
+  if redis.call("get", KEYS[1]) ~= ARGV[1] or
+     redis.call("get", KEYS[3]) ~= ARGV[2] then
+    return -1
   end
+  redis.call("del", KEYS[3])
 
   local activeClaims = tonumber(redis.call("get", KEYS[2]) or "0")
   if activeClaims <= 1 then
@@ -53,18 +69,20 @@ const RELEASE_ACTIVE_SESSION_SCRIPT = `
   end
 
   activeClaims = redis.call("decr", KEYS[2])
-  redis.call("pexpire", KEYS[1], ARGV[2])
-  redis.call("pexpire", KEYS[2], ARGV[2])
+  redis.call("pexpire", KEYS[1], ARGV[3])
+  redis.call("pexpire", KEYS[2], ARGV[3])
   return activeClaims
 `;
 
 const RENEW_ACTIVE_SESSION_SCRIPT = `
-  if redis.call("get", KEYS[1]) ~= ARGV[1] then
+  if redis.call("get", KEYS[1]) ~= ARGV[1] or
+     redis.call("get", KEYS[3]) ~= ARGV[2] then
     return 0
   end
-  redis.call("pexpire", KEYS[1], ARGV[2])
+  redis.call("pexpire", KEYS[1], ARGV[3])
+  redis.call("pexpire", KEYS[3], ARGV[3])
   if redis.call("exists", KEYS[2]) == 1 then
-    redis.call("pexpire", KEYS[2], ARGV[2])
+    redis.call("pexpire", KEYS[2], ARGV[3])
   end
   return 1
 `;
@@ -76,7 +94,10 @@ export interface ClaimSlotLock {
 
 export interface ActiveSessionLease {
   slotKey: string;
+  slotValue: string;
   countKey: string;
+  memberKey: string;
+  memberToken: string;
   scrapeSessionId: string;
 }
 
@@ -98,20 +119,31 @@ export async function acquireActiveSessionLease(
     (_, index) => `${namespace}:active-session:slot:${index}`,
   );
   const countKey = `${namespace}:active-session:count:${scrapeSessionId}`;
-  const slotNumber = Number(await connection.eval(
+  const generation = randomUUID();
+  const memberToken = randomUUID();
+  const memberKey = `${namespace}:active-session:member:${memberToken}`;
+  const requestedSlotValue = `${scrapeSessionId}:${generation}`;
+  const result = await connection.eval(
     ACQUIRE_ACTIVE_SESSION_SCRIPT,
-    slotKeys.length + 1,
+    slotKeys.length + 2,
     ...slotKeys,
     countKey,
+    memberKey,
     scrapeSessionId,
     ttlMs,
-  ));
+    requestedSlotValue,
+    memberToken,
+  ) as [number | string, string];
+  const slotNumber = Number(result[0]);
 
   if (slotNumber < 1) return null;
 
   return {
     slotKey: slotKeys[slotNumber - 1],
+    slotValue: result[1],
     countKey,
+    memberKey,
+    memberToken,
     scrapeSessionId,
   };
 }
@@ -123,10 +155,12 @@ export async function releaseActiveSessionLease(
 ): Promise<void> {
   await connection.eval(
     RELEASE_ACTIVE_SESSION_SCRIPT,
-    2,
+    3,
     lease.slotKey,
     lease.countKey,
-    lease.scrapeSessionId,
+    lease.memberKey,
+    lease.slotValue,
+    lease.memberToken,
     ttlMs,
   );
 }
@@ -138,10 +172,12 @@ export async function renewActiveSessionLease(
 ): Promise<boolean> {
   return Number(await connection.eval(
     RENEW_ACTIVE_SESSION_SCRIPT,
-    2,
+    3,
     lease.slotKey,
     lease.countKey,
-    lease.scrapeSessionId,
+    lease.memberKey,
+    lease.slotValue,
+    lease.memberToken,
     ttlMs,
   )) === 1;
 }

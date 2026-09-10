@@ -147,7 +147,10 @@ export async function enqueueItemDetailBatch(
 }
 
 export function startItemDetailWorker(
-  processor: (job: Job<ItemDetailJobData>) => Promise<ItemDetailJobResult>,
+  processor: (
+    job: Job<ItemDetailJobData>,
+    signal: AbortSignal,
+  ) => Promise<ItemDetailJobResult>,
   onFinalFailure?: (job: Job<ItemDetailJobData>, err: Error) => Promise<void>
 ): Worker<ItemDetailJobData, ItemDetailJobResult> | null {
   const conn = getQueueConnection();
@@ -215,38 +218,99 @@ export function startItemDetailWorker(
       );
     }
 
-    let renewalInFlight = false;
-    const renewalTimer = setInterval(() => {
-      if (renewalInFlight) return;
-      renewalInFlight = true;
-      Promise.all([
+    const abortController = new AbortController();
+    let leaseFailure: Error | null = null;
+    let resolveLeaseFailure!: (outcome: {
+      kind: "lease-lost";
+      error: Error;
+    }) => void;
+    const leaseFailurePromise = new Promise<{
+      kind: "lease-lost";
+      error: Error;
+    }>((resolve) => {
+      resolveLeaseFailure = resolve;
+    });
+    let renewalInFlight: Promise<void> | null = null;
+    let heartbeatStopped = false;
+
+    const markLeaseLost = (error: Error): void => {
+      if (heartbeatStopped || leaseFailure) return;
+      leaseFailure = error;
+      abortController.abort(error);
+      resolveLeaseFailure({ kind: "lease-lost", error });
+      logger.error(
+        { err: error, jobId: job.id, scrapeSessionId },
+        "[queue] Item-detail capacity lease ownership was lost; aborting claim",
+      );
+    };
+
+    const renewLeases = (): void => {
+      if (heartbeatStopped || renewalInFlight) return;
+      renewalInFlight = Promise.all([
         renewClaimSlot(conn, sessionLock, SESSION_LOCK_TTL_MS),
         renewActiveSessionLease(conn, activeSessionLease, SESSION_LOCK_TTL_MS),
       ])
         .then(([claimRenewed, sessionRenewed]) => {
           if (!claimRenewed || !sessionRenewed) {
-            logger.error(
-              { jobId: job.id, scrapeSessionId, claimRenewed, sessionRenewed },
-              "[queue] Item-detail capacity lease ownership was lost",
+            markLeaseLost(
+              new Error(
+                `Item-detail capacity lease lost (claim=${claimRenewed}, session=${sessionRenewed})`,
+              ),
             );
           }
         })
-        .catch((err) => {
-          logger.error(
-            { err, jobId: job.id, scrapeSessionId },
-            "[queue] Failed to renew item-detail capacity lease",
+        .catch((error) => {
+          const renewalError = new Error(
+            "Item-detail capacity lease renewal failed",
+            { cause: error },
           );
+          markLeaseLost(renewalError);
         })
         .finally(() => {
-          renewalInFlight = false;
+          renewalInFlight = null;
         });
+    };
+
+    const renewalTimer = setInterval(() => {
+      renewLeases();
     }, SESSION_LOCK_RENEW_INTERVAL_MS);
     renewalTimer.unref();
 
+    const processorOutcome = Promise.resolve()
+      .then(() => processor(job, abortController.signal))
+      .then(
+        (value) => ({ kind: "completed" as const, value }),
+        (error: unknown) => ({
+          kind: "failed" as const,
+          error: error instanceof Error ? error : new Error(String(error)),
+        }),
+      );
+
     try {
-      return await processor(job);
-    } finally {
+      const outcome = await Promise.race([
+        processorOutcome,
+        leaseFailurePromise,
+      ]);
+
       clearInterval(renewalTimer);
+      const finishingRenewal = renewalInFlight as Promise<void> | null;
+      if (finishingRenewal) await finishingRenewal;
+      heartbeatStopped = true;
+
+      if (outcome.kind === "lease-lost" || leaseFailure) {
+        // Keep this BullMQ handler—and therefore its host-wide concurrency
+        // slot—occupied until the aborted processor has actually cleaned up.
+        await processorOutcome;
+        if (outcome.kind === "lease-lost") throw outcome.error;
+        throw leaseFailure;
+      }
+      if (outcome.kind === "failed") throw outcome.error;
+      return outcome.value;
+    } finally {
+      heartbeatStopped = true;
+      clearInterval(renewalTimer);
+      const finalRenewal = renewalInFlight as Promise<void> | null;
+      if (finalRenewal) await finalRenewal.catch(() => undefined);
       try {
         await releaseClaimSlot(conn, sessionLock);
       } catch (err) {
