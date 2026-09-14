@@ -1,7 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chromium } from "playwright";
-import { goToNextPage, scrapeListPage } from "./scraper";
+import { chromium, type Page } from "playwright";
+import { goToNextPage, scrapeDetailPage, scrapeListPage } from "./scraper";
+
+function makeAbortedDetailPage(
+  actualUrl: string,
+  selectorValues: Record<string, string> = {},
+): Page {
+  return {
+    goto: async () => {
+      throw new Error(`page.goto: net::ERR_ABORTED at ${actualUrl}`);
+    },
+    waitForURL: async () => {
+      throw new Error("URL did not change before timeout");
+    },
+    url: () => actualUrl,
+    isClosed: () => false,
+    waitForTimeout: async () => undefined,
+    $: async (selector: string) => {
+      const value = selectorValues[selector];
+      return value === undefined
+        ? null
+        : ({ textContent: async () => value } as never);
+    },
+  } as unknown as Page;
+}
 
 test("scrapes rows when AI returns independent full-page table and row selectors", async () => {
   const browser = await chromium.launch({ headless: true });
@@ -254,4 +277,53 @@ test("rejects an Inspro SPA that switches tenants after list navigation", async 
   } finally {
     await browser.close();
   }
+});
+
+test("rejects an aborted Inspro detail navigation left on a previous claim", async () => {
+  const requested = "https://benefits.inspro.com.sg/stm/insurance-claim-admin/stm-021664";
+  const stale = "https://benefits.inspro.com.sg/stm/insurance-claim-admin/stm-021537";
+
+  await assert.rejects(
+    scrapeDetailPage(makeAbortedDetailPage(stale), requested, {}),
+    /did not reach the requested claim page/i,
+  );
+});
+
+test("rejects an aborted Inspro detail navigation into another tenant", async () => {
+  const requested = "https://benefits.inspro.com.sg/stm/insurance-claim-admin/stm-021664";
+  const otherTenant = "https://benefits.inspro.com.sg/festo/insurance-claim-admin/festo-001267";
+
+  await assert.rejects(
+    scrapeDetailPage(makeAbortedDetailPage(otherTenant), requested, {}),
+    /different tenant/i,
+  );
+});
+
+test("continues an aborted Inspro navigation that reached the requested claim", async () => {
+  const requested = "https://benefits.inspro.com.sg/stm/insurance-claim-admin/stm-021664";
+  const page = makeAbortedDetailPage(`${requested}/?tab=details#summary`, {
+    "#claim-id": "STM-021664",
+    "#provider": "Sengkang General Hospital",
+  });
+
+  const fields = await scrapeDetailPage(page, requested, {
+    fieldSelectors: {
+      "Claim ID": "#claim-id",
+      Provider: "#provider",
+    },
+  });
+
+  assert.deepEqual(fields, {
+    "Claim ID": "STM-021664",
+    Provider: "Sengkang General Hospital",
+  });
+});
+
+test("does not suppress aborted navigation for non-Inspro portals", async () => {
+  const requested = "https://claims.example.com/claims/claim-001";
+
+  await assert.rejects(
+    scrapeDetailPage(makeAbortedDetailPage(requested), requested, {}),
+    /net::ERR_ABORTED/i,
+  );
 });

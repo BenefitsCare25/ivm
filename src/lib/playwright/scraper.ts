@@ -55,6 +55,25 @@ class PortalTenantMismatchError extends Error {
   }
 }
 
+class PortalDetailDestinationMismatchError extends Error {
+  constructor(expectedUrl: string, actualUrl: string) {
+    const expectedPath = safeUrlPath(expectedUrl);
+    const actualPath = safeUrlPath(actualUrl);
+    super(
+      `Authenticated portal session did not reach the requested claim page (${actualPath} instead of ${expectedPath}). Refresh this portal's authentication cookies and try again.`,
+    );
+    this.name = "PortalDetailDestinationMismatchError";
+  }
+}
+
+function safeUrlPath(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return "an invalid URL";
+  }
+}
+
 function getInsproTenant(url: string): string | null {
   try {
     const parsed = new URL(url);
@@ -72,6 +91,48 @@ function assertSamePortalTenant(expectedUrl: string, actualUrl: string): void {
   const actualTenant = getInsproTenant(actualUrl);
   if (expectedTenant && actualTenant && expectedTenant !== actualTenant) {
     throw new PortalTenantMismatchError(expectedTenant, actualTenant);
+  }
+}
+
+function normalizeDetailPath(pathname: string): string {
+  // Compare the encoded route as the browser sees it. Decoding here could make
+  // distinct server routes such as `/claim%2Fid` and `/claim/id` look equal.
+  return pathname.replace(/\/+$/, "").toLowerCase();
+}
+
+/**
+ * Inspro may add a query string or hash while loading a claim, but the origin,
+ * tenant, and claim pathname must remain the one that was requested. This is
+ * intentionally stricter than the list-page tenant check: a previous claim in
+ * the same tenant is still the wrong source record.
+ */
+function isSameInsproDetailDestination(expectedUrl: string, actualUrl: string): boolean {
+  const expectedTenant = getInsproTenant(expectedUrl);
+  if (!expectedTenant) return false;
+
+  try {
+    const expected = new URL(expectedUrl);
+    const actual = new URL(actualUrl);
+    return (
+      getInsproTenant(actualUrl) === expectedTenant &&
+      actual.origin.toLowerCase() === expected.origin.toLowerCase() &&
+      normalizeDetailPath(actual.pathname) === normalizeDetailPath(expected.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function assertSameInsproDetailDestination(expectedUrl: string, actualUrl: string): void {
+  const expectedTenant = getInsproTenant(expectedUrl);
+  if (!expectedTenant) return;
+
+  const actualTenant = getInsproTenant(actualUrl);
+  if (actualTenant && actualTenant !== expectedTenant) {
+    throw new PortalTenantMismatchError(expectedTenant, actualTenant);
+  }
+  if (!isSameInsproDetailDestination(expectedUrl, actualUrl)) {
+    throw new PortalDetailDestinationMismatchError(expectedUrl, actualUrl);
   }
 }
 
@@ -697,7 +758,22 @@ export async function scrapeDetailPage(
   // never reach network idle, and a client-side redirect during load makes
   // goto abort with net::ERR_ABORTED. The poll-extract loop below handles async
   // SPA rendering, so networkidle added only fragility.
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  try {
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("net::ERR_ABORTED") || !getInsproTenant(url)) throw error;
+
+    // Inspro sometimes replaces the route while the original navigation is in
+    // flight. Chromium reports the superseded request as aborted even though
+    // the SPA is now rendering the requested claim. Wait only for the requested
+    // destination; a stale claim, login route, or other tenant remains an error.
+    await page.waitForURL(
+      (currentUrl) => isSameInsproDetailDestination(url, currentUrl.toString()),
+      { waitUntil: "domcontentloaded", timeout: 10_000 },
+    ).catch(() => undefined);
+  }
+  assertSameInsproDetailDestination(url, page.url());
   await waitForConfiguredDetailRoot(page, normalizedSelectors.readySelector);
 
   // Poll-extract until the page yields a real result (>= MIN_DETAIL_FIELDS
@@ -711,7 +787,17 @@ export async function scrapeDetailPage(
   const deadline = Date.now() + DETAIL_SETTLE_TIMEOUT_MS;
   let fields: Record<string, string> = {};
   for (;;) {
-    fields = await extractDetailFields(page, normalizedSelectors);
+    try {
+      fields = await extractDetailFields(page, normalizedSelectors);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const navigationStillSettling =
+        message.includes("Execution context was destroyed")
+        || message.includes("Cannot find context with specified id");
+      if (!navigationStillSettling || Date.now() >= deadline || page.isClosed()) throw error;
+      await page.waitForTimeout(DETAIL_POLL_INTERVAL_MS);
+      continue;
+    }
     if (countPopulatedFields(fields) >= MIN_DETAIL_FIELDS) break;
     if (Date.now() >= deadline) break;
     await page.waitForTimeout(DETAIL_POLL_INTERVAL_MS);
@@ -725,6 +811,10 @@ export async function scrapeDetailPage(
       `Claim detail page did not load correctly: found ${populated} populated claim fields.`,
     );
   }
+
+  // A multi-tenant SPA can replace the route after its initial load. Recheck at
+  // the data boundary so late redirects cannot persist another claim's fields.
+  assertSameInsproDetailDestination(url, page.url());
 
   logger.info(
     { fieldCount: Object.keys(cleaned).length, rawFieldCount: Object.keys(fields).length, populated, url },
