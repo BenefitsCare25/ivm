@@ -15,6 +15,7 @@ interface SessionData {
   id: string;
   status: ScrapeSessionStatus;
   triggeredBy: string;
+  benefitYear: string | null;
   itemsFound: number;
   itemsProcessed: number;
   startedAt: string | null;
@@ -98,6 +99,10 @@ export function PortalSessionList({ portalId, sessions }: PortalSessionListProps
                       <Link href={`/portals/${portalId}/sessions/${s.id}`}>View Items</Link>
                     </Button>
                   </div>
+
+                  {s.benefitYear && (
+                    <p className="text-sm text-foreground">Benefit year: {s.benefitYear}</p>
+                  )}
 
                   {isRunning && total > 0 ? (
                     <div className="space-y-1">

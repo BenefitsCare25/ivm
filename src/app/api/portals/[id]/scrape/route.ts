@@ -61,6 +61,7 @@ export async function POST(
       submittedFrom: body.submittedFrom ? new Date(body.submittedFrom) : null,
       submittedTo: body.submittedTo ? new Date(body.submittedTo) : null,
       claimConcurrency: body.claimConcurrency,
+      benefitYear: body.benefitYear,
     });
     if (!startResult.created) {
       throw new AppError(
@@ -141,6 +142,7 @@ export async function GET(
         id: true,
         status: true,
         triggeredBy: true,
+        benefitYear: true,
         itemsFound: true,
         itemsProcessed: true,
         startedAt: true,

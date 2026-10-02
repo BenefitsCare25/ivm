@@ -132,6 +132,7 @@ export const startScrapeSchema = z
     // are dropped at list-scrape time before any detail scrape/comparison.
     submittedFrom: isoDate.optional(),
     submittedTo: isoDate.optional(),
+    benefitYear: z.string().trim().min(1).max(200).optional(),
     claimConcurrency: z
       .number()
       .int()

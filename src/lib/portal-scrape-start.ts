@@ -11,6 +11,7 @@ interface CreateScrapeSessionInput {
   submittedFrom?: Date | null;
   submittedTo?: Date | null;
   claimConcurrency?: number;
+  benefitYear?: string | null;
 }
 
 type CreateScrapeSessionResult =
@@ -50,6 +51,7 @@ export async function createScrapeSessionIfIdle(
         acceptableDocumentTypeIds: input.acceptableDocumentTypeIds ?? [],
         submittedFrom: input.submittedFrom ?? null,
         submittedTo: input.submittedTo ?? null,
+        benefitYear: input.benefitYear ?? null,
         claimConcurrency: input.claimConcurrency ?? DEFAULT_CLAIM_CONCURRENCY,
       },
       select: { id: true },

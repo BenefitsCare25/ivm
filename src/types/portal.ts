@@ -140,6 +140,7 @@ export interface PortalDetail {
 // ─── Scrape Session ─────────────────────────────────────────────
 
 export interface ScrapeSessionSummary {
+  benefitYear: string | null;
   id: string;
   portalId: string;
   status: ScrapeSessionStatus;

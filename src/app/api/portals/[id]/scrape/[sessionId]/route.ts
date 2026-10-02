@@ -43,6 +43,7 @@ export async function GET(
       id: scrapeSession.id,
       status: scrapeSession.status,
       triggeredBy: scrapeSession.triggeredBy,
+      benefitYear: scrapeSession.benefitYear,
       itemsFound: scrapeSession.itemsFound,
       itemsProcessed: scrapeSession.itemsProcessed,
       startedAt: scrapeSession.startedAt,

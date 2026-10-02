@@ -30,6 +30,7 @@ interface SessionData {
   id: string;
   status: ScrapeSessionStatus;
   triggeredBy: string;
+  benefitYear: string | null;
   itemsFound: number;
   itemsProcessed: number;
   startedAt: string | null;
@@ -490,6 +491,7 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
       <PortalSessionList portalId={portal.id} sessions={portal.sessions} />
 
       <ScrapeSessionModal
+        portalId={portal.id}
         open={scrapeModalOpen}
         onOpenChange={setScrapeModalOpen}
         onStart={triggerScrape}

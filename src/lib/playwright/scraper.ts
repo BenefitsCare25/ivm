@@ -23,6 +23,11 @@ interface ScrapeListPageOptions {
   discoverDetailUrls?: boolean;
   /** Intended list URL, retained even if the SPA changes tenants mid-scrape. */
   expectedListUrl?: string;
+  /** Restore session filters after click discovery returns to the list. */
+  afterListNavigation?: () => Promise<void>;
+  assertListState?: () => Promise<void>;
+  /** Reuse the first page's URL pattern without navigating away on later pages. */
+  detailUrlTemplate?: { prefix: string; suffix: string };
 }
 
 type ListRowSelectorStrategy =
@@ -464,6 +469,7 @@ export async function scrapeListPage(
   // has completed. Compare against the originally requested portal, not the
   // mutable live URL, so a late tenant switch cannot be masked by row filters.
   assertSamePortalTenant(expectedPortalUrl, page.url());
+  await options.assertListState?.();
 
   const inspection = await inspectListRows(
     page,
@@ -576,6 +582,12 @@ export async function scrapeListPage(
     }
 
     const portalItemId = Object.values(fields).find((v) => v.length > 0) ?? `row-${results.length}`;
+    if (!detailUrl && options.detailUrlTemplate) {
+      const id = portalItemId.toLowerCase().replace(/\s+/g, "-");
+      detailUrl = options.detailUrlTemplate.prefix + id + options.detailUrlTemplate.suffix;
+      assertSamePortalTenant(expectedPortalUrl, detailUrl);
+      hasAnyUrl = true;
+    }
     results.push({ portalItemId, detailUrl, fields });
   }
 
@@ -623,6 +635,7 @@ export async function scrapeListPage(
 
           // Navigate back to list page for pagination support
           await page.goBack({ timeout: 15_000 });
+          await options.afterListNavigation?.();
           await waitForListRows(
             page,
             tableSelector,
@@ -635,6 +648,7 @@ export async function scrapeListPage(
       }
     } catch (error) {
       if (error instanceof PortalTenantMismatchError) throw error;
+      if (options.afterListNavigation) throw error;
       logger.warn("[scraper] Click-discovery failed");
     }
   }

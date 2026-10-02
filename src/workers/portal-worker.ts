@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger";
 import { resolveAuth } from "@/lib/playwright/auth";
 import { scrapeListPage, goToNextPage } from "@/lib/playwright/scraper";
 import { closeBrowser } from "@/lib/playwright/browser";
+import { assertBenefitYear, selectBenefitYear } from "@/lib/playwright/benefit-year";
 import {
   startPortalScrapeWorker,
   type PortalScrapeJobData,
@@ -48,7 +49,7 @@ async function processPortalScrape(
 
   const scrapeSession = await db.scrapeSession.findUniqueOrThrow({
     where: { id: sessionId },
-    select: { claimConcurrency: true },
+    select: { claimConcurrency: true, benefitYear: true },
   });
 
   try {
@@ -74,6 +75,8 @@ async function processPortalScrape(
         await page.goto(listUrl, { waitUntil: "networkidle", timeout: 30_000 });
       }
 
+      const benefitYear = await selectBenefitYear(page, listUrl, scrapeSession.benefitYear);
+      await db.scrapeSession.update({ where: { id: sessionId }, data: { benefitYear } });
       // A date filter selects a subset that may live on any page, so we must
       // scrape every page before filtering — the raw-count early-stop below
       // would otherwise skip in-range rows on later pages.
@@ -82,12 +85,33 @@ async function processPortalScrape(
       // Scrape all pages
       const allRows = [];
       let pageNum = 1;
+      let detailUrlTemplate: { prefix: string; suffix: string } | undefined;
 
       do {
         logger.info({ portalId, pageNum }, "[worker] Scraping list page");
+        await assertBenefitYear(page, listUrl, benefitYear);
         const rows = await scrapeListPage(page, listSelectors, {
           expectedListUrl: listUrl,
+          detailUrlTemplate,
+          ...(benefitYear ? {
+            discoverDetailUrls: pageNum === 1,
+            assertListState: async () => { await assertBenefitYear(page, listUrl, benefitYear); },
+            afterListNavigation: async () => { await selectBenefitYear(page, listUrl, benefitYear, true); },
+          } : {}),
         });
+        await assertBenefitYear(page, listUrl, benefitYear);
+        if (benefitYear && !detailUrlTemplate) {
+          const first = rows.find(row => row.detailUrl);
+          if (first?.detailUrl) {
+            const id = first.portalItemId.toLowerCase().replace(/\s+/g, "-");
+            const detailUrl = new URL(first.detailUrl);
+            const index = first.detailUrl.toLowerCase().lastIndexOf(`/${id}`) + 1;
+            if (detailUrl.pathname.split("/").at(-1)?.toLowerCase() === id && index > 0) detailUrlTemplate = {
+              prefix: first.detailUrl.slice(0, index),
+              suffix: first.detailUrl.slice(index + id.length),
+            };
+          }
+        }
         allRows.push(...rows);
         pageNum++;
         // Stop early if we've already collected enough items (skipped when a

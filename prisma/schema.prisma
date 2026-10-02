@@ -411,6 +411,8 @@ model ScrapeSession {
   /** Inclusive "Submitted On" date filter applied at list-scrape time (per run). */
   submittedFrom             DateTime?
   submittedTo               DateTime?
+  /** Exact Benefit Year label read from the portal for this run. */
+  benefitYear               String?
   createdAt                 DateTime            @default(now())
 
   portal              Portal        @relation(fields: [portalId], references: [id], onDelete: Cascade)

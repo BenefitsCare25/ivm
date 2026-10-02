@@ -32,6 +32,7 @@ export default async function PortalDetailPage({
           id: true,
           status: true,
           triggeredBy: true,
+          benefitYear: true,
           itemsFound: true,
           itemsProcessed: true,
           startedAt: true,

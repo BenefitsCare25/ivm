@@ -64,6 +64,7 @@ export default async function SessionItemsPage({
       portalId: true,
       status: true,
       itemsFound: true,
+      benefitYear: true,
       itemsProcessed: true,
       startedAt: true,
       completedAt: true,
@@ -218,6 +219,9 @@ export default async function SessionItemsPage({
                 </>
               )}
             </p>
+            {scrapeSession.benefitYear && (
+              <p className="mt-1 text-sm text-foreground">Benefit year: {scrapeSession.benefitYear}</p>
+            )}
           </div>
         </div>
         {isActive && <AutoRefresh />}
