@@ -9,6 +9,8 @@ import { assertAuthValid } from "@/lib/portal-auth";
 import { findSubmittedKey } from "@/lib/portal-submitted-filter";
 import { createScrapeSessionIfIdle } from "@/lib/portal-scrape-start";
 import type { ListSelectors } from "@/types/portal";
+import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
+import { parsePortalAISelection } from "@/lib/ai/connected-models";
 
 export async function POST(
   req: Request,
@@ -22,7 +24,7 @@ export async function POST(
 
     const portal = await db.portal.findFirst({
       where: { id, userId: session.user.id },
-      select: { id: true, listSelectors: true, credential: {
+      select: { id: true, comparisonModel: true, listSelectors: true, credential: {
         select: { cookieData: true, cookieExpiresAt: true, encryptedUsername: true, encryptedPassword: true },
       }},
     });
@@ -47,6 +49,10 @@ export async function POST(
         );
       }
     }
+
+    // Reject a lost default ChatGPT connection before creating or queuing work.
+    const aiSelection = parsePortalAISelection(portal.comparisonModel);
+    await resolveProviderAndKey(session.user.id, aiSelection?.provider);
 
     const startResult = await createScrapeSessionIfIdle({
       portalId: id,

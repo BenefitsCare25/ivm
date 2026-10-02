@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
 import { env } from "@/lib/env";
-import { ValidationError } from "@/lib/errors";
+import { AppError, ValidationError } from "@/lib/errors";
 import { PROVIDER_MODELS, type AIProvider as ApiKeyProvider, type ModelPreferences } from "@/lib/validations/api-key";
 import type { AIProvider } from "./types";
 import { getCodexAccountStatus } from "./codex-app-server";
@@ -57,6 +57,11 @@ export async function resolveProviderAndKey(
         displayProvider: "ChatGPT Pro (OAuth)",
       };
     }
+    throw new AppError(
+      "ChatGPT connection is unavailable. Processing is blocked until an administrator reconnects it. No API provider was used.",
+      503,
+      "CODEX_NOT_CONNECTED",
+    );
   }
 
   const user = await db.user.findUnique({

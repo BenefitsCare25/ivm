@@ -90,7 +90,7 @@ jobs:
             echo "ERROR: wrong DATABASE_URL (ivm_dev)"
             exit 1
           fi
-          echo "DB: $DB_URL"
+          echo "Database configuration verified"
 
           NEW_LOCK=$(md5sum package-lock.json 2>/dev/null | cut -d" " -f1 || echo changed)
           if [ "$OLD_LOCK" != "$NEW_LOCK" ] || [ ! -d node_modules ]; then

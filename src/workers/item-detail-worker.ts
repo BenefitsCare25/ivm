@@ -34,6 +34,7 @@ import { parsePortalAISelection } from "@/lib/ai/connected-models";
 import { findMatchingTemplate } from "@/lib/comparison-templates";
 import { groupTemplateFields } from "@/lib/comparison-reconciliation";
 import { runWithDrainedTimeout } from "@/lib/async/drained-timeout";
+import { getDetailAuthExpiryMessage } from "./item-detail-auth";
 
 const JOB_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -403,28 +404,11 @@ async function processItemDetailCore(
     // actively re-navigate to a known portal URL and check for a login redirect; if
     // found, reclassify as auth expiry so the circuit breaker + authExpiredAt fire
     // and the user gets an actionable "session expired" banner. Scoped to navigation
-    // errors so ordinary AI/timeout failures don't pay for the extra navigation.
-    let reclassified = false;
-    if (
-      page &&
-      !page.isClosed() &&
-      authCheckUrl &&
-      /ERR_ABORTED|net::ERR|page\.goto|Claim detail page did not load correctly/i.test(errorMessage)
-    ) {
-      try {
-        let loginDetected = await isLoginPage(page);
-        if (!loginDetected) {
-          await page.goto(authCheckUrl, { waitUntil: "domcontentloaded", timeout: 15_000 });
-          loginDetected = await isLoginPage(page);
-        }
-        if (loginDetected) {
-          errorMessage = "Portal session expired — the portal redirected to login. Update cookies on the portal page and retry.";
-          reclassified = true;
-        }
-      } catch {
-        // best-effort probe — never mask the original failure
-      }
-    }
+    // errors, including rejected claim destinations, so ordinary AI failures
+    // don't pay for extra navigation and genuine destination errors stay intact.
+    const authExpiryMessage = await getDetailAuthExpiryMessage(err, page, authCheckUrl);
+    const reclassified = authExpiryMessage !== null;
+    if (authExpiryMessage) errorMessage = authExpiryMessage;
 
     let screenshot: Buffer | undefined;
     try {

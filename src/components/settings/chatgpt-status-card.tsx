@@ -1,29 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Bot, CheckCircle, Loader2, XCircle } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-
-interface ChatGptStatus {
-  configured: boolean;
-  connected: boolean;
-  planType?: string;
-  model: string;
-  reasoningEffort: string;
-  selectedModelAvailable: boolean;
-}
+import { Button } from "@/components/ui/button";
+import { useChatGptStatus } from "./use-chatgpt-status";
 
 export function ChatGptStatusCard() {
-  const [status, setStatus] = useState<ChatGptStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/settings/chatgpt-status", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((data) => setStatus(data))
-      .catch(() => setStatus(null))
-      .finally(() => setLoading(false));
-  }, []);
+  const { status, loading, refresh } = useChatGptStatus();
 
   const healthy = Boolean(status?.configured && status.connected && status.selectedModelAvailable);
 
@@ -36,7 +19,7 @@ export function ChatGptStatusCard() {
             <div>
               <h3 className="text-sm font-medium text-foreground">ChatGPT deployment connection</h3>
               <p className="text-xs text-muted-foreground">
-                Server-managed OAuth; shared by every IVM user and AI processing step
+                Checked every 30 seconds. Default processing stops if this connection is lost.
               </p>
             </div>
           </div>
@@ -46,11 +29,11 @@ export function ChatGptStatusCard() {
             </span>
           ) : healthy ? (
             <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-500">
-              <CheckCircle className="h-3 w-3" /> Connected
+              <CheckCircle className="h-3 w-3" /> Authorized
             </span>
           ) : (
             <span className="flex items-center gap-1 rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-500">
-              <XCircle className="h-3 w-3" /> Needs server setup
+              <XCircle className="h-3 w-3" /> Connection unavailable
             </span>
           )}
         </div>
@@ -65,10 +48,12 @@ export function ChatGptStatusCard() {
           </div>
         )}
         {!loading && !healthy && (
-          <p className="text-xs text-red-400">
-            An administrator must run the one-time ChatGPT login as the IVM service account on the server.
-            Frontend users cannot authorize or replace this connection.
-          </p>
+          <div role="status" className="space-y-2">
+            <p className="text-sm text-status-error">
+              {status?.message ?? "Unable to verify the ChatGPT connection. Default processing is blocked until its status can be checked."}
+            </p>
+            <Button variant="outline" size="sm" onClick={refresh}>Check again</Button>
+          </div>
         )}
       </CardContent>
     </Card>

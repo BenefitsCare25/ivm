@@ -55,7 +55,7 @@ class PortalTenantMismatchError extends Error {
   }
 }
 
-class PortalDetailDestinationMismatchError extends Error {
+export class PortalDetailDestinationMismatchError extends Error {
   constructor(expectedUrl: string, actualUrl: string) {
     const expectedPath = safeUrlPath(expectedUrl);
     const actualPath = safeUrlPath(actualUrl);

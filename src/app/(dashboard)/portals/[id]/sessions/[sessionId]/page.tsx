@@ -39,7 +39,7 @@ export default async function SessionItemsPage({
   const portal = await db.portal.findFirst({
     where: { id, userId: session.user.id },
     select: {
-      id: true, name: true, authMethod: true,
+      id: true, name: true, authMethod: true, comparisonModel: true,
       credential: {
         select: { cookieData: true, cookieExpiresAt: true, encryptedUsername: true, encryptedPassword: true },
       },
@@ -241,6 +241,7 @@ export default async function SessionItemsPage({
         counts={counts}
         sessionStatus={displayStatus}
         authStatus={effectiveAuthStatus}
+        comparisonModel={portal.comparisonModel}
       />
 
       <TrackedItemsTable

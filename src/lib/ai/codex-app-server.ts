@@ -235,14 +235,14 @@ if (env.NODE_ENV !== "production") globalForCodex.__ivmCodexClient = client;
 export async function getCodexAccountStatus(): Promise<CodexAccountStatus> {
   try {
     const response = await client.request<{ account?: { type?: string; planType?: string } }>("account/read", {
-      refreshToken: false,
+      refreshToken: true,
     });
     return {
       connected: response.account?.type === "chatgpt",
       ...(response.account?.planType ? { planType: response.account.planType } : {}),
     };
   } catch (error) {
-    logger.warn({ error }, "[codex] unable to read ChatGPT account status");
+    logger.warn({ err: error }, "[codex] unable to read ChatGPT account status");
     return { connected: false };
   }
 }
@@ -279,7 +279,7 @@ export async function listCodexModels(): Promise<CodexModel[]> {
 export async function runCodexTurn(input: CodexTurnInput): Promise<CodexTurnResult> {
   const account = await getCodexAccountStatus();
   if (!account.connected) {
-    throw new AppError("ChatGPT OAuth is not connected. Connect it in Settings.", 503, "CODEX_NOT_CONNECTED");
+    throw new AppError("ChatGPT connection is unavailable. An administrator must reconnect it on the server. No API fallback was used.", 503, "CODEX_NOT_CONNECTED");
   }
 
   const workingDirectory = await mkdtemp(path.join(tmpdir(), "ivm-codex-"));

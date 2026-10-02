@@ -11,6 +11,8 @@ import { SessionProcessingSummary } from "./session-processing-summary";
 import { summarizePortalSession } from "@/lib/portal-session-summary";
 import type { PortalSessionCounts } from "@/lib/portal-session-summary";
 import type { ProviderGroupSummary, AuthStatus, ScrapeSessionStatus } from "@/types/portal";
+import { useChatGptStatus } from "@/components/settings/use-chatgpt-status";
+import { AIConnectionStatus, getAIConnectionState } from "./ai-connection-status";
 
 interface SessionActionsProps {
   portalId: string;
@@ -18,6 +20,7 @@ interface SessionActionsProps {
   counts: PortalSessionCounts;
   sessionStatus: ScrapeSessionStatus;
   authStatus?: AuthStatus;
+  comparisonModel?: string | null;
 }
 
 export function SessionActions({
@@ -26,8 +29,11 @@ export function SessionActions({
   counts,
   sessionStatus,
   authStatus = "ok",
+  comparisonModel = null,
 }: SessionActionsProps) {
   const router = useRouter();
+  const { status: chatGptStatus, loading: checkingChatGpt, checkedAt, refresh: refreshChatGpt } = useChatGptStatus();
+  const aiConnection = getAIConnectionState(comparisonModel, chatGptStatus, checkingChatGpt);
   const [loading, setLoading] = useState<"failed" | "unprocessed" | "documents" | "skip" | "stop" | "delete" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [unconfiguredTypes, setUnconfiguredTypes] = useState<Array<{
@@ -122,6 +128,7 @@ export function SessionActions({
       else {
         const body = await res.json().catch(() => ({}));
         setActionError(body.error ?? body.message ?? "Failed to queue items — please try again");
+        refreshChatGpt();
       }
     } catch {
       setActionError("Network error — please check your connection");
@@ -165,10 +172,11 @@ export function SessionActions({
     }
   }
 
-  if (summary.total === 0) return null;
-
   return (
     <Card className="p-4 space-y-3">
+      <div className="border-b border-border pb-3">
+        <AIConnectionStatus state={aiConnection} status={chatGptStatus} checkedAt={checkedAt} onRefresh={refreshChatGpt} />
+      </div>
       <SessionProcessingSummary
         counts={counts}
         configureAction={
@@ -260,8 +268,8 @@ export function SessionActions({
               variant="outline"
               size="sm"
               onClick={() => reprocess("failed")}
-              disabled={loading !== null || credentialBad}
-              title={credentialBad ? "Update portal authentication before retrying" : undefined}
+              disabled={loading !== null || credentialBad || aiConnection.blocked}
+              title={credentialBad ? "Update portal authentication before retrying" : aiConnection.blocked ? aiConnection.message : undefined}
             >
               {loading === "failed" ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -292,8 +300,8 @@ export function SessionActions({
             variant="outline"
             size="sm"
             onClick={() => reprocess("documents")}
-            disabled={loading !== null || credentialBad}
-            title={credentialBad ? "Update portal authentication before rechecking documents" : undefined}
+            disabled={loading !== null || credentialBad || aiConnection.blocked}
+            title={credentialBad ? "Update portal authentication before rechecking documents" : aiConnection.blocked ? aiConnection.message : undefined}
           >
             {loading === "documents" ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -310,8 +318,8 @@ export function SessionActions({
             variant="outline"
             size="sm"
             onClick={() => reprocess("unprocessed")}
-            disabled={loading !== null || credentialBad}
-            title={credentialBad ? "Update portal authentication before continuing" : undefined}
+            disabled={loading !== null || credentialBad || aiConnection.blocked}
+            title={credentialBad ? "Update portal authentication before continuing" : aiConnection.blocked ? aiConnection.message : undefined}
           >
             {loading === "unprocessed" ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -345,7 +353,7 @@ export function SessionActions({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => router.refresh()}
+            onClick={() => { router.refresh(); refreshChatGpt(); }}
             className="text-muted-foreground"
           >
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
@@ -380,6 +388,7 @@ export function SessionActions({
             setShowTemplateModal(false);
             setRecompareError(null);
             try {
+              if (aiConnection.blocked) throw new Error(aiConnection.message);
               const res = await fetch(`/api/portals/${portalId}/scrape/${sessionId}/recompare`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -387,10 +396,12 @@ export function SessionActions({
               });
               if (!res.ok) {
                 const body = await res.json().catch(() => ({}));
-                setRecompareError(body.message ?? "Recompare failed — items may need manual refresh");
+                setRecompareError(body.error ?? body.message ?? "Recompare failed — items may need manual refresh");
+                refreshChatGpt();
               }
-            } catch {
-              setRecompareError("Recompare failed — check your API key and try again");
+            } catch (err) {
+              setRecompareError(err instanceof Error ? err.message : "Recompare failed. Check the AI connection and try again.");
+              refreshChatGpt();
             }
             const nextIndex = currentTypeIndex + 1;
             if (nextIndex < unconfiguredTypes.length) {

@@ -31,5 +31,12 @@ export async function GET() {
     reasoningEffort: env.CODEX_REVIEW_EFFORT,
     selectedModelAvailable,
     sharedDeploymentConnection: true,
-  });
+    message: env.AI_PROVIDER !== "codex"
+      ? "ChatGPT is not the deployment default. The default may use a saved API connection."
+      : !account.connected
+        ? "ChatGPT connection lost. Default processing is blocked. An administrator must reconnect ChatGPT on the server; no API fallback will be used."
+        : !selectedModelAvailable
+          ? "The configured ChatGPT model is unavailable. Ask an administrator to update the server model."
+          : null,
+  }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -6,6 +6,8 @@ import { errorResponse, UnauthorizedError, NotFoundError, ValidationError } from
 import { assertAuthValid } from "@/lib/portal-auth";
 import type { TrackedItemStatus } from "@/types/portal";
 import { syncScrapeSessionProgress } from "@/lib/portal-session-lifecycle";
+import { parsePortalAISelection } from "@/lib/ai/connected-models";
+import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 
 /**
  * POST /api/portals/[id]/scrape/[sessionId]/reprocess
@@ -37,7 +39,7 @@ export async function POST(
 
     const portal = await db.portal.findFirst({
       where: { id, userId: session.user.id },
-      select: { id: true, userId: true, authMethod: true, credential: {
+      select: { id: true, userId: true, authMethod: true, comparisonModel: true, credential: {
         select: { cookieData: true, cookieExpiresAt: true, encryptedUsername: true, encryptedPassword: true },
       }},
     });
@@ -61,6 +63,10 @@ export async function POST(
       await syncScrapeSessionProgress(sessionId, "failed-items-skipped");
       return NextResponse.json({ skipped: count });
     }
+
+    // Reject a lost default connection before resetting claims or queueing work.
+    const selection = parsePortalAISelection(portal.comparisonModel);
+    await resolveProviderAndKey(session.user.id, selection?.provider);
 
     const statusFilter: TrackedItemStatus[] =
       type === "failed"      ? ["ERROR"] :

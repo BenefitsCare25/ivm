@@ -23,6 +23,8 @@ import { FieldDiscovery } from "./field-discovery";
 import { ScraperFiltersCard } from "./scraper-filters-card";
 import { ProviderGroupsCard } from "./provider-groups-card";
 import type { ConnectedAIModelOption } from "@/lib/ai/connected-models";
+import { useChatGptStatus } from "@/components/settings/use-chatgpt-status";
+import { AIConnectionBadge, AIConnectionStatus, getAIConnectionState } from "./ai-connection-status";
 
 interface SessionData {
   id: string;
@@ -82,6 +84,9 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
   const [savingLimit, setSavingLimit] = useState(false);
   const [modelValue, setModelValue] = useState<string>(portal.comparisonModel ?? "");
   const [savingModel, setSavingModel] = useState(false);
+  const { status: chatGptStatus, loading: checkingChatGpt, checkedAt, refresh: refreshChatGpt } = useChatGptStatus();
+  const aiConnection = getAIConnectionState(modelValue, chatGptStatus, checkingChatGpt);
+  const defaultAIBlocked = aiConnection.blocked;
   const [showReAuth, setShowReAuth] = useState(false);
   const [authStatus, setAuthStatus] = useState<AuthStatus>("ok");
 
@@ -160,12 +165,14 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || "Failed to trigger scrape");
+        throw new Error(data.error || data.message || "Failed to trigger scrape");
       }
       setScrapeModalOpen(false);
       router.push(`/portals/${portal.id}/sessions/${data.scrapeSessionId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to trigger scrape");
+      setScrapeModalOpen(false);
+      refreshChatGpt();
     } finally {
       setScraping(false);
     }
@@ -212,30 +219,35 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
           <Button variant="outline" size="sm" asChild>
             <Link href="/portals">
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back
             </Link>
           </Button>
-          <div>
+          <div className="min-w-0">
             <h1 className="text-2xl font-semibold text-foreground">{portal.name}</h1>
-            <p className="text-sm text-muted-foreground">{portal.baseUrl}</p>
+            <p className="break-all text-sm text-muted-foreground">{portal.baseUrl}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="w-full sm:w-auto"><AIConnectionBadge state={aiConnection} /></div>
           {shouldRefresh && <AutoRefresh />}
           <Button
             onClick={() => setScrapeModalOpen(true)}
-            disabled={scraping || authBad || shouldRefresh}
+            disabled={scraping || authBad || shouldRefresh || defaultAIBlocked || savingModel || !selectedModelAvailable}
             title={
               authBad
                 ? "Update portal authentication before scraping"
                 : shouldRefresh
                   ? "Wait for the active scrape to finish or stop it first"
-                  : undefined
+                  : defaultAIBlocked
+                    ? aiConnection.message
+                    : !selectedModelAvailable
+                      ? "Choose an available AI model before scraping"
+                      : undefined
             }
           >
             {scraping || shouldRefresh ? (
@@ -249,6 +261,7 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
             variant="outline"
             size="sm"
             onClick={deletePortal}
+            aria-label="Delete portal"
             disabled={deleting}
             className="text-status-error hover:text-status-error"
           >
@@ -256,6 +269,21 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
           </Button>
         </div>
       </div>
+
+      {defaultAIBlocked && !checkingChatGpt && (
+        <div role="status" className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 rounded-lg border border-status-error/20 bg-status-error/10 px-4 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
+          <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-status-error" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-status-error">
+              {aiConnection.label}
+            </p>
+            <p className="mt-1 text-sm text-foreground">
+              {aiConnection.message}
+            </p>
+          </div>
+          <Button variant="outline" size="sm" className="col-start-2 justify-self-start sm:col-start-auto" onClick={refreshChatGpt} disabled={checkingChatGpt}>Check again</Button>
+        </div>
+      )}
 
       {/* Auth expiry / missing warning banner */}
       {authBad && (
@@ -286,7 +314,7 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
       <FormError message={error} />
 
       {/* Status grid */}
-      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid items-start gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
         <Card
           className={
             authBad ? "ring-1 ring-status-error/40" : authWarn ? "ring-1 ring-amber-400/40" : ""
@@ -300,7 +328,7 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
                 }`}
               />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-1 mb-1">
+                <div className="mb-1 flex flex-wrap items-center justify-between gap-1">
                   <p className="text-sm font-medium text-foreground">Authentication</p>
                   <button
                     onClick={() => setShowReAuth(!showReAuth)}
@@ -388,19 +416,20 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="col-span-2">
           <CardContent className="p-4 space-y-2.5">
             <div className="flex items-center gap-2.5">
               <Brain className="h-4 w-4 text-muted-foreground shrink-0" />
-              <p className="text-sm font-medium text-foreground">AI Model</p>
+              <label htmlFor="portal-ai-model" className="text-sm font-medium text-foreground">AI Model</label>
             </div>
             <select
+              id="portal-ai-model"
               value={modelValue}
               onChange={(e) => saveComparisonModel(e.target.value)}
               disabled={savingModel}
-              className="h-7 text-xs w-full rounded border border-border bg-background text-foreground px-2 disabled:opacity-50"
+              className="h-10 text-base sm:h-7 sm:text-xs w-full rounded border border-border bg-background text-foreground px-2 disabled:opacity-50"
             >
-              <option value="">Default (user setting)</option>
+              <option value="">{chatGptStatus?.configured ? "Default (ChatGPT plan)" : "Default (user setting)"}</option>
               {!selectedModelAvailable && (
                 <option value={modelValue} disabled>
                   Unavailable saved model: {modelValue}
@@ -416,6 +445,8 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
                 </optgroup>
               ))}
             </select>
+            <AIConnectionStatus state={aiConnection} status={chatGptStatus} checkedAt={checkedAt} onRefresh={refreshChatGpt} />
+            {!selectedModelAvailable && <p role="status" className="text-sm text-status-error">The saved API model is unavailable. Choose an available model before scraping.</p>}
           </CardContent>
         </Card>
 
