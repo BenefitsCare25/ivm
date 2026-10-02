@@ -241,9 +241,31 @@ production records through a personal ChatGPT Pro plan.
 - **Env**: `/etc/ivm/.env` (never overwritten by deploys)
 
 ```bash
-# Deploy (defaults to Azure VM)
-bash scripts/deploy.sh
+# Deploy committed changes through GitHub Actions
+git push origin main
+
+# Monitor deployment
+gh run list --workflow deploy.yml --limit 1
+
+# Redeploy main without a new commit
+gh workflow run deploy.yml --ref main
 ```
+
+`.github/workflows/deploy.yml` is the production deployment path. GitHub obtains
+an Azure OIDC token, temporarily allows its runner's single IP on SSH port 22,
+checks for active scrape jobs, uploads the committed source, applies migrations,
+builds and restarts IVM, verifies health, and removes the temporary access in an
+`always()` cleanup step. No local SSH deployment or manual IP allowlisting is needed.
+Concurrent deployments are serialized. If active scrape jobs block a deployment,
+rerun it after those jobs finish.
+
+The Azure identity `ivm-github-deploy` trusts only this repository's `main` branch.
+Its custom role is scoped to `RG-IVM/ivm-vm-nsg` and permits reading that network
+security group and managing its security rules. It has no VM command, database,
+or subscription administration permissions. GitHub stores its identifiers in
+`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID`; Azure authentication
+uses no client secret. Existing `VM_HOST` and `VM_SSH_KEY` secrets are used by the
+workflow's VM connection. The office SSH rule is preserved.
 
 ---
 

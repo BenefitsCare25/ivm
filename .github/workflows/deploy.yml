@@ -19,8 +19,13 @@ concurrency:
   group: deploy
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -39,8 +44,7 @@ jobs:
             --exclude=uploads \
             .
 
-      # SSH is allowlisted on the VM. Publish this runner's address so an
-      # administrator can grant scoped access without opening port 22 globally.
+      # GitHub owns the entire deployment, including temporary network access.
       - name: Record deployment runner IP
         run: curl -4 --fail --silent --show-error --retry 3 https://api.ipify.org > /tmp/ivm-deployment-runner-ip.txt
 
@@ -52,8 +56,19 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      - name: Sign in to Azure for deployment network access
+        id: azure-login
+        uses: azure/login@935127ca5bb3c4b02c9c2c10060028383878f33f # v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Allow this deployment runner to reach the VM
+        run: bash scripts/github-deploy-network.sh allow
+
       - name: Setup SSH
-        timeout-minutes: 11
+        timeout-minutes: 3
         env:
           DEPLOY_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
           DEPLOY_HOST: ${{ secrets.VM_HOST }}
@@ -69,12 +84,12 @@ jobs:
             echo "::error::VM_SSH_KEY secret is empty"
             exit 1
           fi
-          for attempt in $(seq 1 60); do
+          for attempt in $(seq 1 15); do
             if ssh-keyscan -T 5 -H "$DEPLOY_HOST" > ~/.ssh/host_scan 2>/dev/null; then
               cat ~/.ssh/host_scan >> ~/.ssh/known_hosts
               exit 0
             fi
-            echo "SSH is not reachable (attempt $attempt/60). Check the VM allowlist for the runner IP in the deployment-network artifact."
+            echo "Waiting for deployment network access (attempt $attempt/15)..."
             sleep 5
           done
           echo "::error::SSH access is unavailable for this deployment runner"
@@ -96,7 +111,7 @@ jobs:
           PROCESSING=$(echo "$RESULT" | cut -d'|' -f2 | tr -d '[:space:]')
           if [ "$RUNNING" != "0" ] || [ "$PROCESSING" != "0" ]; then
             echo "::warning::Active scrape jobs: $RUNNING sessions, $PROCESSING items processing"
-            echo "Deploy blocked — wait for jobs to finish or use workflow_dispatch with force"
+            echo "Deploy blocked — wait for jobs to finish, then rerun this workflow."
             exit 1
           fi
           echo "No active jobs. Safe to deploy."
@@ -168,3 +183,7 @@ jobs:
             echo "::error::Health check failed after 18 attempts. Last: ${STATUS:-empty}"
             exit 1
           fi
+
+      - name: Remove temporary deployment network access
+        if: always() && steps.azure-login.outcome == 'success'
+        run: bash scripts/github-deploy-network.sh revoke
