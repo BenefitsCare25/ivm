@@ -15,7 +15,6 @@ export interface ChatGptStatus {
 export function useChatGptStatus() {
   const [status, setStatus] = useState<ChatGptStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
 
@@ -40,12 +39,10 @@ export function useChatGptStatus() {
         }
         if (!stopped) {
           setStatus(data);
-          setCheckedAt(new Date());
         }
       } catch {
         if (!stopped) {
           setStatus(null);
-          setCheckedAt(null);
         }
       } finally {
         window.clearTimeout(timeout);
@@ -67,5 +64,5 @@ export function useChatGptStatus() {
     };
   }, [revision]);
 
-  return { status, loading, checkedAt, refresh };
+  return { status, loading, refresh };
 }

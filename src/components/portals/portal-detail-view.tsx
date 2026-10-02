@@ -84,7 +84,7 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
   const [savingLimit, setSavingLimit] = useState(false);
   const [modelValue, setModelValue] = useState<string>(portal.comparisonModel ?? "");
   const [savingModel, setSavingModel] = useState(false);
-  const { status: chatGptStatus, loading: checkingChatGpt, checkedAt, refresh: refreshChatGpt } = useChatGptStatus();
+  const { status: chatGptStatus, loading: checkingChatGpt, refresh: refreshChatGpt } = useChatGptStatus();
   const aiConnection = getAIConnectionState(modelValue, chatGptStatus, checkingChatGpt);
   const defaultAIBlocked = aiConnection.blocked;
   const [showReAuth, setShowReAuth] = useState(false);
@@ -445,7 +445,7 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
                 </optgroup>
               ))}
             </select>
-            <AIConnectionStatus state={aiConnection} status={chatGptStatus} checkedAt={checkedAt} onRefresh={refreshChatGpt} />
+            <AIConnectionStatus state={aiConnection} onRefresh={refreshChatGpt} />
             {!selectedModelAvailable && <p role="status" className="text-sm text-status-error">The saved API model is unavailable. Choose an available model before scraping.</p>}
           </CardContent>
         </Card>

@@ -32,7 +32,7 @@ export function SessionActions({
   comparisonModel = null,
 }: SessionActionsProps) {
   const router = useRouter();
-  const { status: chatGptStatus, loading: checkingChatGpt, checkedAt, refresh: refreshChatGpt } = useChatGptStatus();
+  const { status: chatGptStatus, loading: checkingChatGpt, refresh: refreshChatGpt } = useChatGptStatus();
   const aiConnection = getAIConnectionState(comparisonModel, chatGptStatus, checkingChatGpt);
   const [loading, setLoading] = useState<"failed" | "unprocessed" | "documents" | "skip" | "stop" | "delete" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -175,7 +175,7 @@ export function SessionActions({
   return (
     <Card className="p-4 space-y-3">
       <div className="border-b border-border pb-3">
-        <AIConnectionStatus state={aiConnection} status={chatGptStatus} checkedAt={checkedAt} onRefresh={refreshChatGpt} />
+        <AIConnectionStatus state={aiConnection} onRefresh={refreshChatGpt} />
       </div>
       <SessionProcessingSummary
         counts={counts}

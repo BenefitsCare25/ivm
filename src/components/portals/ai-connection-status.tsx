@@ -65,10 +65,8 @@ export function AIConnectionBadge({ state }: { state: AIConnectionState }) {
   );
 }
 
-export function AIConnectionStatus({ state, status, checkedAt, onRefresh }: {
+export function AIConnectionStatus({ state, onRefresh }: {
   state: AIConnectionState;
-  status: ChatGptStatus | null;
-  checkedAt: Date | null;
   onRefresh: () => void;
 }) {
   return (
@@ -82,14 +80,9 @@ export function AIConnectionStatus({ state, status, checkedAt, onRefresh }: {
           </Button>
         )}
       </div>
-      <p className={`text-sm ${state.kind === "error" ? "text-status-error" : "text-muted-foreground"}`}>
-        {state.message}
-      </p>
-      {state.kind !== "api" && (
-        <p className="text-sm text-muted-foreground">
-          {status?.configured && <span className="break-words">Model: {status.model}. </span>}
-          {checkedAt && <>Last checked <time dateTime={checkedAt.toISOString()}>{checkedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>. </>}
-          Rechecks every 30 seconds while this page is visible.
+      {(state.kind === "error" || state.kind === "api") && (
+        <p className={`text-sm ${state.kind === "error" ? "text-status-error" : "text-muted-foreground"}`}>
+          {state.message}
         </p>
       )}
     </div>

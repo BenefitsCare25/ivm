@@ -39,16 +39,42 @@ jobs:
             --exclude=uploads \
             .
 
+      # SSH is allowlisted on the VM. Publish this runner's address so an
+      # administrator can grant scoped access without opening port 22 globally.
+      - name: Record deployment runner IP
+        run: curl -4 --fail --silent --show-error --retry 3 https://api.ipify.org > /tmp/ivm-deployment-runner-ip.txt
+
+      - name: Publish deployment network context
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-network-${{ github.run_id }}
+          path: /tmp/ivm-deployment-runner-ip.txt
+          retention-days: 1
+          if-no-files-found: error
+
       - name: Setup SSH
+        timeout-minutes: 6
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.VM_HOST }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           if [ ! -s ~/.ssh/deploy_key ]; then
             echo "::error::VM_SSH_KEY secret is empty"
             exit 1
           fi
-          ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+          for attempt in $(seq 1 30); do
+            if ssh-keyscan -T 5 -H "$DEPLOY_HOST" > ~/.ssh/host_scan 2>/dev/null; then
+              cat ~/.ssh/host_scan >> ~/.ssh/known_hosts
+              exit 0
+            fi
+            echo "SSH is not reachable (attempt $attempt/30). Check the VM allowlist for the runner IP in the deployment-network artifact."
+            sleep 5
+          done
+          echo "::error::SSH access is unavailable for this deployment runner"
+          exit 1
 
       - name: Check for active scrape jobs
         run: |
