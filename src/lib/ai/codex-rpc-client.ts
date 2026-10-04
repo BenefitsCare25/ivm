@@ -265,6 +265,9 @@ export class CodexRpcClient {
           pending.push(...children.trim().split(/\s+/).filter(Boolean).map(Number));
         } catch { /* process exited while sampling */ }
       }
+      // A close can finish while /proc reads are in flight. Do not republish a
+      // stopped client into the owner's live-resource registry.
+      if (this.closed) return;
       this.options.onResources?.({ pid: this.child.pid, rssBytes, descriptors });
       if (this.options.maxRssBytes && rssBytes > this.options.maxRssBytes) {
         this.fail(new AppError("ChatGPT worker exceeded its memory budget", 503, "CODEX_RESOURCE_LIMIT"));
