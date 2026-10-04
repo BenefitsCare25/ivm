@@ -104,11 +104,40 @@ expired worker heartbeat, and bounded retry policy. A Linux-only case checks
 that a descendant ignoring SIGTERM is killed. GitHub Actions runs this suite
 before deployment. The repeated-claim test uses a fake protocol server: it proves
 application ownership and cleanup, not production model quality or a 24-hour
-live soak. Production verification results must be recorded after deployment.
+live soak.
 
 Local verification on 4 October 2026: production build and TypeScript checks
 passed; AI recovery tests passed (13 tests, with the Linux-only process-tree test
 deferred to CI); eight existing timeout/comparison/model regression tests passed.
+
+Production release `788026b` passed
+[GitHub Actions run 37190088804](https://github.com/BenefitsCare25/ivm/actions/runs/37190088804)
+on 4 October 2026. All 14 Linux tests passed with no skips. The active-job check,
+production build, restart, real worker inference check, HTTP health verification,
+and temporary network-access cleanup succeeded. The first attempt stopped before
+upload because Azure CLI on the runner raised a Python import deadlock involving
+`requests.structures`; the normal workflow rerun succeeded without a local deploy
+or a manually allowlisted runner IP.
+
+The original overloaded Codex processes were gone after deployment. A startup
+sample measured approximately 170 MB combined wrapper/native RSS during the real
+inference probe, compared with the previous worker's approximately 3.7 GiB.
+All 64 saved file records remained present before the canary retry.
+
+Live canary `STM-023531` was requeued through the deployed item-detail queue at
+16:57:51 SGT, reusing its saved document. Extraction and comparison completed at
+16:58:54 SGT (approximately 63 seconds). The saved result used ChatGPT Pro (OAuth),
+had no processing error, and the claim reached `FLAGGED` with `ITEM_COMPLETE`.
+This is a completed review result, not an assertion that the claim is approved.
+
+During the canary, the worker reported approximately 195 MB combined AI-process
+RSS and 56 descriptors. Its owned process stopped immediately after completion.
+At 16:59:47 SGT the worker was ready, `/api/health` returned HTTP 200, the resource
+registry was empty, and an independent `/proc` inspection found no remaining
+Codex app-server processes. All 64 file records remained present. The other 27
+claims were not included in the canary and still carry their original errors;
+the session therefore remains FAILED until those claims are retried or skipped.
+This verification covers one live claim, not a full-batch or 24-hour soak.
 
 Official protocol references:
 
