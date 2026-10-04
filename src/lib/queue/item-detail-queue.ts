@@ -46,6 +46,9 @@ export interface ItemDetailJobData {
   userId: string;
   /** Maximum claims from this scrape session that may run at once. */
   claimConcurrency?: number;
+  /** Durable bounded retries for AI infrastructure failures, separate from capacity deferrals. */
+  aiRecoveryAttempts?: number;
+  resumeDownloaded?: boolean;
 }
 
 export interface ItemDetailJobResult {

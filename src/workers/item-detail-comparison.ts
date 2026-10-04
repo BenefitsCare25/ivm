@@ -31,6 +31,7 @@ import type { DocTypeRecord } from "@/lib/intelligence";
 import type { MatchedTemplate } from "@/lib/comparison-templates";
 import type { TemplateField, BillStatusSignal, TrackedItemStatus } from "@/types/portal";
 import { resolvePreservedComparisonStatus } from "@/lib/comparison-status";
+import { assertCodexClaimHealthy } from "@/lib/ai/codex-app-server";
 
 interface ComparisonInput {
   trackedItemId: string;
@@ -497,6 +498,7 @@ async function saveComparisonResult(
   documentExtractions: ComparisonInput["fileExtractions"],
   failureContext?: { partialFailure: boolean; unreadableFiles: string[] },
 ): Promise<boolean> {
+  assertCodexClaimHealthy();
   const comparisonsJson = toInputJson(comparisonResult.fieldComparisons);
   const diagnosisJson = comparisonResult.diagnosisAssessment
     ? toInputJson(comparisonResult.diagnosisAssessment)

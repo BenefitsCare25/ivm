@@ -32,6 +32,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Verify AI process cleanup and recovery on Linux
+        env:
+          NODE_ENV: test
+          LOG_LEVEL: error
+        run: |
+          npm ci --ignore-scripts
+          npm run test:ai-recovery
+
       - name: Create source tarball
         run: |
           tar czf /tmp/ivm-deploy.tar.gz \

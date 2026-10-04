@@ -1,9 +1,9 @@
-import { Job } from "bullmq";
+import { DelayedError, Job } from "bullmq";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { resolveAuth, isLoginPage } from "@/lib/playwright/auth";
-import { scrapeDetailPage, downloadFiles } from "@/lib/playwright/scraper";
+import { scrapeDetailPage, downloadFiles, type DownloadedFile } from "@/lib/playwright/scraper";
 import { closeBrowser } from "@/lib/playwright/browser";
 import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { fetchDocTypes } from "@/lib/intelligence";
@@ -35,6 +35,10 @@ import { findMatchingTemplate } from "@/lib/comparison-templates";
 import { groupTemplateFields } from "@/lib/comparison-reconciliation";
 import { runWithDrainedTimeout } from "@/lib/async/drained-timeout";
 import { getDetailAuthExpiryMessage } from "./item-detail-auth";
+import { withCodexClaim, assertCodexClaimHealthy } from "@/lib/ai/codex-app-server";
+import { isCodexInfrastructureError } from "@/lib/ai/codex-rpc-client";
+import { markCodexWorkerFailure, readCodexWorkerHealth, startCodexWorkerHealth, stopCodexWorkerHealth } from "@/lib/ai/codex-worker-health";
+import { aiRecoveryDecision } from "@/lib/ai/codex-recovery-policy";
 
 const JOB_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -51,7 +55,7 @@ function isAuthError(message: string): boolean {
 }
 
 function throwIfAborted(signal: AbortSignal): void {
-  if (!signal.aborted) return;
+  if (!signal.aborted) { assertCodexClaimHealthy(); return; }
   throw signal.reason instanceof Error
     ? signal.reason
     : new Error("Item-detail processing was cancelled");
@@ -106,6 +110,7 @@ async function processItemDetailCore(
     const item = await db.trackedItem.findUniqueOrThrow({
       where: { id: trackedItemId },
       include: {
+        files: true,
         scrapeSession: {
           include: { portal: { include: { credential: true } } },
         },
@@ -120,6 +125,14 @@ async function processItemDetailCore(
     if (!item.detailPageUrl) {
       throw new Error("No detail page URL available");
     }
+
+    let effectiveDetailData = (item.detailData as Record<string, string> | null) ?? {};
+    let downloadedFiles: DownloadedFile[] = item.files.map((file) => ({
+      fileName: file.fileName, originalName: file.originalName, mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes, storagePath: file.storagePath,
+    }));
+    const resumeDownloaded = job.data.resumeDownloaded && Object.keys(effectiveDetailData).length > 0 && downloadedFiles.length > 0;
+    if (!resumeDownloaded) {
 
     // ── Auth ────────────────────────────────────────────────────
     await emitItemEvent(trackedItemId, "AUTH_START", {
@@ -179,7 +192,7 @@ async function processItemDetailCore(
         ? false
         : existingCount === 0 || newCount >= existingCount * 0.5;
 
-      let effectiveDetailData = detailData;
+      effectiveDetailData = detailData;
 
       if (useNewData) {
         await db.trackedItem.update({
@@ -227,7 +240,7 @@ async function processItemDetailCore(
       const storagePrefix = `portal-files/${portalId}/${trackedItemId}`;
       await emitItemEvent(trackedItemId, "DOWNLOAD_START", { storagePrefix });
 
-      const downloadedFiles = await downloadFiles(page!, detailSelectors, storagePrefix);
+      downloadedFiles = await downloadFiles(page!, detailSelectors, storagePrefix);
       throwIfAborted(signal);
 
       await emitItemEvent(trackedItemId, "DOWNLOAD_DONE", {
@@ -235,9 +248,9 @@ async function processItemDetailCore(
         files: downloadedFiles.map((f) => ({ name: f.originalName, size: f.sizeBytes })),
       });
 
-      await db.trackedItemFile.deleteMany({ where: { trackedItemId } });
-      if (downloadedFiles.length > 0) {
-        await db.trackedItemFile.createMany({
+      await db.$transaction(async (tx) => {
+        await tx.trackedItemFile.deleteMany({ where: { trackedItemId } });
+        if (downloadedFiles.length > 0) await tx.trackedItemFile.createMany({
           data: downloadedFiles.map((file) => ({
             trackedItemId,
             fileName: file.fileName,
@@ -247,7 +260,8 @@ async function processItemDetailCore(
             storagePath: file.storagePath,
           })),
         });
-      }
+      });
+    }
 
       // ── Resolve AI provider ─────────────────────────────────
       const portalAISelection = parsePortalAISelection(portal.comparisonModel as string | null);
@@ -395,6 +409,13 @@ async function processItemDetailCore(
 
       return { status: "COMPLETED", mismatchCount: comparison.mismatchCount };
   } catch (err) {
+    if (isCodexInfrastructureError(err)) {
+      await db.trackedItem.updateMany({
+        where: { id: trackedItemId, status: "PROCESSING" },
+        data: { status: "DISCOVERED", errorMessage: "Waiting for AI recovery. Downloaded documents are preserved." },
+      });
+      throw err;
+    }
     let errorMessage = err instanceof Error ? err.message : "Unknown error";
     logger.error({ err, trackedItemId }, "[worker] Item detail processing failed");
 
@@ -499,13 +520,44 @@ async function processItemDetail(
   job: Job<ItemDetailJobData>,
   signal: AbortSignal,
 ): Promise<ItemDetailJobResult> {
-  return runWithDrainedTimeout(
-    (timeoutSignal) => processItemDetailCore(job, timeoutSignal),
-    JOB_TIMEOUT_MS,
-    `item:${job.data.trackedItemId}`,
-    signal,
-  );
+  const item = await db.trackedItem.findUnique({
+    where: { id: job.data.trackedItemId },
+    select: { status: true, scrapeSession: { select: { status: true, portal: { select: { comparisonModel: true } } } } },
+  });
+  if (!item || item.scrapeSession.status === "CANCELLED" || !["DISCOVERED", "PROCESSING"].includes(item.status)) {
+    return { status: "COMPLETED", mismatchCount: 0 };
+  }
+  const usesCodex = env.AI_PROVIDER === "codex" && !parsePortalAISelection(item.scrapeSession.portal.comparisonModel)?.provider;
+  if (usesCodex) {
+    const health = await readCodexWorkerHealth();
+    if (health.state !== "ready") {
+      await job.moveToDelayed(Math.max(Date.now() + 15_000, health.retryAt || 0), job.token);
+      throw new DelayedError();
+    }
+  }
+  try {
+    return await runWithDrainedTimeout(
+      (timeoutSignal) => withCodexClaim(timeoutSignal, () => processItemDetailCore(job, timeoutSignal)),
+      JOB_TIMEOUT_MS, `item:${job.data.trackedItemId}`, signal,
+    );
+  } catch (error) {
+    if (!isCodexInfrastructureError(error)) throw error;
+    // withCodexClaim has already stopped the entire process tree before any retry.
+    await markCodexWorkerFailure(error);
+    const { attempts, exhausted, delayMs } = aiRecoveryDecision(job.data.aiRecoveryAttempts);
+    if (exhausted) {
+      await db.trackedItem.updateMany({ where: { id: job.data.trackedItemId, status: "DISCOVERED" },
+        data: { status: "ERROR", errorMessage: "AI processing could not recover after 3 attempts. Documents are preserved; retry after worker recovery." } });
+      await syncScrapeSessionProgress(job.data.scrapeSessionId, "ai-retry-exhausted");
+      return { status: "FAILED", mismatchCount: 0, errorMessage: "AI recovery attempts exhausted" };
+    }
+    await job.updateData({ ...job.data, aiRecoveryAttempts: attempts, resumeDownloaded: true });
+    await job.moveToDelayed(Date.now() + delayMs, job.token);
+    throw new DelayedError();
+  }
 }
+
+startCodexWorkerHealth();
 
 // Startup recovery then start the worker
 recoverStuckItems().catch((err) =>
@@ -547,6 +599,7 @@ if (keepAliveWorker) {
 }
 
 process.on("SIGTERM", async () => {
+  await stopCodexWorkerHealth();
   if (worker) await worker.close();
   if (cleanupWorker) await cleanupWorker.close();
   if (keepAliveWorker) await keepAliveWorker.close();
@@ -555,6 +608,7 @@ process.on("SIGTERM", async () => {
 });
 
 process.on("SIGINT", async () => {
+  await stopCodexWorkerHealth();
   if (worker) await worker.close();
   if (cleanupWorker) await cleanupWorker.close();
   if (keepAliveWorker) await keepAliveWorker.close();

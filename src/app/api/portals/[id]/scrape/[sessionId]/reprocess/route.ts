@@ -8,6 +8,7 @@ import type { TrackedItemStatus } from "@/types/portal";
 import { syncScrapeSessionProgress } from "@/lib/portal-session-lifecycle";
 import { parsePortalAISelection } from "@/lib/ai/connected-models";
 import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
+import { assertCodexWorkerReady } from "@/lib/ai/codex-worker-health";
 
 /**
  * POST /api/portals/[id]/scrape/[sessionId]/reprocess
@@ -66,7 +67,8 @@ export async function POST(
 
     // Reject a lost default connection before resetting claims or queueing work.
     const selection = parsePortalAISelection(portal.comparisonModel);
-    await resolveProviderAndKey(session.user.id, selection?.provider);
+    const provider = await resolveProviderAndKey(session.user.id, selection?.provider);
+    if (provider.provider === "codex") await assertCodexWorkerReady();
 
     const statusFilter: TrackedItemStatus[] =
       type === "failed"      ? ["ERROR"] :

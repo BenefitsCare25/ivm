@@ -21,6 +21,7 @@ const envSchema = z.object({
   CODEX_REVIEW_MODEL: z.string().default("gpt-5.6-terra"),
   CODEX_REVIEW_EFFORT: z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]).default("medium"),
   CODEX_AI_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+  CODEX_MAX_RSS_MB: z.coerce.number().int().min(128).default(1024),
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-6"),
   OPENAI_MODEL: z.string().default("gpt-4.1"),
   GEMINI_MODEL: z.string().default("gemini-2.5-flash"),

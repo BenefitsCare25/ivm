@@ -57,6 +57,9 @@ export async function resolveProviderAndKey(
         displayProvider: "ChatGPT Pro (OAuth)",
       };
     }
+    if (account.errorCode) {
+      throw new AppError("ChatGPT is temporarily unavailable. Waiting for AI recovery.", 503, account.errorCode);
+    }
     throw new AppError(
       "ChatGPT connection is unavailable. Processing is blocked until an administrator reconnects it. No API provider was used.",
       503,

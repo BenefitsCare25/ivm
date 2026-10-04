@@ -33,12 +33,16 @@ export function getAIConnectionState(
     message: "ChatGPT is not the deployment default. Processing uses the saved API settings; provider charges may apply.",
   };
   if (!status.connected) return {
-    kind: "error", label: "ChatGPT connection lost", blocked: true,
-    message: "Default processing is blocked. Ask an administrator to reconnect ChatGPT. No API fallback will be used.",
+    kind: "error", label: status.accountErrorCode ? "Waiting for AI recovery" : "ChatGPT connection lost", blocked: true,
+    message: status.message ?? "Default processing is blocked. Ask an administrator to check the ChatGPT connection.",
   };
   if (!status.selectedModelAvailable) return {
     kind: "error", label: "ChatGPT model unavailable", blocked: true,
     message: "Authorization is valid, but model access could not be verified. Default processing is blocked. Check again or ask an administrator to check the model. No API fallback will be used.",
+  };
+  if (status.workerReady !== true) return {
+    kind: "error", label: status.workerState === "reconnect" ? "ChatGPT reconnection needed" : "Waiting for AI recovery", blocked: true,
+    message: status.message ?? "The claim-processing worker is not ready. Queued claims and downloaded documents are preserved.",
   };
   return {
     kind: "connected", label: "ChatGPT connected", blocked: false,

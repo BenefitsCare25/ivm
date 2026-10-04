@@ -11,6 +11,7 @@ import { createScrapeSessionIfIdle } from "@/lib/portal-scrape-start";
 import type { ListSelectors } from "@/types/portal";
 import { resolveProviderAndKey } from "@/lib/ai/resolve-provider";
 import { parsePortalAISelection } from "@/lib/ai/connected-models";
+import { assertCodexWorkerReady } from "@/lib/ai/codex-worker-health";
 
 export async function POST(
   req: Request,
@@ -52,7 +53,8 @@ export async function POST(
 
     // Reject a lost default ChatGPT connection before creating or queuing work.
     const aiSelection = parsePortalAISelection(portal.comparisonModel);
-    await resolveProviderAndKey(session.user.id, aiSelection?.provider);
+    const provider = await resolveProviderAndKey(session.user.id, aiSelection?.provider);
+    if (provider.provider === "codex") await assertCodexWorkerReady();
 
     const startResult = await createScrapeSessionIfIdle({
       portalId: id,

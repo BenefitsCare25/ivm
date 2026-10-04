@@ -17,6 +17,7 @@
     "db:studio": "prisma studio",
     "lint": "next lint",
     "test:session-capacity": "tsx scripts/test-session-capacity.ts",
+    "test:ai-recovery": "node --import tsx --test src/lib/ai/codex-rpc-client.test.ts src/lib/ai/codex-app-server.test.ts src/lib/ai/codex-recovery-policy.test.ts src/components/portals/ai-connection-status.test.ts",
     "ai:check": "node --env-file=.env scripts/check-chatgpt-oauth.mjs"
   },
   "prisma": {

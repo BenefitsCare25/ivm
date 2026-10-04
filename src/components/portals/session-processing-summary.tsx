@@ -81,7 +81,7 @@ export function SessionProcessingSummary({
             </p>
             {hasFailures && (
               <p className="text-muted-foreground">
-                Failed claims could not be read and were not classified as missing documents. Check portal access, then retry them.
+                Failed claims did not finish processing. Expand a claim to see the cause, check portal and AI status, then retry it.
               </p>
             )}
             {summary.needsDocuments > 0 && (

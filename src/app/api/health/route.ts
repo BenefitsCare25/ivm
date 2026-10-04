@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readCodexWorkerHealth } from "@/lib/ai/codex-worker-health";
 import { db } from "@/lib/db";
 import { getRedisClient } from "@/lib/redis";
 import { env } from "@/lib/env";
@@ -36,6 +37,11 @@ export async function GET(req: Request) {
     }
   } else {
     checks.redis = { status: "not_configured" };
+  }
+
+  if (process.env.AI_PROVIDER === "codex") {
+    const worker = await readCodexWorkerHealth();
+    checks.aiWorker = { status: worker.state === "ready" ? "healthy" : "unhealthy", ...(worker.state !== "ready" ? { error: worker.state } : {}) };
   }
 
   const allHealthy = Object.values(checks).every(

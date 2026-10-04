@@ -271,6 +271,11 @@ workflow's VM connection. The office SSH rule is preserved.
 
 ## Testing
 
+AI worker recovery tests: `npm run test:ai-recovery`. These simulate timeouts,
+crashes, cancellation and repeated claim cleanup without calling a live AI model.
+Production incident and recovery guidance:
+[ChatGPT worker timeouts, 4 October 2026](docs/incidents/2026-10-04-chatgpt-worker-timeouts.md).
+
 See [`docs/superpowers/plans/2026-04-08-ivm-testing-guide.md`](docs/superpowers/plans/2026-04-08-ivm-testing-guide.md) for the full production testing guide covering all 8 phases, database integrity checks, constraint tests, and end-to-end workflow verification.
 
 ---

@@ -17,6 +17,8 @@ import type { AIProvider } from "@/lib/ai/types";
 import type { DownloadedFile } from "@/lib/playwright/scraper";
 import { createHash } from "crypto";
 import { mergeDocumentFields } from "@/lib/document-fields";
+import { isCodexInfrastructureError } from "@/lib/ai/codex-rpc-client";
+import { assertCodexClaimHealthy } from "@/lib/ai/codex-app-server";
 
 export interface ExtractionResult {
   pdfFields: Record<string, string>;
@@ -39,13 +41,18 @@ async function mapWithConcurrency<T, R>(
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
+  let failed = false;
   const runnerCount = Math.min(Math.max(1, limit), items.length || 1);
   const runners = Array.from({ length: runnerCount }, async () => {
     for (let i = next++; i < items.length; i = next++) {
-      results[i] = await fn(items[i]);
+      if (failed) return;
+      try { results[i] = await fn(items[i]); }
+      catch (error) { failed = true; throw error; }
     }
   });
-  await Promise.all(runners);
+  const settled = await Promise.allSettled(runners);
+  const failure = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failure) throw failure.reason;
   return results;
 }
 
@@ -202,6 +209,8 @@ export async function runExtraction({
           fields: extraction.fields.map((f) => ({ label: f.label, value: f.value, rawText: f.rawText })),
         };
       } catch (err) {
+        assertCodexClaimHealthy();
+        if (isCodexInfrastructureError(err)) throw err;
         logger.warn({ err, fileName: file.originalName }, "[worker] Failed to extract from file");
         await emitFailureEvent(trackedItemId, "AI_EXTRACT_FAIL", err);
         return { ok: false, fileName: file.originalName, mimeType: file.mimeType, fileHash };

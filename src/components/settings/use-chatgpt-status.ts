@@ -10,6 +10,9 @@ export interface ChatGptStatus {
   reasoningEffort: string;
   selectedModelAvailable: boolean;
   message: string | null;
+  workerReady?: boolean;
+  workerState?: "starting" | "ready" | "recovering" | "reconnect" | "offline";
+  accountErrorCode?: string | null;
 }
 
 export function useChatGptStatus() {
