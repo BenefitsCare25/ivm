@@ -39,7 +39,7 @@ export async function GET(req: Request) {
     checks.redis = { status: "not_configured" };
   }
 
-  if (process.env.AI_PROVIDER === "codex") {
+  if (env.AI_PROVIDER === "codex") {
     const worker = await readCodexWorkerHealth();
     checks.aiWorker = { status: worker.state === "ready" ? "healthy" : "unhealthy", ...(worker.state !== "ready" ? { error: worker.state } : {}) };
   }
