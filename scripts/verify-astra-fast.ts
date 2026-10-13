@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { writeFile } from "node:fs/promises";
 import { createCanvas } from "canvas";
 import { env } from "../src/lib/env";
 import { listCodexModels, runCodexTurn, withCodexClaim } from "../src/lib/ai/codex-app-server";
@@ -30,11 +31,30 @@ async function main() {
     "THIS IS THE FINAL BILL",
   ].forEach((line, index) => context.fillText(line, 60, 100 + index * 100));
 
+  const image = canvas.toBuffer("image/png");
+  if (process.env.IVM_AI_PREFLIGHT_IMAGE_PATH) {
+    await writeFile(process.env.IVM_AI_PREFLIGHT_IMAGE_PATH, image, { mode: 0o600 });
+  }
+  const glyphPixels = (character: string) => {
+    const glyph = createCanvas(80, 80);
+    const glyphContext = glyph.getContext("2d");
+    glyphContext.font = context.font;
+    glyphContext.fillText(character, 10, 60);
+    return glyphContext.getImageData(0, 0, 80, 80).data;
+  };
+  const letterO = glyphPixels("O");
+  const digitZero = glyphPixels("0");
+  let differingPixels = 0;
+  for (let index = 3; index < letterO.length; index += 4) {
+    if (letterO[index] !== digitZero[index]) differingPixels++;
+  }
+  console.log(JSON.stringify({ fixtureFont: context.font, O0DifferingPixels: differingPixels }));
+
   const startedAt = Date.now();
   const result = await withCodexClaim(AbortSignal.timeout(60_000), () => runCodexTurn({
     systemPrompt: 'Read the supplied synthetic invoice. Return only JSON with invoiceNumber, invoiceDate, totalAmount, and billStatus. Preserve the identifier character-for-character. Use YYYY-MM-DD for the date, a string with two decimals for the amount, and final/interim/unknown for billStatus. Never use tools.',
     userPrompt: "Extract the four requested fields from this synthetic tax invoice.",
-    images: [{ data: canvas.toBuffer("image/png"), mimeType: "image/png" }],
+    images: [{ data: image, mimeType: "image/png" }],
   }));
   assert.deepEqual(JSON.parse(result.text), {
     invoiceNumber: "INV-O0-I1-1001",

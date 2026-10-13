@@ -82,6 +82,7 @@ jobs:
         run: bash scripts/github-deploy-network.sh allow
 
       - name: Setup SSH
+        id: ssh_setup
         timeout-minutes: 3
         env:
           DEPLOY_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
@@ -162,6 +163,7 @@ jobs:
           # Test the requested model with the pinned CLI before changing live settings.
           env CODEX_CLI_PATH=/var/www/ivm/node_modules/.bin/codex \
               CODEX_REVIEW_MODEL=gpt-6-astra CODEX_REVIEW_EFFORT=medium CODEX_SERVICE_TIER=fast \
+              IVM_AI_PREFLIGHT_IMAGE_PATH=/tmp/ivm-astra-preflight.png \
               node --env-file=/etc/ivm/.env node_modules/tsx/dist/cli.mjs scripts/verify-astra-fast.ts
 
           npx prisma generate 2>&1 | tail -1
@@ -206,6 +208,20 @@ jobs:
             echo "::error::Health check failed after 18 attempts. Last: ${STATUS:-empty}"
             exit 1
           fi
+
+      - name: Collect synthetic invoice preflight image
+        if: always() && steps.ssh_setup.outcome == 'success'
+        continue-on-error: true
+        run: scp -i ~/.ssh/deploy_key azureuser@${{ secrets.VM_HOST }}:/tmp/ivm-astra-preflight.png /tmp/ivm-astra-preflight.png
+
+      - name: Save synthetic invoice preflight image
+        if: always() && steps.ssh_setup.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: astra-invoice-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/ivm-astra-preflight.png
+          retention-days: 1
+          if-no-files-found: warn
 
       - name: Remove temporary deployment network access
         if: always() && steps.azure-login.outcome == 'success'
