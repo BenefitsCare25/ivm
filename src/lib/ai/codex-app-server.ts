@@ -179,7 +179,8 @@ export async function runCodexTurn(input: CodexTurnInput): Promise<CodexTurnResu
       if (thread.model !== model) {
         throw new AppError("ChatGPT did not select the configured model", 503, "CODEX_MODEL_UNAVAILABLE");
       }
-      if (serviceTier === "fast" && thread.serviceTier !== "fast") {
+      // The pinned runtime reports Fast mode using its legacy "priority" name.
+      if (serviceTier === "fast" && thread.serviceTier !== "fast" && thread.serviceTier !== "priority") {
         throw new AppError("ChatGPT Fast mode is unavailable", 503, "CODEX_SERVICE_TIER_UNAVAILABLE");
       }
       const output = await scope.client.runTurn(threadId, {
@@ -188,7 +189,7 @@ export async function runCodexTurn(input: CodexTurnInput): Promise<CodexTurnResu
         input: [{ type: "text", text: input.userPrompt, text_elements: [] }, ...images],
       });
       assertCodexClaimHealthy();
-      logger.info({ model: thread.model, reasoningEffort: effort, serviceTier, reasoningMode: "standard" }, "[codex] AI review settings");
+      logger.info({ model: thread.model, reasoningEffort: effort, serviceTier, protocolServiceTier: thread.serviceTier, reasoningMode: "standard" }, "[codex] AI review settings");
       return { ...output, model: thread.model, reasoningEffort: effort, serviceTier };
     } catch (error) {
       scope.failure = error instanceof Error ? error : new AppError("ChatGPT failed", 503, "CODEX_UNAVAILABLE");
