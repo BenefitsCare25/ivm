@@ -150,8 +150,9 @@ npm run dev                   # http://localhost:3000
 | `ENCRYPTION_KEY` | Yes | 64-char hex (32 bytes) for AES-256-GCM |
 | `AI_PROVIDER` | No | Set to `codex` for deployment-wide ChatGPT OAuth (default) |
 | `IVM_CODEX_HOME` | No | Persistent Codex auth/config directory owned by the IVM service account |
-| `CODEX_REVIEW_MODEL` | No | ChatGPT model for every AI stage (default `gpt-5.6-terra`) |
+| `CODEX_REVIEW_MODEL` | No | ChatGPT model for every AI stage (default `gpt-6-astra`) |
 | `CODEX_REVIEW_EFFORT` | No | Reasoning effort (default `medium`) |
+| `CODEX_SERVICE_TIER` | No | Processing speed: `fast` (default) or `default` for Standard |
 | `ANTHROPIC_API_KEY` | No | Fallback AI key if no BYOK configured |
 | `REDIS_URL` | No | Redis for rate limiting + queue (falls back to in-memory) |
 | `SCRAPE_RETENTION_DAYS` | No | Purge terminal scrape sessions and stored documents after this many days (default: 2) |
@@ -214,20 +215,29 @@ Full interactive docs available at `/docs` (Swagger UI) or `/docs/openapi.json` 
 
 ### One-time ChatGPT OAuth setup
 
-Install the Codex CLI on the server, then authenticate once as the same operating-system
+Use the project-pinned Codex CLI, then authenticate once as the same operating-system
 account that runs the IVM web and worker processes. The browser/device authorization is an
 administrator deployment task; IVM frontend users never enter a key or authorize ChatGPT.
 
 ```bash
 sudo install -d -m 700 -o azureuser -g azureuser /var/lib/ivm/codex
-sudo -u azureuser env CODEX_HOME=/var/lib/ivm/codex codex login --device-auth
-sudo -u azureuser env CODEX_HOME=/var/lib/ivm/codex codex login status
+sudo -u azureuser env CODEX_HOME=/var/lib/ivm/codex /var/www/ivm/node_modules/.bin/codex login --device-auth
+sudo -u azureuser env CODEX_HOME=/var/lib/ivm/codex /var/www/ivm/node_modules/.bin/codex login status
 ```
 
 Set `AI_PROVIDER=codex` and `IVM_CODEX_HOME=/var/lib/ivm/codex` in `/etc/ivm/.env`, then
 restart every IVM process. Codex App Server persists and refreshes the ChatGPT OAuth session
 inside that protected directory. Extraction, mapping, page analysis, comparison, and visual
 verification all use the same configured ChatGPT model.
+
+Production uses GPT-6 Astra with medium reasoning and Fast mode through the pinned
+Codex runtime. Reasoning effort and processing speed are separate settings. This
+integration uses standard execution; a ChatGPT Pro subscription does not enable
+the separate Responses API Pro reasoning mode. Fast mode consumes more included
+subscription usage; see [Codex speed and usage](https://learn.chatgpt.com/docs/agent-configuration/speed).
+The deployment tests a synthetic invoice with the requested model and speed before
+applying the one-time AI configuration migration. It preserves a protected backup
+of the previous environment file and retains existing worker readiness checks.
 
 Use a dedicated service account and restrict the auth directory to that account. Claims can
 contain sensitive or medical personal data, so obtain privacy/legal approval and confirm the

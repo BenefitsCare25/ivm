@@ -11,7 +11,14 @@ import type { RasterImage } from "./types";
 export interface CodexAccountStatus { connected: boolean; planType?: string; errorCode?: string }
 export interface CodexModel { id: string; displayName: string; isDefault: boolean; supportedReasoningEfforts: string[]; inputModalities: string[] }
 export interface CodexLoginStart { loginId: string; verificationUrl: string; userCode: string }
-export interface CodexTurnResult { text: string; threadId: string; turnId: string }
+export interface CodexTurnResult {
+  text: string;
+  threadId: string;
+  turnId: string;
+  model: string;
+  reasoningEffort: string;
+  serviceTier: "default" | "fast";
+}
 export interface CodexTurnInput { systemPrompt: string; userPrompt: string; images?: RasterImage[]; model?: string; effort?: string }
 
 const BASE_INSTRUCTIONS = `You are the constrained AI processing engine for IVM document review.
@@ -35,7 +42,7 @@ function createClient(): CodexRpcClient {
   if (env.IVM_CODEX_HOME) environment.CODEX_HOME = env.IVM_CODEX_HOME;
   const client = new CodexRpcClient({
     command: env.CODEX_CLI_PATH || (process.platform === "win32" ? "codex.cmd" : "codex"),
-    args: ["app-server", "--stdio"], environment,
+    args: ["app-server", "--stdio", "-c", "features.fast_mode=true"], environment,
     turnTimeoutMs: env.CODEX_AI_TIMEOUT_MS,
     maxRssBytes: env.CODEX_MAX_RSS_MB * 1024 * 1024,
     onResources: (resources) => liveResources.set(client, resources),
@@ -155,24 +162,34 @@ export async function runCodexTurn(input: CodexTurnInput): Promise<CodexTurnResu
     let threadId: string | undefined;
     try {
       const model = input.model ?? env.CODEX_REVIEW_MODEL;
+      const effort = input.effort ?? env.CODEX_REVIEW_EFFORT;
+      const serviceTier = env.CODEX_SERVICE_TIER;
       const images = await Promise.all((input.images ?? []).map(async (image, index) => {
         const extension = image.mimeType === "image/jpeg" ? "jpg" : image.mimeType === "image/webp" ? "webp" : "png";
         const imagePath = path.join(directory, `input-${index}.${extension}`);
         await writeFile(imagePath, image.data, { mode: 0o600 });
         return { type: "localImage", path: imagePath };
       }));
-      const thread = await scope.client.request<{ thread: { id: string } }>("thread/start", {
+      const thread = await scope.client.request<{ thread: { id: string }; model: string; serviceTier: string | null }>("thread/start", {
         model, cwd: directory, approvalPolicy: "never", sandbox: "read-only", ephemeral: true,
+        serviceTier, config: { model_reasoning_effort: effort },
         serviceName: "ivm_ai_review", baseInstructions: BASE_INSTRUCTIONS, developerInstructions: input.systemPrompt,
       });
       threadId = thread.thread.id;
+      if (thread.model !== model) {
+        throw new AppError("ChatGPT did not select the configured model", 503, "CODEX_MODEL_UNAVAILABLE");
+      }
+      if (serviceTier === "fast" && thread.serviceTier !== "fast") {
+        throw new AppError("ChatGPT Fast mode is unavailable", 503, "CODEX_SERVICE_TIER_UNAVAILABLE");
+      }
       const output = await scope.client.runTurn(threadId, {
-        model, effort: input.effort ?? env.CODEX_REVIEW_EFFORT, approvalPolicy: "never",
+        model, effort, serviceTier, approvalPolicy: "never",
         sandboxPolicy: { type: "readOnly", networkAccess: false },
         input: [{ type: "text", text: input.userPrompt, text_elements: [] }, ...images],
       });
       assertCodexClaimHealthy();
-      return output;
+      logger.info({ model: thread.model, reasoningEffort: effort, serviceTier, reasoningMode: "standard" }, "[codex] AI review settings");
+      return { ...output, model: thread.model, reasoningEffort: effort, serviceTier };
     } catch (error) {
       scope.failure = error instanceof Error ? error : new AppError("ChatGPT failed", 503, "CODEX_UNAVAILABLE");
       await scope.client.close(scope.failure);

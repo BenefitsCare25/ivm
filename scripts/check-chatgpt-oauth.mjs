@@ -5,7 +5,7 @@ const command = process.env.CODEX_CLI_PATH || (process.platform === "win32" ? "c
 const childEnv = { ...process.env };
 if (process.env.IVM_CODEX_HOME) childEnv.CODEX_HOME = process.env.IVM_CODEX_HOME;
 
-const child = spawn(command, ["app-server", "--stdio"], {
+const child = spawn(command, ["app-server", "--stdio", "-c", "features.fast_mode=true"], {
   env: childEnv,
   stdio: ["pipe", "pipe", "pipe"],
   windowsHide: true,
@@ -55,7 +55,7 @@ try {
   const models = account.account?.type === "chatgpt"
     ? (await request("model/list", { limit: 100, includeHidden: false })).data || []
     : [];
-  const selectedModel = process.env.CODEX_REVIEW_MODEL || "gpt-5.6-terra";
+  const selectedModel = process.env.CODEX_REVIEW_MODEL || "gpt-6-astra";
   const result = {
     connected: account.account?.type === "chatgpt",
     planType: account.account?.planType,

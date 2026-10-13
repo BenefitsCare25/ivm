@@ -44,6 +44,7 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm run test:ai-recovery
+          npm run test:ai-config
 
       - name: Create source tarball
         run: |
@@ -158,6 +159,11 @@ jobs:
             echo "Dependencies unchanged, skipping npm ci."
           fi
 
+          # Test the requested model with the pinned CLI before changing live settings.
+          env CODEX_CLI_PATH=/var/www/ivm/node_modules/.bin/codex \
+              CODEX_REVIEW_MODEL=gpt-6-astra CODEX_REVIEW_EFFORT=medium CODEX_SERVICE_TIER=fast \
+              node --env-file=/etc/ivm/.env node_modules/tsx/dist/cli.mjs scripts/verify-astra-fast.ts
+
           npx prisma generate 2>&1 | tail -1
           npx prisma migrate deploy 2>&1 | tail -3
 
@@ -171,7 +177,11 @@ jobs:
 
           rm -f /tmp/ivm-deploy.tar.gz
 
-          pm2 restart ivm ivm-worker ivm-detail-worker
+          sudo node scripts/migrate-astra-fast-env.mjs /etc/ivm/.env /var/www/ivm/node_modules/.bin/codex
+          set -a
+          source /etc/ivm/.env
+          set +a
+          pm2 restart ivm ivm-worker ivm-detail-worker --update-env
           SSHEOF
 
       - name: Verify deployment

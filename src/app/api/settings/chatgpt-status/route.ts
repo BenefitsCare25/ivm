@@ -35,6 +35,8 @@ export async function GET() {
     planType: account.planType,
     model: env.CODEX_REVIEW_MODEL,
     reasoningEffort: env.CODEX_REVIEW_EFFORT,
+    serviceTier: env.CODEX_SERVICE_TIER,
+    reasoningMode: "standard",
     selectedModelAvailable,
     sharedDeploymentConnection: true,
     message: env.AI_PROVIDER !== "codex"

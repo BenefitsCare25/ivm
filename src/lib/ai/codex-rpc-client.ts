@@ -20,7 +20,7 @@ export interface CodexRpcOptions {
 }
 
 export function isCodexInfrastructureError(error: unknown): error is AppError {
-  return error instanceof AppError && /^CODEX_(TIMEOUT|TURN_TIMEOUT|UNAVAILABLE|EXITED|RESOURCE_LIMIT|NOT_CONNECTED|RECOVERING|MODEL_UNAVAILABLE|RPC_ERROR)$/.test(error.code);
+  return error instanceof AppError && /^CODEX_(TIMEOUT|TURN_TIMEOUT|UNAVAILABLE|EXITED|RESOURCE_LIMIT|NOT_CONNECTED|RECOVERING|MODEL_UNAVAILABLE|SERVICE_TIER_UNAVAILABLE|RPC_ERROR)$/.test(error.code);
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

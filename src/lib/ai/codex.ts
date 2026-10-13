@@ -19,7 +19,17 @@ export async function callCodexJson(
   if (!response.text.trim()) {
     throw new AppError("ChatGPT returned no text response", 502, "AI_EMPTY_RESPONSE");
   }
-  return { text: response.text, rawResponse: { threadId: response.threadId, turnId: response.turnId } };
+  return {
+    text: response.text,
+    rawResponse: {
+      threadId: response.threadId,
+      turnId: response.turnId,
+      model: response.model,
+      reasoningEffort: response.reasoningEffort,
+      serviceTier: response.serviceTier,
+      reasoningMode: "standard",
+    },
+  };
 }
 
 export async function extractWithCodex(request: AIExtractionRequest): Promise<AIExtractionResponse> {

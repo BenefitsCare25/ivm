@@ -18,8 +18,9 @@ const envSchema = z.object({
   // No OpenAI API key is used or stored by IVM.
   CODEX_CLI_PATH: z.string().optional(),
   IVM_CODEX_HOME: z.string().optional(),
-  CODEX_REVIEW_MODEL: z.string().default("gpt-5.6-terra"),
+  CODEX_REVIEW_MODEL: z.string().default("gpt-6-astra"),
   CODEX_REVIEW_EFFORT: z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]).default("medium"),
+  CODEX_SERVICE_TIER: z.enum(["default", "fast"]).default("fast"),
   CODEX_AI_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   CODEX_MAX_RSS_MB: z.coerce.number().int().min(128).default(1024),
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-6"),

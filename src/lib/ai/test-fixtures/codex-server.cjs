@@ -13,7 +13,7 @@ if (mode === 'stubborn-descendant') {
 createInterface({ input: process.stdin }).on('line', (line) => {
   const message = JSON.parse(line);
   const { id, method, params } = message;
-  log({ event: method, refreshToken: params?.refreshToken });
+  log({ event: method, refreshToken: params?.refreshToken, model: params?.model, effort: params?.effort, serviceTier: params?.serviceTier });
   if (method === 'initialized') return;
   if (method === 'initialize') {
     if (mode === 'hang-init') return;
@@ -26,7 +26,11 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     return send({ id, result: { account: mode === 'expired' ? null : { type: 'chatgpt', planType: 'test' } } });
   }
   if (method === 'model/list') return send({ id, result: { data: [{ id: 'gpt-5.6-terra' }] } });
-  if (method === 'thread/start') return send({ id, result: { thread: { id: 'thread-' + (++thread) } } });
+  if (method === 'thread/start') return send({ id, result: {
+    thread: { id: 'thread-' + (++thread) },
+    model: mode === 'wrong-model' ? 'gpt-5.6-terra' : params.model,
+    serviceTier: mode === 'fast-unavailable' ? null : params.serviceTier,
+  } });
   if (method === 'turn/start') {
     const turnId = 'turn-' + thread;
     send({ id, result: { turn: { id: turnId } } });

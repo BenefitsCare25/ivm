@@ -8,6 +8,8 @@ export interface ChatGptStatus {
   planType?: string;
   model: string;
   reasoningEffort: string;
+  serviceTier?: "default" | "fast";
+  reasoningMode?: "standard";
   selectedModelAvailable: boolean;
   message: string | null;
   workerReady?: boolean;

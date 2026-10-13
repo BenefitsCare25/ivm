@@ -44,6 +44,8 @@ export function ChatGptStatusCard() {
             <Detail label="Plan" value={status.planType ?? "Not detected"} />
             <Detail label="Model" value={status.model} />
             <Detail label="Reasoning" value={status.reasoningEffort} />
+            <Detail label="Speed" value={status.serviceTier === "fast" ? "Fast" : "Standard"} />
+            <Detail label="Execution" value="Standard" />
             <Detail label="Authorization" value="Server only" />
           </div>
         )}

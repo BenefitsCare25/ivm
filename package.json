@@ -18,6 +18,7 @@
     "lint": "next lint",
     "test:session-capacity": "tsx scripts/test-session-capacity.ts",
     "test:ai-recovery": "node --import tsx --test src/lib/ai/codex-rpc-client.test.ts src/lib/ai/codex-app-server.test.ts src/lib/ai/codex-recovery-policy.test.ts src/components/portals/ai-connection-status.test.ts",
+    "test:ai-config": "node --test scripts/migrate-astra-fast-env.test.mjs",
     "ai:check": "node --env-file=.env scripts/check-chatgpt-oauth.mjs"
   },
   "prisma": {
@@ -33,6 +34,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1026.0",
     "@google/genai": "^2.0.0",
     "@google/generative-ai": "^0.24.1",
+    "@openai/codex": "0.162.1",
     "@prisma/client": "^6.19.3",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-dialog": "^1.1.15",
