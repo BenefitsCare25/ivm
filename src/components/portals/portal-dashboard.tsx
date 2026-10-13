@@ -51,6 +51,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; barColor: st
   SKIPPED:     { label: "Skipped",    color: "text-muted-foreground", barColor: "bg-muted" },
   REQUIRE_DOC: { label: "Need Doc",   color: "text-purple-400",       barColor: "bg-purple-500" },
   PROCESSING:  { label: "Processing", color: "text-blue-400",         barColor: "bg-blue-500" },
+  RETRYING:    { label: "Retry queued", color: "text-status-warning", barColor: "bg-status-warning" },
   DISCOVERED:  { label: "Discovered", color: "text-muted-foreground", barColor: "bg-muted/50" },
 };
 
@@ -201,7 +202,7 @@ export function PortalDashboard() {
   const filteredBreakdown = useMemo((): Record<string, number> => {
     if (!data) return {};
     if (portalFilter === "all") {
-      const { DISCOVERED: _d, PROCESSING: _p, REQUIRE_DOC: _r, ...rest } = data.statusBreakdown;
+      const { DISCOVERED: _d, PROCESSING: _p, RETRYING: _retry, REQUIRE_DOC: _r, ...rest } = data.statusBreakdown;
       return rest;
     }
     const breakdown: Record<string, number> = {};

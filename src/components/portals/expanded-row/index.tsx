@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { AlertCircle, CheckCircle2, XCircle, Loader2, Clock, AlertTriangle, Info } from "lucide-react";
 import { PortalDetailsColumn } from "./portal-details-column";
 import { ComparisonColumn } from "./comparison-column";
 import { DocumentViewerColumn } from "./document-viewer-column";
 import type { TrackedItemStatus, ItemFile, ComparisonSummary, ValidationAlert, ItemEventSummary, ItemEventType } from "@/types/portal";
 import { EVENT_TYPE_LABELS, EVENT_SEVERITY } from "@/types/portal";
+import { getClaimActivity, isActiveClaimStatus } from "@/lib/claim-processing";
 
 interface ExpandedPanelItem {
   id: string;
@@ -15,6 +16,9 @@ interface ExpandedPanelItem {
   detailData: Record<string, string> | null;
   detailUrl: string | null;
   errorMessage: string | null;
+  aiRecoveryAttempts?: number;
+  retryAt?: string | null;
+  processingPaused?: boolean;
   files: ItemFile[];
   comparisonResult: ComparisonSummary | null;
   fwaAlerts: ValidationAlert[];
@@ -34,40 +38,51 @@ function ProcessingFeed({
   sessionId,
   itemId,
   itemStatus,
+  fileCount,
+  paused,
 }: {
   portalId: string;
   sessionId: string;
   itemId: string;
   itemStatus: TrackedItemStatus;
+  fileCount: number;
+  paused?: boolean;
 }) {
   const [events, setEvents] = useState<ItemEventSummary[]>([]);
-  const mountedRef = useRef(true);
-
   useEffect(() => {
-    mountedRef.current = true;
+    let active = true;
+    let fetching = false;
+    const controller = new AbortController();
+    setEvents([]);
 
     async function fetchEvents() {
+      if (fetching) return;
+      fetching = true;
       try {
         const res = await fetch(
-          `/api/portals/${portalId}/scrape/${sessionId}/items/${itemId}/events`
+          `/api/portals/${portalId}/scrape/${sessionId}/items/${itemId}/events`,
+          { signal: controller.signal },
         );
-        if (!res.ok || !mountedRef.current) return;
+        if (!res.ok || !active) return;
         const data = (await res.json()) as { events: ItemEventSummary[] };
-        if (mountedRef.current) setEvents(data.events ?? []);
+        if (active) setEvents(data.events ?? []);
       } catch {
         // non-fatal
+      } finally {
+        fetching = false;
       }
     }
 
     fetchEvents();
-    const isActive = itemStatus === "PROCESSING" || itemStatus === "DISCOVERED";
+    const isActive = !paused && isActiveClaimStatus(itemStatus);
     const interval = isActive ? setInterval(fetchEvents, 3000) : undefined;
 
     return () => {
-      mountedRef.current = false;
+      active = false;
+      controller.abort();
       if (interval) clearInterval(interval);
     };
-  }, [portalId, sessionId, itemId, itemStatus]);
+  }, [portalId, sessionId, itemId, itemStatus, paused]);
 
   if (events.length === 0) {
     return (
@@ -77,16 +92,8 @@ function ProcessingFeed({
 
   // Show last 8 events, latest first
   const recent = [...events].reverse().slice(0, 8);
-  const hasWarning = events.some(
-    (e) => EVENT_SEVERITY[e.eventType as ItemEventType] === "warning"
-  );
-  const hasError = events.some(
-    (e) => EVENT_SEVERITY[e.eventType as ItemEventType] === "error"
-  );
-  const extractDone = events.filter((e) => e.eventType === "AI_EXTRACT_DONE").length;
-  const extractStart = events.filter((e) => e.eventType === "AI_EXTRACT_START").length;
-  const truncated = events.filter((e) => e.eventType === "AI_EXTRACT_TRUNCATED").length;
-  const extractFail = events.filter((e) => e.eventType === "AI_EXTRACT_FAIL").length;
+  const activity = getClaimActivity(events, itemStatus);
+  const { done: extractDone, started: extractStart, truncated, failed: extractFail } = activity;
 
   return (
     <div className="space-y-2">
@@ -96,7 +103,7 @@ function ProcessingFeed({
           <span className="text-muted-foreground">
             Files:{" "}
             <span className="font-medium text-foreground">
-              {extractDone}/{extractStart}
+              {extractDone}/{Math.max(fileCount, extractStart)}
             </span>{" "}
             extracted
           </span>
@@ -113,9 +120,8 @@ function ProcessingFeed({
             {extractFail} failed
           </span>
         )}
-        {!hasWarning && !hasError && extractDone > 0 && (
-          <span className="text-emerald-500 font-medium">All clean so far</span>
-        )}
+        {isActiveClaimStatus(itemStatus) && <span className="text-muted-foreground">Review incomplete</span>}
+        {activity.attempt && <span className="text-muted-foreground">Attempt {activity.attempt} of 3</span>}
       </div>
 
       {/* Recent events list */}
@@ -124,6 +130,7 @@ function ProcessingFeed({
           const severity = EVENT_SEVERITY[evt.eventType as ItemEventType] ?? "info";
           const label = EVENT_TYPE_LABELS[evt.eventType as ItemEventType] ?? evt.eventType;
           const fileName = evt.payload.fileName as string | undefined;
+          const eventMessage = evt.payload.errorMessage as string | undefined;
 
           const Icon =
             severity === "error"
@@ -154,6 +161,7 @@ function ProcessingFeed({
               <Icon className={`h-3 w-3 shrink-0 ${iconCls}`} />
               <span className={`text-xs truncate ${severity === "error" ? "text-red-400" : severity === "warning" ? "text-amber-400" : "text-foreground/80"}`}>
                 {label}
+                {eventMessage && <span className="ml-1">— {eventMessage}</span>}
                 {fileName && (
                   <span className="text-muted-foreground/60 ml-1">— {fileName}</span>
                 )}
@@ -181,6 +189,7 @@ const STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; label: string; 
   ERROR:     { icon: XCircle,      label: "Failed",       cls: "text-status-error" },
   PROCESSING:{ icon: Loader2,      label: "Processing...",cls: "text-blue-500" },
   DISCOVERED:{ icon: Clock,        label: "Pending",      cls: "text-muted-foreground" },
+  RETRYING:  { icon: Clock,        label: "Retry queued", cls: "text-status-warning" },
   SKIPPED:   { icon: Clock,        label: "Skipped",      cls: "text-muted-foreground" },
 };
 
@@ -188,7 +197,7 @@ export function ExpandedPanel({ item, portalId, sessionId, columnCount }: Expand
   const cfg = STATUS_CONFIG[item.status] ?? STATUS_CONFIG.DISCOVERED;
   const StatusIcon = cfg.icon;
 
-  const showLiveFeed = item.status === "PROCESSING" || item.status === "DISCOVERED";
+  const showLiveFeed = isActiveClaimStatus(item.status);
   const showEventHistory = item.status === "ERROR" && !item.comparisonResult;
   const showDetailColumns = !showLiveFeed && !showEventHistory;
 
@@ -197,19 +206,29 @@ export function ExpandedPanel({ item, portalId, sessionId, columnCount }: Expand
       <td colSpan={columnCount} className="p-0">
         <div className="border-t border-border bg-muted/60 px-5 py-4 space-y-4">
 
-          <div className="flex items-start gap-2">
+          <div className="flex flex-wrap items-start gap-2" role="status">
             <StatusIcon
               className={`h-3.5 w-3.5 shrink-0 mt-0.5 ${cfg.cls} ${
                 item.status === "PROCESSING" ? "animate-spin" : ""
               }`}
             />
-            <span className={`text-xs font-medium ${cfg.cls}`}>{cfg.label}</span>
-            {item.status === "ERROR" && item.errorMessage && (
-              <span className="text-xs text-status-error/80 ml-2">
+            <span className={`text-xs font-medium ${cfg.cls}`}>{item.processingPaused && showLiveFeed && item.status !== "PROCESSING" ? "Review paused" : cfg.label}</span>
+            {!item.processingPaused && (item.status === "ERROR" || showLiveFeed) && item.errorMessage && (
+              <span className={`text-xs ${item.status === "ERROR" ? "text-status-error" : "text-foreground"}`}>
                 &mdash; {item.errorMessage}
               </span>
             )}
           </div>
+          {item.processingPaused && showLiveFeed && (
+            <p className="text-xs text-foreground">This session is stopped. No final result yet. Downloaded documents are preserved; use Continue unprocessed to resume.</p>
+          )}
+          {!item.processingPaused && item.status === "RETRYING" && (
+            <p className="text-xs text-foreground">
+              {item.aiRecoveryAttempts ? <>Next attempt: {item.aiRecoveryAttempts + 1} of 3. </> : null}
+              {item.retryAt && <>Eligible after {new Date(item.retryAt).toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}. </>}
+              Waiting for a free worker and AI recovery. No final result yet.
+            </p>
+          )}
 
           {showLiveFeed && (
             <div className="rounded-md border border-border bg-muted/30 px-4 py-3">
@@ -221,6 +240,8 @@ export function ExpandedPanel({ item, portalId, sessionId, columnCount }: Expand
                 sessionId={sessionId}
                 itemId={item.id}
                 itemStatus={item.status}
+                fileCount={item.files.length}
+                paused={item.processingPaused}
               />
             </div>
           )}
@@ -235,6 +256,8 @@ export function ExpandedPanel({ item, portalId, sessionId, columnCount }: Expand
                 sessionId={sessionId}
                 itemId={item.id}
                 itemStatus={item.status}
+                fileCount={item.files.length}
+                paused={item.processingPaused}
               />
             </div>
           )}

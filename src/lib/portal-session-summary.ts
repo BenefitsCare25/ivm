@@ -8,7 +8,7 @@ export function summarizePortalSession(counts: PortalSessionCounts) {
   const failed = counts.ERROR ?? 0;
   const skipped = counts.SKIPPED ?? 0;
   const filtered = counts.FILTERED ?? 0;
-  const active = (counts.PROCESSING ?? 0) + (counts.DISCOVERED ?? 0);
+  const active = (counts.PROCESSING ?? 0) + (counts.DISCOVERED ?? 0) + (counts.RETRYING ?? 0);
   const finished = reviewed + needsDocuments + failed + skipped + filtered;
   const total = finished + active;
 

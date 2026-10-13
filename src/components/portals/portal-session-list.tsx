@@ -39,6 +39,7 @@ const STATUS_ORDER: TrackedItemStatus[] = [
   "FILTERED",
   "ERROR",
   "PROCESSING",
+  "RETRYING",
   "DISCOVERED",
 ];
 
@@ -69,7 +70,7 @@ export function PortalSessionList({ portalId, sessions }: PortalSessionListProps
               const progressPct = total > 0 ? Math.round((processed / total) * 100) : 0;
               let displayStatus = s.status;
               if (summary.total > 0 && s.status !== "CANCELLED") {
-                if ((s.itemStatusCounts.PROCESSING ?? 0) > 0) displayStatus = "RUNNING";
+                if ((s.itemStatusCounts.PROCESSING ?? 0) + (s.itemStatusCounts.RETRYING ?? 0) > 0) displayStatus = "RUNNING";
                 else if ((s.itemStatusCounts.DISCOVERED ?? 0) > 0) displayStatus = "PENDING";
                 else if (summary.failed > 0) displayStatus = "FAILED";
                 else displayStatus = "COMPLETED";

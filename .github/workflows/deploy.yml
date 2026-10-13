@@ -180,6 +180,7 @@ jobs:
           rm -f /tmp/ivm-deploy.tar.gz
 
           sudo node scripts/migrate-astra-fast-env.mjs /etc/ivm/.env /var/www/ivm/node_modules/.bin/codex
+          sudo node scripts/migrate-claim-reliability-env.mjs /etc/ivm/.env
           set -a
           source /etc/ivm/.env
           set +a

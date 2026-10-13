@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getItemDetailQueue } from "@/lib/queue/item-detail-queue";
 import { errorResponse, UnauthorizedError, NotFoundError } from "@/lib/errors";
 import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
+import { ACTIVE_CLAIM_STATUSES } from "@/lib/claim-processing";
 
 export async function GET(
   _req: Request,
@@ -83,9 +84,16 @@ export async function POST(
     });
     if (!scrapeSession) throw new NotFoundError("Session");
 
-    // Remove queued BullMQ jobs for DISCOVERED items in this session
+    // Stop admission before removing jobs; an active claim keeps PROCESSING
+    // until its bounded work drains, so deployment checks cannot mistake it for idle.
+    await db.scrapeSession.update({
+      where: { id: sessionId },
+      data: { status: "CANCELLED", completedAt: new Date() },
+    });
+
+    // Remove queued BullMQ jobs for unfinished items in this session
     const pendingItems = await db.trackedItem.findMany({
-      where: { scrapeSessionId: sessionId, status: { in: ["DISCOVERED", "PROCESSING"] } },
+      where: { scrapeSessionId: sessionId, status: { in: [...ACTIVE_CLAIM_STATUSES] } },
       select: { id: true },
     });
 
@@ -95,18 +103,6 @@ export async function POST(
         pendingItems.map((item) => queue.remove(`item_${item.id}`))
       );
     }
-
-    // Reset any PROCESSING items back to DISCOVERED (they're no longer actively running)
-    await db.trackedItem.updateMany({
-      where: { scrapeSessionId: sessionId, status: "PROCESSING" },
-      data: { status: "DISCOVERED" },
-    });
-
-    // Mark session as CANCELLED
-    await db.scrapeSession.update({
-      where: { id: sessionId },
-      data: { status: "CANCELLED", completedAt: new Date() },
-    });
 
     snapshotPortalDayAsync(id, scrapeSession.createdAt, "cancel");
 

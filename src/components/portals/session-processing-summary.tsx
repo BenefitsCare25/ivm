@@ -20,6 +20,7 @@ export function SessionProcessingSummary({
       : "Processing complete"
     : (counts.PROCESSING ?? 0) > 0
       ? "Processing claims"
+      : (counts.RETRYING ?? 0) > 0 ? "Waiting to retry interrupted claims"
       : `${counts.DISCOVERED ?? 0} claim${counts.DISCOVERED === 1 ? "" : "s"} queued`;
 
   return (
@@ -54,6 +55,7 @@ export function SessionProcessingSummary({
             <span className="flex items-center gap-1">
               <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
               {counts.DISCOVERED ?? 0} queued · {counts.PROCESSING ?? 0} running
+              {(counts.RETRYING ?? 0) > 0 && <> · {counts.RETRYING} awaiting retry</>}
             </span>
           )}
         </div>

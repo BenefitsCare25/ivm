@@ -1,8 +1,9 @@
 import { db } from "@/lib/db";
 import { DEFAULT_CLAIM_CONCURRENCY } from "@/lib/claim-concurrency";
+import { ACTIVE_CLAIM_STATUSES } from "@/lib/claim-processing";
 
 const ACTIVE_SESSION_STATUSES = ["PENDING", "RUNNING"] as const;
-const ACTIVE_ITEM_STATUSES = ["DISCOVERED", "PROCESSING"] as const;
+const ACTIVE_ITEM_STATUSES = ACTIVE_CLAIM_STATUSES;
 
 interface CreateScrapeSessionInput {
   portalId: string;

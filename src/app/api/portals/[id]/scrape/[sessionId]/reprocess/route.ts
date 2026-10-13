@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { enqueueItemDetailBatch } from "@/lib/queue/item-detail-queue";
-import { errorResponse, UnauthorizedError, NotFoundError, ValidationError } from "@/lib/errors";
+import { enqueueItemDetailBatch, getItemDetailQueue } from "@/lib/queue/item-detail-queue";
+import { AppError, errorResponse, UnauthorizedError, NotFoundError, ValidationError } from "@/lib/errors";
 import { assertAuthValid } from "@/lib/portal-auth";
 import type { TrackedItemStatus } from "@/types/portal";
 import { syncScrapeSessionProgress } from "@/lib/portal-session-lifecycle";
@@ -52,7 +52,7 @@ export async function POST(
 
     const scrapeSession = await db.scrapeSession.findFirst({
       where: { id: sessionId, portalId: id },
-      select: { id: true, claimConcurrency: true },
+      select: { id: true, claimConcurrency: true, status: true },
     });
     if (!scrapeSession) throw new NotFoundError("Session");
 
@@ -69,17 +69,23 @@ export async function POST(
     const selection = parsePortalAISelection(portal.comparisonModel);
     const provider = await resolveProviderAndKey(session.user.id, selection?.provider);
     if (provider.provider === "codex") await assertCodexWorkerReady();
+    if (!getItemDetailQueue()) throw new AppError("The processing queue is unavailable. Try again when the worker is ready.", 503, "QUEUE_UNAVAILABLE");
 
     const statusFilter: TrackedItemStatus[] =
       type === "failed"      ? ["ERROR"] :
-      type === "unprocessed" ? ["DISCOVERED"] :
+      type === "unprocessed" ? ["DISCOVERED", "RETRYING"] :
       type === "documents"   ? ["REQUIRE_DOC"] :
-                               ["ERROR", "DISCOVERED"];
+                               ["ERROR", "DISCOVERED", "RETRYING"];
+    // A running retry already owns a stable queue job and its attempt budget.
+    if (scrapeSession.status === "RUNNING" || scrapeSession.status === "PENDING") {
+      const retryIndex = statusFilter.indexOf("RETRYING");
+      if (retryIndex >= 0) statusFilter.splice(retryIndex, 1);
+    }
 
     // Reset to DISCOVERED so the worker treats them as fresh
     await db.trackedItem.updateMany({
       where: { scrapeSessionId: sessionId, status: { in: statusFilter } },
-      data: { status: "DISCOVERED", errorMessage: null },
+      data: { status: "DISCOVERED", errorMessage: null, aiRecoveryAttempts: 0, retryAt: null },
     });
 
     const items = await db.trackedItem.findMany({
@@ -97,6 +103,12 @@ export async function POST(
       },
     });
 
+    // Reactivate before queue admission: an immediately picked-up job must not
+    // see CANCELLED and complete without reviewing the claim.
+    await db.scrapeSession.update({
+      where: { id: sessionId },
+      data: { status: "RUNNING", completedAt: null, authExpiredAt: null },
+    });
     const count = await enqueueItemDetailBatch(
       items.map((item) => ({
         trackedItemId: item.id,
@@ -104,21 +116,11 @@ export async function POST(
         scrapeSessionId: sessionId,
         userId: item.scrapeSession.portal.userId,
         claimConcurrency: scrapeSession.claimConcurrency,
+        resumeDownloaded: type !== "documents",
       })),
       { reprocess: true }
     );
 
-    await db.scrapeSession.update({
-      where: { id: sessionId },
-      data: {
-        authExpiredAt: null,
-      },
-    });
-
-    await db.scrapeSession.updateMany({
-      where: { id: sessionId, status: "CANCELLED" },
-      data: { status: "RUNNING", completedAt: null },
-    });
     await syncScrapeSessionProgress(sessionId, "items-requeued");
 
     return NextResponse.json({ requeued: count });

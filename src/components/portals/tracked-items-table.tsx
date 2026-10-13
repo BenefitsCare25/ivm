@@ -15,9 +15,9 @@ import { ItemStatusBadge, ITEM_STATUS_COLORS } from "./portal-status-badge";
 import { ExpandedPanel } from "./expanded-row";
 import type { TrackedItemStatus, FieldComparison, ItemFile, ComparisonSummary, ValidationAlert } from "@/types/portal";
 import type { AIUsageSummary } from "@/lib/ai/usage";
-import { FWA_LABELS } from "@/types/portal";
+import { FWA_LABELS, TRACKED_ITEM_STATUS_LABELS } from "@/types/portal";
 
-const STATUS_ORDER: TrackedItemStatus[] = ["COMPARED", "FLAGGED", "VERIFIED", "REQUIRE_DOC", "SKIPPED", "FILTERED", "ERROR", "PROCESSING", "DISCOVERED"];
+const STATUS_ORDER: TrackedItemStatus[] = ["COMPARED", "FLAGGED", "VERIFIED", "REQUIRE_DOC", "SKIPPED", "FILTERED", "ERROR", "PROCESSING", "RETRYING", "DISCOVERED"];
 
 interface FwaAlert {
   ruleType: string;
@@ -33,6 +33,9 @@ export interface TableItem {
   detailData: Record<string, string> | null;
   detailUrl: string | null;
   errorMessage: string | null;
+  aiRecoveryAttempts?: number;
+  retryAt?: string | null;
+  processingPaused?: boolean;
   files: ItemFile[];
   comparisonResult: ComparisonSummary | null;
   fwaAlert: FwaAlert | null;
@@ -127,7 +130,7 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
               }`}
             >
               <span>{statusCounts.get(status)}</span>
-              <span className="opacity-70">{status}</span>
+              <span className="opacity-70">{TRACKED_ITEM_STATUS_LABELS[status]}</span>
             </button>
           ))}
         {statusFilter && (
@@ -204,13 +207,13 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
                       <Tooltip content={item.errorMessage} side="right">
                         <div className="inline-flex cursor-help items-center gap-1.5">
                           {statusIcon}
-                          <ItemStatusBadge status={item.status} />
+                          <ItemStatusBadge status={item.status} paused={item.processingPaused} />
                         </div>
                       </Tooltip>
                     ) : (
                       <div className="flex items-center gap-1.5">
                         {statusIcon}
-                        <ItemStatusBadge status={item.status} />
+                        <ItemStatusBadge status={item.status} paused={item.processingPaused} />
                       </div>
                     )}
                   </td>
@@ -303,6 +306,9 @@ export function TrackedItemsTable({ items, portalId, sessionId }: TrackedItemsTa
                       detailData: item.detailData,
                       detailUrl: item.detailUrl,
                       errorMessage: item.errorMessage,
+                      aiRecoveryAttempts: item.aiRecoveryAttempts,
+                      retryAt: item.retryAt,
+                      processingPaused: item.processingPaused,
                       files: item.files,
                       comparisonResult: item.comparisonResult,
                       fwaAlerts: item.fwaAlerts,

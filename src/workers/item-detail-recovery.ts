@@ -7,10 +7,11 @@ import {
   type ItemDetailJobData,
 } from "@/lib/queue/item-detail-queue";
 import { syncScrapeSessionProgress } from "@/lib/portal-session-lifecycle";
+import { QUEUED_CLAIM_STATUSES } from "@/lib/claim-processing";
 
 export async function recoverStuckItems(): Promise<void> {
   const stuck = await db.trackedItem.findMany({
-    where: { status: "PROCESSING" },
+    where: { status: "PROCESSING", scrapeSession: { status: { not: "CANCELLED" } } },
     select: {
       id: true,
       scrapeSession: {
@@ -24,7 +25,10 @@ export async function recoverStuckItems(): Promise<void> {
     },
   });
 
-  if (stuck.length === 0) return;
+  if (stuck.length === 0) {
+    await recoverOrphanedDiscoveredItems();
+    return;
+  }
 
   logger.warn({ count: stuck.length }, "[worker] Recovering stuck PROCESSING items");
 
@@ -52,7 +56,7 @@ export async function recoverStuckItems(): Promise<void> {
     logger.warn({ count: toRetry.length }, "[worker] Re-enqueuing genuinely stuck items");
     await db.trackedItem.updateMany({
       where: { id: { in: toRetry.map((s) => s.id) } },
-      data: { status: "DISCOVERED", errorMessage: null },
+      data: { status: "RETRYING", errorMessage: "Worker restarted before review completed. Automatic retry queued; downloaded documents are preserved." },
     });
     await enqueueItemDetailBatch(
       toRetry.map((item) => ({
@@ -61,11 +65,15 @@ export async function recoverStuckItems(): Promise<void> {
         scrapeSessionId: item.scrapeSession.id,
         userId: item.scrapeSession.portal.userId,
         claimConcurrency: item.scrapeSession.claimConcurrency,
+        resumeDownloaded: true,
       })),
       { reprocess: true }
     );
   }
 
+  for (const sessionId of new Set(stuck.map((item) => item.scrapeSession.id))) {
+    await syncScrapeSessionProgress(sessionId, "worker-restart-recovery");
+  }
   await recoverOrphanedDiscoveredItems();
 }
 
@@ -74,11 +82,13 @@ async function recoverOrphanedDiscoveredItems(): Promise<void> {
   if (!queue) return;
 
   const discovered = await db.trackedItem.findMany({
-    where: { status: "DISCOVERED" },
+    where: { status: { in: [...QUEUED_CLAIM_STATUSES] }, scrapeSession: { status: { not: "CANCELLED" } } },
     // Match the table display order so recovered items process top-to-bottom.
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: {
       id: true,
+      status: true,
+      aiRecoveryAttempts: true,
       scrapeSession: {
         select: {
           id: true,
@@ -113,6 +123,8 @@ async function recoverOrphanedDiscoveredItems(): Promise<void> {
       scrapeSessionId: item.scrapeSession.id,
       userId: item.scrapeSession.portal.userId,
       claimConcurrency: item.scrapeSession.claimConcurrency,
+      aiRecoveryAttempts: item.aiRecoveryAttempts,
+      resumeDownloaded: item.status === "RETRYING" || item.aiRecoveryAttempts > 0,
     })),
     { reprocess: true }
   );
@@ -125,8 +137,8 @@ export async function handleFinalFailure(
   const { trackedItemId } = job.data;
   try {
     const result = await db.trackedItem.updateMany({
-      where: { id: trackedItemId, status: "PROCESSING" },
-      data: { status: "ERROR", errorMessage: err.message },
+      where: { id: trackedItemId, status: { in: ["PROCESSING", "RETRYING"] } },
+      data: { status: "ERROR", errorMessage: err.message, retryAt: null },
     });
 
     if (result.count === 0) return;

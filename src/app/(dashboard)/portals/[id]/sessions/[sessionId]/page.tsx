@@ -88,6 +88,8 @@ export default async function SessionItemsPage({
           createdAt: true,
           updatedAt: true,
           processingStartedAt: true,
+          aiRecoveryAttempts: true,
+          retryAt: true,
           files: {
             select: { id: true, fileName: true, mimeType: true },
             take: 10,
@@ -161,6 +163,7 @@ export default async function SessionItemsPage({
     ERROR: breakdown["ERROR"] ?? 0,
     PROCESSING: breakdown["PROCESSING"] ?? 0,
     DISCOVERED: breakdown["DISCOVERED"] ?? 0,
+    RETRYING: breakdown["RETRYING"] ?? 0,
     SKIPPED: breakdown["SKIPPED"] ?? 0,
     VERIFIED: breakdown["VERIFIED"] ?? 0,
     REQUIRE_DOC: breakdown["REQUIRE_DOC"] ?? 0,
@@ -175,7 +178,7 @@ export default async function SessionItemsPage({
 
   let displayStatus = scrapeSession.status as ScrapeSessionStatus;
   if (summary.total > 0 && scrapeSession.status !== "CANCELLED") {
-    if ((counts.PROCESSING ?? 0) > 0) displayStatus = "RUNNING";
+    if ((counts.PROCESSING ?? 0) + (counts.RETRYING ?? 0) > 0) displayStatus = "RUNNING";
     else if ((counts.DISCOVERED ?? 0) > 0) displayStatus = "PENDING";
     else if (summary.failed > 0) displayStatus = "FAILED";
     else displayStatus = "COMPLETED";
@@ -257,6 +260,9 @@ export default async function SessionItemsPage({
           detailData: (item.detailData as Record<string, string>) ?? null,
           detailUrl: item.detailPageUrl,
           errorMessage: item.errorMessage,
+          aiRecoveryAttempts: item.aiRecoveryAttempts,
+          retryAt: item.retryAt?.toISOString() ?? null,
+          processingPaused: scrapeSession.status === "CANCELLED",
           files: item.files,
           comparisonResult: item.comparisonResult
             ? {

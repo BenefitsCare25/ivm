@@ -84,7 +84,7 @@ export function ItemEventTimeline({
     fetchEvents();
 
     // Auto-refresh while item is still being processed
-    const isActive = itemStatus === "PROCESSING" || itemStatus === "DISCOVERED";
+    const isActive = itemStatus === "PROCESSING" || itemStatus === "DISCOVERED" || itemStatus === "RETRYING";
     const interval = isActive ? setInterval(fetchEvents, 3000) : undefined;
 
     return () => {

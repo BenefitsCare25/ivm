@@ -13,6 +13,7 @@ import {
   DEFAULT_CLAIM_CONCURRENCY,
   MAX_CLAIM_CONCURRENCY,
   getItemDetailWorkerConcurrency,
+  ITEM_DETAIL_JOB_TIMEOUT_MS,
   startItemDetailWorker,
   type ItemDetailJobData,
   type ItemDetailJobResult,
@@ -38,9 +39,8 @@ import { getDetailAuthExpiryMessage } from "./item-detail-auth";
 import { withCodexClaim, assertCodexClaimHealthy } from "@/lib/ai/codex-app-server";
 import { isCodexInfrastructureError } from "@/lib/ai/codex-rpc-client";
 import { markCodexWorkerFailure, readCodexWorkerHealth, startCodexWorkerHealth, stopCodexWorkerHealth } from "@/lib/ai/codex-worker-health";
-import { aiRecoveryDecision } from "@/lib/ai/codex-recovery-policy";
-
-const JOB_TIMEOUT_MS = 10 * 60 * 1000;
+import { scheduleClaimAiRetry } from "@/lib/queue/item-detail-ai-retry";
+import { ACTIVE_CLAIM_STATUSES, QUEUED_CLAIM_STATUSES } from "@/lib/claim-processing";
 
 const AUTH_ERROR_SIGNATURES = [
   "Portal session expired",
@@ -72,7 +72,7 @@ async function processItemDetailCore(
   // produced a terminal result, a failed re-run must not clobber it to ERROR.
   const priorItem = await db.trackedItem.findUnique({
     where: { id: trackedItemId },
-    select: { status: true },
+    select: { status: true, aiRecoveryAttempts: true },
   });
   const priorStatus = priorItem?.status;
 
@@ -83,9 +83,18 @@ async function processItemDetailCore(
     return { status: "FAILED", mismatchCount: 0, errorMessage: "Tracked item no longer exists" };
   }
 
+  const attempts = Math.max(job.data.aiRecoveryAttempts ?? 0, priorItem.aiRecoveryAttempts);
+  if (attempts !== (job.data.aiRecoveryAttempts ?? 0)) {
+    await job.updateData({ ...job.data, aiRecoveryAttempts: attempts, resumeDownloaded: true });
+  }
+
   await db.trackedItem.update({
     where: { id: trackedItemId },
-    data: { status: "PROCESSING", processingStartedAt: new Date() },
+    data: { status: "PROCESSING", processingStartedAt: new Date(), errorMessage: null,
+      aiRecoveryAttempts: job.data.aiRecoveryAttempts ?? 0, retryAt: null },
+  });
+  await emitItemEvent(trackedItemId, "AI_ATTEMPT_START", {
+    attempt: (job.data.aiRecoveryAttempts ?? 0) + 1, maxAttempts: 3, resumeDownloaded: !!job.data.resumeDownloaded,
   });
 
   let context: BrowserContext | undefined;
@@ -412,7 +421,7 @@ async function processItemDetailCore(
     if (isCodexInfrastructureError(err)) {
       await db.trackedItem.updateMany({
         where: { id: trackedItemId, status: "PROCESSING" },
-        data: { status: "DISCOVERED", errorMessage: "Waiting for AI recovery. Downloaded documents are preserved." },
+        data: { status: "RETRYING", errorMessage: "AI review was interrupted. Preparing an automatic retry; downloaded documents are preserved." },
       });
       throw err;
     }
@@ -489,7 +498,7 @@ async function processItemDetailCore(
 
     if (scrapeSessionId && isAuthError(errorMessage)) {
       const { count: cancelled } = await db.trackedItem.updateMany({
-        where: { scrapeSessionId, status: "DISCOVERED" },
+        where: { scrapeSessionId, status: { in: [...QUEUED_CLAIM_STATUSES] } },
         data: { status: "ERROR", errorMessage: "Skipped — portal authentication expired. Update cookies and retry." },
       });
       if (cancelled > 0) {
@@ -524,7 +533,7 @@ async function processItemDetail(
     where: { id: job.data.trackedItemId },
     select: { status: true, scrapeSession: { select: { status: true, portal: { select: { comparisonModel: true } } } } },
   });
-  if (!item || item.scrapeSession.status === "CANCELLED" || !["DISCOVERED", "PROCESSING"].includes(item.status)) {
+  if (!item || item.scrapeSession.status === "CANCELLED" || !ACTIVE_CLAIM_STATUSES.some((status) => status === item.status)) {
     return { status: "COMPLETED", mismatchCount: 0 };
   }
   const usesCodex = env.AI_PROVIDER === "codex" && !parsePortalAISelection(item.scrapeSession.portal.comparisonModel)?.provider;
@@ -538,22 +547,31 @@ async function processItemDetail(
   try {
     return await runWithDrainedTimeout(
       (timeoutSignal) => withCodexClaim(timeoutSignal, () => processItemDetailCore(job, timeoutSignal)),
-      JOB_TIMEOUT_MS, `item:${job.data.trackedItemId}`, signal,
+      ITEM_DETAIL_JOB_TIMEOUT_MS, `item:${job.data.trackedItemId}`, signal,
     );
   } catch (error) {
     if (!isCodexInfrastructureError(error)) throw error;
     // withCodexClaim has already stopped the entire process tree before any retry.
-    await markCodexWorkerFailure(error);
-    const { attempts, exhausted, delayMs } = aiRecoveryDecision(job.data.aiRecoveryAttempts);
-    if (exhausted) {
-      await db.trackedItem.updateMany({ where: { id: job.data.trackedItemId, status: "DISCOVERED" },
-        data: { status: "ERROR", errorMessage: "AI processing could not recover after 3 attempts. Documents are preserved; retry after worker recovery." } });
-      await syncScrapeSessionProgress(job.data.scrapeSessionId, "ai-retry-exhausted");
-      return { status: "FAILED", mismatchCount: 0, errorMessage: "AI recovery attempts exhausted" };
-    }
-    await job.updateData({ ...job.data, aiRecoveryAttempts: attempts, resumeDownloaded: true });
-    await job.moveToDelayed(Date.now() + delayMs, job.token);
-    throw new DelayedError();
+    return scheduleClaimAiRetry(job, error, {
+      timeoutMs: env.CODEX_AI_TIMEOUT_MS,
+      pauseAdmission: markCodexWorkerFailure,
+      save: async (state) => {
+        const { count } = await db.trackedItem.updateMany({
+          where: { id: job.data.trackedItemId, status: { in: ["PROCESSING", "RETRYING"] },
+            scrapeSession: { status: { not: "CANCELLED" } } }, data: state,
+        });
+        if (count === 0) {
+          await db.trackedItem.updateMany({
+            where: { id: job.data.trackedItemId, status: { in: ["PROCESSING", "RETRYING"] }, scrapeSession: { status: "CANCELLED" } },
+            data: { ...state, retryAt: null,
+              errorMessage: state.status === "ERROR" ? state.errorMessage : "AI review was interrupted while this session was stopped. Continue unprocessed claims to resume; downloaded documents are preserved." },
+          });
+        }
+        return count > 0;
+      },
+      emit: (type, payload) => emitItemEvent(job.data.trackedItemId, type, payload),
+      syncProgress: () => syncScrapeSessionProgress(job.data.scrapeSessionId, "ai-retry-state"),
+    });
   }
 }
 

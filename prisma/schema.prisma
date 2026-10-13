@@ -305,6 +305,7 @@ enum ScrapeSessionStatus {
 
 enum TrackedItemStatus {
   DISCOVERED
+  RETRYING
   PROCESSING
   COMPARED
   FLAGGED
@@ -435,6 +436,8 @@ model TrackedItem {
   errorMessage        String?
   /** Set each time processing (re)starts — used to show real processing time, not queue-wait span. */
   processingStartedAt DateTime?
+  aiRecoveryAttempts  Int               @default(0)
+  retryAt             DateTime?
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
 

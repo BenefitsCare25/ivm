@@ -1,7 +1,8 @@
 import { db } from "@/lib/db";
 import { snapshotPortalDayAsync } from "@/lib/portal-metrics";
+import { ACTIVE_CLAIM_STATUSES } from "@/lib/claim-processing";
 
-const ACTIVE_ITEM_STATUSES = new Set(["DISCOVERED", "PROCESSING"]);
+const ACTIVE_ITEM_STATUSES = new Set<string>(ACTIVE_CLAIM_STATUSES);
 
 export async function syncScrapeSessionProgress(
   sessionId: string,

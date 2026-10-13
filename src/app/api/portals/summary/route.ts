@@ -113,7 +113,7 @@ async function buildLiveSummary(userId: string, start: Date, end: Date, period: 
     portalId: string; name: string; baseUrl: string;
     sessions: number; items: number; files: number; statusCounts: Record<string, number>;
   }>();
-  const NOT_PROCESSED = new Set(["DISCOVERED", "PROCESSING", "REQUIRE_DOC"]);
+  const NOT_PROCESSED = new Set(["DISCOVERED", "PROCESSING", "RETRYING", "REQUIRE_DOC"]);
   let totalItems = 0, totalProcessed = 0, totalFiles = 0;
 
   for (const s of sessions) {
@@ -158,6 +158,7 @@ async function buildLiveSummary(userId: string, start: Date, end: Date, period: 
       verified:   p.statusCounts["VERIFIED"]     ?? 0,
       requireDoc: p.statusCounts["REQUIRE_DOC"]  ?? 0,
       processing: p.statusCounts["PROCESSING"]   ?? 0,
+      retrying:   p.statusCounts["RETRYING"]     ?? 0,
       discovered: p.statusCounts["DISCOVERED"]   ?? 0,
     })).sort((a, b) => b.items - a.items),
   };
@@ -235,7 +236,7 @@ async function buildSnapshotSummary(
 
 const PORTAL_NUMERIC_FIELDS = [
   "sessions", "items", "files", "compared", "flagged",
-  "errors", "skipped", "verified", "requireDoc", "processing", "discovered",
+  "errors", "skipped", "verified", "requireDoc", "processing", "retrying", "discovered",
 ] as const;
 
 type PortalRow = { portalId: string; name: string; baseUrl: string } & Record<
@@ -283,6 +284,7 @@ function mergeSummaries(snapshot: LooseSummary, live: LooseSummary, period: stri
       VERIFIED:    sum((p) => p.verified),
       REQUIRE_DOC: sum((p) => p.requireDoc),
       PROCESSING:  sum((p) => p.processing),
+      RETRYING:    sum((p) => p.retrying ?? 0),
       DISCOVERED:  sum((p) => p.discovered),
     }).filter(([, v]) => v > 0)
   );

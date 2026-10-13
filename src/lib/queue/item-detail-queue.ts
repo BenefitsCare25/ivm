@@ -20,11 +20,12 @@ export { DEFAULT_CLAIM_CONCURRENCY, MAX_CLAIM_CONCURRENCY } from "@/lib/claim-co
 
 const QUEUE_NAME = "item-detail";
 
-// Max time a single item job may run before being timed out by BullMQ stall detection.
-// Must be longer than the slowest possible job (Playwright + AI extraction + AI comparison).
-const LOCK_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+// The claim deadline covers scraping, extraction and comparison. The lock has
+// cleanup headroom and is renewed while the claim drains.
+export const ITEM_DETAIL_JOB_TIMEOUT_MS = Math.max(env.ITEM_DETAIL_JOB_TIMEOUT_MS, env.CODEX_AI_TIMEOUT_MS + 60_000);
+const LOCK_DURATION_MS = ITEM_DETAIL_JOB_TIMEOUT_MS + 60_000;
 // Capacity leases are heartbeated while a job runs. A crashed worker therefore
-// blocks its session for at most one minute instead of the full ten-minute job
+// blocks its session for at most one minute instead of the full claim-job
 // lock, while healthy long-running jobs retain their slots indefinitely.
 const SESSION_LOCK_TTL_MS = 60_000;
 const SESSION_LOCK_RENEW_INTERVAL_MS = 20_000;

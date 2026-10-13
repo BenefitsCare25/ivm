@@ -18,6 +18,7 @@ const SCRAPE_VARIANTS: Record<ScrapeSessionStatus, "success" | "warning" | "erro
 
 const ITEM_VARIANTS: Record<TrackedItemStatus, "success" | "warning" | "error" | "info" | "secondary"> = {
   DISCOVERED: "secondary",
+  RETRYING: "warning",
   PROCESSING: "info",
   COMPARED: "success",
   FLAGGED: "warning",
@@ -40,8 +41,9 @@ export function ScrapeStatusBadge({ status }: { status: ScrapeSessionStatus }) {
   return <Badge variant={SCRAPE_VARIANTS[status]}>{SCRAPE_STATUS_LABELS[status]}</Badge>;
 }
 
-export function ItemStatusBadge({ status }: { status: TrackedItemStatus }) {
-  return <Badge variant={ITEM_VARIANTS[status]}>{TRACKED_ITEM_STATUS_LABELS[status]}</Badge>;
+export function ItemStatusBadge({ status, paused }: { status: TrackedItemStatus; paused?: boolean }) {
+  const label = paused && (status === "RETRYING" || status === "DISCOVERED") ? "Review paused" : TRACKED_ITEM_STATUS_LABELS[status];
+  return <Badge variant={ITEM_VARIANTS[status]}>{label}</Badge>;
 }
 
 export function ComparisonStatusBadge({ status }: { status: ComparisonFieldStatus }) {
@@ -55,6 +57,7 @@ export const ITEM_STATUS_COLORS: Record<string, string> = {
   ERROR:        "bg-status-error/15 text-status-error",
   PROCESSING:   "bg-status-info/15 text-status-info",
   DISCOVERED:   "bg-muted text-muted-foreground",
+  RETRYING:     "bg-status-warning/15 text-status-warning",
   SKIPPED:      "bg-muted/60 text-muted-foreground/60",
   REQUIRE_DOC:  "bg-status-warning/15 text-status-warning",
   FILTERED:     "bg-muted/60 text-muted-foreground/60",

@@ -240,7 +240,7 @@ export function SessionActions({
       )}
 
       {/* Auth warning — shown when portal auth is expired or missing */}
-      {authBad && ((counts.ERROR ?? 0) > 0 || (counts.DISCOVERED ?? 0) > 0) && (
+      {authBad && ((counts.ERROR ?? 0) > 0 || (counts.DISCOVERED ?? 0) + (counts.RETRYING ?? 0) > 0) && (
         <div className="flex items-center gap-2 rounded-md bg-status-error/10 px-3 py-2 text-xs text-status-error">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span className="flex-1">
@@ -313,7 +313,7 @@ export function SessionActions({
         )}
 
         {/* Continue unprocessed — show when DISCOVERED > 0 and session isn't actively running */}
-        {(counts.DISCOVERED ?? 0) > 0 && sessionStatus !== "RUNNING" && (
+        {(counts.DISCOVERED ?? 0) + (counts.RETRYING ?? 0) > 0 && sessionStatus !== "RUNNING" && (
           <Button
             variant="outline"
             size="sm"
@@ -326,7 +326,7 @@ export function SessionActions({
             ) : (
               <Play className="mr-1.5 h-3.5 w-3.5" />
             )}
-            Continue {counts.DISCOVERED} unprocessed
+            Continue {(counts.DISCOVERED ?? 0) + (counts.RETRYING ?? 0)} unprocessed
           </Button>
         )}
 

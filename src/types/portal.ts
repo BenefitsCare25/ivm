@@ -27,7 +27,7 @@ export const SCRAPE_SESSION_STATUSES = [
 export type ScrapeSessionStatus = (typeof SCRAPE_SESSION_STATUSES)[number];
 
 export const TRACKED_ITEM_STATUSES = [
-  "DISCOVERED", "PROCESSING", "COMPARED", "FLAGGED", "VERIFIED", "ERROR", "SKIPPED", "REQUIRE_DOC", "FILTERED",
+  "DISCOVERED", "RETRYING", "PROCESSING", "COMPARED", "FLAGGED", "VERIFIED", "ERROR", "SKIPPED", "REQUIRE_DOC", "FILTERED",
 ] as const;
 export type TrackedItemStatus = (typeof TRACKED_ITEM_STATUSES)[number];
 
@@ -495,6 +495,7 @@ export const SCRAPE_STATUS_LABELS: Record<ScrapeSessionStatus, string> = {
 
 export const TRACKED_ITEM_STATUS_LABELS: Record<TrackedItemStatus, string> = {
   DISCOVERED: "Discovered",
+  RETRYING: "Retry queued",
   PROCESSING: "Processing",
   COMPARED: "Compared",
   FLAGGED: "Flagged",
@@ -530,6 +531,9 @@ export const ITEM_EVENT_TYPES = [
   "DOWNLOAD_DONE",
   "DOWNLOAD_FAIL",
   "AI_EXTRACT_START",
+  "AI_ATTEMPT_START",
+  "AI_RETRY_SCHEDULED",
+  "AI_RETRY_EXHAUSTED",
   "AI_EXTRACT_DONE",
   "AI_EXTRACT_FAIL",
   "AI_EXTRACT_TRUNCATED",
@@ -566,6 +570,9 @@ export const EVENT_TYPE_LABELS: Record<ItemEventType, string> = {
   DOWNLOAD_DONE: "Files Downloaded",
   DOWNLOAD_FAIL: "Download Failed",
   AI_EXTRACT_START: "AI Extracting",
+  AI_ATTEMPT_START: "AI review attempt started",
+  AI_RETRY_SCHEDULED: "Automatic retry queued",
+  AI_RETRY_EXHAUSTED: "Automatic retries exhausted",
   AI_EXTRACT_DONE: "AI Extraction Done",
   AI_EXTRACT_FAIL: "AI Extraction Failed",
   AI_EXTRACT_TRUNCATED: "Extraction Truncated",
@@ -592,6 +599,9 @@ export const EVENT_SEVERITY: Record<ItemEventType, "info" | "success" | "error" 
   DOWNLOAD_DONE: "success",
   DOWNLOAD_FAIL: "error",
   AI_EXTRACT_START: "info",
+  AI_ATTEMPT_START: "info",
+  AI_RETRY_SCHEDULED: "warning",
+  AI_RETRY_EXHAUSTED: "error",
   AI_EXTRACT_DONE: "success",
   AI_EXTRACT_FAIL: "error",
   AI_EXTRACT_TRUNCATED: "warning",

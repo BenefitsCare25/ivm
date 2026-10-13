@@ -201,6 +201,7 @@ export function PortalDetailView({ portal }: { portal: PortalData }) {
     if (s.status !== "COMPLETED" && s.status !== "FAILED") return false;
     return (
       (s.itemStatusCounts["PROCESSING"] ?? 0) > 0 ||
+      (s.itemStatusCounts["RETRYING"] ?? 0) > 0 ||
       (s.itemStatusCounts["DISCOVERED"] ?? 0) > 0
     );
   });
